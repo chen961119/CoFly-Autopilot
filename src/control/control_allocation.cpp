@@ -1,8 +1,8 @@
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include "control/control_allocation.h"
 #include "control/control_state.h"
 #include "sensors/sensor_processing.h"
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 
 using namespace Eigen;
 

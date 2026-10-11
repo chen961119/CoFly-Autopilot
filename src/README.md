@@ -8,7 +8,10 @@
 | `control` | 控制模式、混控、控制分配及运行状态 |
 | `sensors` | 传感器采样、校准、滤波与姿态估计 |
 | `actuators` | 执行器输出与 PWM 限制 |
-| `communication` | 串口映射、遥控、级联、USB 地面站与遥测 |
+| `interaircraft_comm` | 机间命令、状态接收与发送、级联转发 |
+| `ground_station_service` | USB 地面站设备服务与数据接口 |
+| `radio_comm` | 遥控接收 |
+| `telemetry` | 遥测输出 |
 | `system` | 时钟、飞行锁定与设备重启 |
 | `diagnostics` | 诊断输出与 Teensy 固件调试 |
 | `interface` | 按键与 OLED 人机界面 |

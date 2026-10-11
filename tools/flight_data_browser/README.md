@@ -69,11 +69,7 @@ print(log.sample_rate, fft.peak_frequency)
 
 ## 验证
 
-在仓库根目录执行：
-
-```powershell
-& ./tools/flight_data_browser/.venv/Scripts/python.exe -m unittest discover -s tools/flight_data_browser -p 'test_*.py' -v
-```
+按项目要求，测试脚本在验证后删除；下面保留此前验证的覆盖范围及结果记录。
 
 数值测试覆盖时间单位、重复/缺失时间、uint32 回绕与复位、坏行与分块边界列数、重名表头、模式缺失值、正弦幅值、FFT 抖动/缺口、窄脉冲显示和原始值导出。界面集成测试在隐藏窗口验证后台多文件加载、变换、搜索、FFT、子图和空视窗。
 

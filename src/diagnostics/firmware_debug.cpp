@@ -1,7 +1,7 @@
 #include "diagnostics/firmware_debug.h"
 
 #if defined(COFLY_TEENSY_DEBUG)
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include <TeensyDebug.h>
 #endif
 

@@ -62,10 +62,4 @@ CRC32=xxxxxxxx
 
 ## 构建与验证
 
-在本目录执行 `./build.ps1`，生成 `dist/CoFlyGroundStation.exe`。电脑测试使用本机 socket 模拟飞控：
-
-```powershell
-& ./tools/ground_station/.venv/Scripts/python.exe -m unittest discover -s tools/ground_station -p 'test_*.py' -v
-```
-
-自动测试使用本机 socket 模拟飞控，覆盖 V8 文本文件与 CRC、USB 参数导入和失败处理。[旧版板上记录](BOARD_TEST_REPORT.md) 不代表本版已完成真机验证。
+在本目录执行 `./build.ps1`，生成 `dist/CoFlyGroundStation.exe`。已通过的自动测试使用本机 socket 模拟飞控，覆盖 V8 文本文件与 CRC、USB 参数导入和失败处理。按项目要求，测试脚本在验证后删除。[旧版板上记录](BOARD_TEST_REPORT.md) 不代表本版已完成真机验证。

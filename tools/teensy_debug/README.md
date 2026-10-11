@@ -35,4 +35,4 @@ TeensyDebug 使用软件断点，单步和部分指令支持存在限制。此�
 - Microsoft C/C++ 调试适配器命中 `prepareActuatorCommands()` 的源码断点，监视读取 `pwm_channel3_trim = 29`。
 - 调试固件丢弃普通 USB 输出并停用 USB 参数通信；SD 参数加载和 SD 日志逻辑仍按原流程运行。
 
-以上为旧单串口版本的记录，不代表本版双串口实现已完成板上验证。本版保留普通 USB 输出与地面站协议。端口选择测试可运行 `python -m unittest discover -s tools/teensy_debug -p 'test_*.py' -v`。
+以上为旧单串口版本的记录，不代表本版双串口实现已完成板上验证。本版保留普通 USB 输出与地面站协议。端口选择的 6 项主机测试已通过；按项目要求，测试脚本在验证后删除。

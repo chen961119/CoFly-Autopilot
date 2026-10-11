@@ -1,5 +1,5 @@
 #include "config/aircraft_config.h"
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include "actuators/actuator_output.h"
 #include "control/control_modes.h"
 #include "diagnostics/debug_print.h"
@@ -7,7 +7,7 @@
 #include "system/flight_lock.h"
 #include "actuators/actuator_pwm_limits.h"
 #include "control/control_state.h"
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include <Servo.h>
 
 // A* 为本机最终物理 PWM；B～G 的旧 *_PWM 名称表示待发送控制偏移（μs），不含中位/rev/trim。

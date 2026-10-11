@@ -4,7 +4,7 @@
 
 CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系统）面向多体飞行器、大展弦比柔性飞行器及编队。当前固件实现 A–G 多体级联节点的控制与通信，运行平台为 Teensy 4.1；通用编队控制仍属于扩展方向。
 
-七机物理顺序为 `F-D-B-A-C-E-G`。A 主节点接收遥控命令，计算组合控制并向左右链路分发；从节点接收上级命令，应用本机控制、执行器方向与安装偏置，并逐级回传状态。身份与机数通过地面站参数配置，控制宏见 [flight_config.h](../src/config/flight_config.h)，串口映射见 [serial_ports.h](../src/communication/serial_ports.h)。
+七机物理顺序为 `F-D-B-A-C-E-G`。A 主节点接收遥控命令，计算组合控制并向左右链路分发；从节点接收上级命令，应用本机控制、执行器方向与安装偏置，并逐级回传状态。身份与机数通过地面站参数配置，控制宏见 [flight_config.h](../src/config/flight_config.h)，串口映射见 [serial_config.h](../src/config/serial_config.h)。
 
 七机分支采用构型相关的固定系数混控。`control_allocation.cpp` 保留五体动力学矩阵和普通 SVD 伪逆；`main.cpp` 中初始化与周期计算调用目前均已注释。该模块不等于已接入七机输出的动态分配器，也没有实现参考论文的构型 INDI / IWPI。当前 `TESTINDI` 用于本机俯仰升降舵控制。
 
@@ -17,17 +17,19 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 | `src/config/aircraft_config.cpp` | 运行时节点身份与组合数量 |
 | `src/system/flight_clock.cpp` | 时间更新和循环限频 |
 | `src/sensors/sensor_processing.cpp`、`src/sensors/filters.cpp` | 传感器采样、校准、滤波与姿态估计 |
-| `src/communication/radio_comm.cpp` | 遥控接收接口 |
+| `src/radio_comm/radio_comm.cpp` | 遥控接收接口 |
 | `src/control/control_modes.cpp` | 期望状态、飞行模式、姿态/构型控制和混控 |
 | `src/parameters/control_parameters.cpp`、`src/parameters/control_parameters.h` | 可调控制参数与执行器方向/trim 的变量及默认值 |
 | `src/parameters/parameter_registry.cpp` | 全部参数的名称、绑定、范围、存储位置及生效方式注册 |
 | `src/control/control_allocation.cpp` | 保留的五体动力学与伪逆分配模型 |
 | `src/actuators/actuator_output.cpp`、`src/system/flight_lock.cpp` | PWM 转换、本机输出准备、锁定和最终限幅 |
-| `src/communication/interaircraft_comm.cpp` | 主从级联命令、状态汇总和转发 |
+| `src/interaircraft_comm/interaircraft_comm.cpp` | 上级命令与左右状态接收、解析，下级命令准备、下发、转发及上行状态回传 |
+| `src/interaircraft_comm/interaircraft_common.cpp` | 机间串口初始化与相对角查询 |
+| `src/ground_station_service/ground_station_service.cpp` | USB 地面站设备服务 |
 | `src/parameters/parameter_service.cpp` | 参数初始化、RAM 修改、保存调度、校准提交及 USB 参数协议 |
 | `src/parameters/parameter_sd.cpp`、`src/parameters/parameter_eeprom.cpp` | SD 文件与 EEPROM 主备快照的保存、校验及恢复 |
 | `src/parameters/parameter_record.cpp`、`src/parameters/parameter_text.cpp` | 两种介质共用的文本记录编解码与 CRC32 容器 |
-| `src/logging/logger.cpp`、`src/communication/telemetry.cpp` | SD 日志与遥测 |
+| `src/logging/logger.cpp`、`src/telemetry/telemetry.cpp` | SD 日志与遥测 |
 | `src/interface/human_interface.cpp`、`src/diagnostics/debug_print.cpp` | 按键、OLED 与诊断输出 |
 | `src/diagnostics/firmware_debug.cpp` | 板上断点调试集成 |
 | `src/control/control_state.h` | 跨模块控制状态声明 |
@@ -59,6 +61,6 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 
 项目名称、参数软件、USB 响应前缀 `@COFLY`、文本存储标识 `COFLY_PARAMS_V8` 及调试宏 `COFLY_TEENSY_DEBUG` 已统一使用 CoFly。参数存储仅支持当前共享文本 V8，不导入旧格式。仅有旧格式数据时，更新后通过地面站重新设置参数并完成校准。
 
-修改身份与机数使用地面站的 `aircraft_id` / `aircraft_count` 参数；参数名称、范围、存储介质和生效方式在 `src/parameters/parameter_registry.cpp` 调整。接线修改使用 `serial_ports.h` 和具体传感器/执行器模块；控制律与混控修改使用 `control_modes.cpp`；级联协议修改使用 `interaircraft_comm.cpp`。50 字节级联命令中的 PWM 旧字段名实际承载控制偏移，所有节点须使用一致的字段语义。
+修改身份与机数使用地面站的 `aircraft_id` / `aircraft_count` 参数；参数名称、范围、存储介质和生效方式在 `src/parameters/parameter_registry.cpp` 调整。接线修改使用 `serial_config.h` 和具体传感器/执行器模块；控制律与混控修改使用 `control_modes.cpp`；级联协议修改使用 `src/interaircraft_comm/` 中的接收、发送实现。50 字节级联命令中的 PWM 旧字段名实际承载控制偏移，所有节点须使用一致的字段语义。接收与发送数据的结构体整理方案见[机间通讯说明](../src/interaircraft_comm/README.md)，目前尚未替换现有公共结果变量。
 
 需求与验收目标见 [软件需求说明](requirements.md)，参考论文及旧版代码对照见 [文档导航](README.md)。

@@ -97,7 +97,7 @@ A 机在 `aircraftId() == 1` 分支中准备本机 `Local_*_control_us` 和子�
 
 ## 串口映射
 
-串口宏统一定义在 `src/communication/serial_ports.h`，业务模块按设备用途调用；修改接线时只需调整此处映射。
+串口宏统一定义在 `src/config/serial_config.h`，业务模块按设备用途调用；修改接线时只需调整此处映射。
 
 | 名称 | 硬件串口 | 用途 |
 | --- | --- | --- |

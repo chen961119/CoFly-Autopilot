@@ -1,8 +1,8 @@
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 // 遥控接收模块：支持编译配置选定的 PPM、PWM、SBUS 或 DSM 接收机。
 // 原始实现来自 Nicholas Rehm 的 dRehmFlight 项目，后续按本项目硬件接线调整。
 #include <Arduino.h>
-#include "communication/radio_comm.h"
+#include "radio_comm/radio_comm.h"
 #include "control/control_state.h"
 #include <SBUS.h>  // SBUS 接收机驱动。
 // 以下引脚用于 PWM 接收机；SBUS 实际使用 SbusSerial，DSM 使用 DsmSerial。

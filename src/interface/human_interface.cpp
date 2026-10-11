@@ -1,5 +1,5 @@
 #include "config/aircraft_config.h"
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include "interface/human_interface.h"
 #include "control/control_state.h"
 #include "control/control_allocation.h"
@@ -7,7 +7,7 @@
 #include <Adafruit_SSD1306.h>
 #include "logging/logger.h"
 #include <Wire.h>
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
 #include "system/flight_lock.h"
 #include "actuators/actuator_output.h"

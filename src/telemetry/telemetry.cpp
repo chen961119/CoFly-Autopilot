@@ -1,7 +1,7 @@
-#include "communication/telemetry.h"
-#include "communication/serial_ports.h"
+#include "telemetry/telemetry.h"
+#include "config/serial_config.h"
 #include "control/control_state.h"
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
 
 namespace {

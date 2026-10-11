@@ -53,7 +53,10 @@ CoFly-Autopilot/
 │   ├── control/              # 控制模式、分配与运行状态
 │   ├── sensors/              # 传感器、滤波与姿态估计
 │   ├── actuators/            # 执行器输出与 PWM 限制
-│   ├── communication/        # 串口映射、遥控、级联与地面站通讯
+│   ├── interaircraft_comm/   # 机间通讯：收发实现与公共逻辑
+│   ├── ground_station_service/ # USB 地面站服务
+│   ├── radio_comm/           # 遥控接收
+│   ├── telemetry/            # 遥测输出
 │   ├── system/               # 时钟、锁定与重启
 │   ├── diagnostics/          # 诊断输出与固件调试
 │   ├── interface/            # 按键与 OLED

@@ -2,7 +2,7 @@
 #include "parameters/parameter_keys.h"
 #include "parameters/imu_calibration_integrity.h"
 #include "config/aircraft_config.h"
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include "sensors/sensor_processing.h"
 #include "config/flight_config.h"
 #include "system/flight_clock.h"

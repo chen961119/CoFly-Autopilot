@@ -22,4 +22,4 @@
 
 本次整理不改变 V8 文本格式或 USB 协议。PC 地面站的匹配实现位于 `tools/ground_station/parameter_file.py`。存储格式、容量和迁移行为详见 [参数存储说明](../../docs/parameter-storage.md)。
 
-验证入口：`tools/parameter_eeprom_tests/run.ps1`、`tools/parameter_service_tests/run.ps1`；固件使用 `pio run -e teensy41 -e teensy41_debug` 构建。
+固件使用 `pio run -e teensy41 -e teensy41_debug` 构建。参数服务与 EEPROM 主备故障测试已完成验证；按项目要求，测试脚本在验证后删除。

@@ -1,7 +1,7 @@
 #include "system/device_reboot.h"
 #include "system/flight_lock.h"
 #include "logging/logger.h"
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include "parameters/parameter_service.h"
 #include <Arduino.h>
 

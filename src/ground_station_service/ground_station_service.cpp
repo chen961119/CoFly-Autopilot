@@ -1,11 +1,11 @@
 #include "config/aircraft_config.h"
-#include "communication/ground_station_service.h"
+#include "ground_station_service/ground_station_service.h"
 #include "control/control_state.h"
 #include "sensors/filters.h"
 #include "system/flight_lock.h"
 #include "system/device_reboot.h"
 #include "sensors/sensor_processing.h"
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include <Arduino.h>
 #include <stdio.h>
 #include <stdlib.h>

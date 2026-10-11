@@ -1,5 +1,5 @@
 #include "config/aircraft_config.h"
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include "control/control_modes.h"
 #include "parameters/control_parameters.h"
 #include "diagnostics/debug_print.h"
@@ -7,7 +7,7 @@
 #include "control/control_allocation.h"
 #include "system/flight_clock.h"
 #include "interface/human_interface.h"
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include "math/math_utils.h"
 #include "sensors/sensor_processing.h"
 #include "config/flight_config.h"
@@ -21,7 +21,8 @@ FlightMode currentMode;
 FlightMode lastMode;
 
 // 上电时设置初始控制模式。
-void initializeInitialControlMode() {
+void initializeInitialControlMode()
+{
   currentMode = MANUAL_MODE;
 }
 bool int_is_valid = false;
@@ -29,10 +30,8 @@ bool force_manual = false;
 
 static bool ModeChange = 0;
 
-
 // 巡航速度
 static float V_cruise = 13;
-
 
 // 遥控信号异常时写入各通道的安全 PWM 值（单位：μs）。
 static unsigned long channel_1_fs = 1500; // 滚转
@@ -43,7 +42,6 @@ static unsigned long channel_5_fs = 1500; // 油门切断开关
 static unsigned long channel_6_fs = 2000; // 辅助通道 1
 static unsigned long channel_7_fs = 2000; // 辅助通道 2
 static unsigned long channel_8_fs = 2000; // 辅助通道 3
-
 
 // 控制输出与各机指令状态。
 //  刹车
@@ -60,7 +58,6 @@ float B_ele_control_ff_us, C_ele_control_ff_us, D_ele_control_ff_us,
 // static int Local_ail1_PWM_last = PWM_CENTER_US;
 // static float relativeAngle_ready_prev;
 
-
 // 控制器运行状态；可调参数及默认值见 control_parameters.cpp。
 // 注意：积分清零条件检查 channel_1_pwm，而 getDesState() 将通道 1 映射为滚转；
 // 若原意是低油门清零，需核对接收机通道映射后再修改判断条件。
@@ -68,13 +65,13 @@ float B_ele_control_ff_us, C_ele_control_ff_us, D_ele_control_ff_us,
 int Ail_Clp;
 static float Clp_PID = 0.0;
 
-static float i_valid = 0.0;   // 积分是否起作用
+static float i_valid = 0.0; // 积分是否起作用
 
 static float kp_rotate = 0.4;
 static float dw4, dw6, dw7, dw10, dw13, dw16, dw19, dw22;
 
 // INDI相关
-static double eleprev;                  // 升降舵位置估计值。
+static double eleprev;                       // 升降舵位置估计值。
 float indi_pitch_q_des_log = 0.0f;           // INDI目标俯仰角速度
 float indi_pitch_q_filt_log = 0.0f;          // INDI独立滤波后的俯仰角速度
 float indi_pitch_dq_des_log = 0.0f;          // INDI目标俯仰角加速度
@@ -83,16 +80,13 @@ float indi_pitch_delta_e_cmd_deg_log = 0.0f; // INDI目标舵偏角
 float indi_pitch_delta_e_est_deg_log = 0.0f; // INDI估计的实际舵偏角
 float indi_pitch_pwm_cmd_log = 0.0f;         // INDI输出PWM
 
-
 float roll_eq;
-
 
 static float roll_IMU_prev, pitch_IMU_prev;
 
 // 滚转角控制指令滤波
 static float roll_PID_lpf = 0.0f;
 static const float TWO_PI_F = 6.28318530718f;
-
 
 // 遥控输入映射后的归一化期望状态。
 float thro_des, roll_des, pitch_des, yaw_des, rotate_speed_des, pitch_des_local;
@@ -116,7 +110,7 @@ static float rotate_error;
 static bool roll_pid_dot_initialized = false;
 static float roll_PID_prev = 0.0f;
 static float roll_PID_dot = 0.0f;
-static float roll_PID_dot_lpf = 0.0f;     // 如果你后面想给前馈用，建议保留一个滤波后的
+static float roll_PID_dot_lpf = 0.0f; // 如果你后面想给前馈用，建议保留一个滤波后的
 
 float error_Phiab_RATE, error_Phiab, Phiab_des = 0, Phiab_Mea,
                                      integral_Phiab_ol, integral_Phiab_prev_ol,
@@ -166,12 +160,13 @@ int s6_command_PWM, s7_command_PWM;
 
 float central_pitch = 0.0f;
 
-
-void controlMixer() {
+void controlMixer()
+{
   // 按单机或编队构型，将姿态控制量分配到各机舵面和油门。
   // 手动模式直接使用归一化遥控指令；舵机归一化中位为 0.5，油门范围为 0～1。
 
-  if (currentMode == MANUAL_MODE) {
+  if (currentMode == MANUAL_MODE)
+  {
     roll_PID = roll_des_RAW / 2.0;
     pitch_PID = pitch_des_RAW / 2.0;
     yaw_PID = yaw_des_RAW / 2.0;
@@ -179,665 +174,719 @@ void controlMixer() {
 
   // 混控在这里
 
-if (aircraftIsSingle()) {
-  // 自己飞
-  A_ail1_scaled = roll_PID;
-  A_ail2_scaled = -roll_PID;
-  A_ele_scaled = pitch_PID;
-  A_thro_scaled = thro_des;
-  A_rudd_scaled = yaw_PID;
-
-} else {
-
-/*
-//2机一起飞 BA
-//策略1
-
-float coeroll=1.0;
-if (channel_6_pwm>1600)
-{
-B_ail1_scaled = 0.81*roll_PID+0.5*Phiab_PID;
-B_ail2_scaled = 0.41*roll_PID-0.5*Phiab_PID;
-B_thro_scaled = thro_des-0.8*yaw_PID;
-B_rudd_scaled = yaw_PID;
-B_pitch_sp=pitch_des_local+coeroll*0.07*roll_des;//2机、3机
-
-
-A_ail1_scaled = -0.41*roll_PID-0.5*Phiab_PID;
-A_ail2_scaled = -0.81*roll_PID+0.5*Phiab_PID;
-A_ele_scaled = pitch_PID;
-A_thro_scaled = thro_des+0.8*yaw_PID;
-A_rudd_scaled = yaw_PID;
-central_pitch=-0.07*coeroll*roll_des;
-}
-else if(channel_6_pwm<1600&&channel_6_pwm>1400)
-{
-
-//策略2
-B_ail1_scaled = 0.5*0.81*roll_PID+0.5*Phiab_PID;
-B_ail2_scaled = 0.5*0.41*roll_PID-0.5*Phiab_PID;
-B_thro_scaled = thro_des-0.8*yaw_PID;
-B_rudd_scaled = yaw_PID;
-B_pitch_sp=pitch_des_local+12.0*roll_PID;//2机、3机
-
-
-A_ail1_scaled = 0.5*-0.41*roll_PID-0.5*Phiab_PID;
-A_ail2_scaled = 0.5*-0.81*roll_PID+0.5*Phiab_PID;
-A_ele_scaled = pitch_PID;
-A_thro_scaled = thro_des+0.8*yaw_PID;
-A_rudd_scaled = yaw_PID;
-central_pitch=-12.0*coeroll*roll_PID;
-
-}
-else
-{
-//策略3
-B_ail1_scaled = 0.1*0.81*roll_PID+0.5*Phiab_PID;
-B_ail2_scaled = 0.1*0.41*roll_PID-0.5*Phiab_PID;
-B_thro_scaled = thro_des+keeppositive(-1.2*yaw_PID)+keeppositive(0.4*roll_PID);
-B_rudd_scaled = yaw_PID;
-B_pitch_sp=pitch_des_local+45.0*coeroll*roll_PID;//2机、3机
-
-
-A_ail1_scaled = 0.1*-0.41*roll_PID-0.5*Phiab_PID;
-A_ail2_scaled = 0.1*-0.81*roll_PID+0.5*Phiab_PID;
-A_ele_scaled = pitch_PID;
-A_thro_scaled = thro_des+keeppositive(1.2*yaw_PID)+keeppositive(-0.4*roll_PID);
-A_rudd_scaled = yaw_PID;
-central_pitch=-45.0*coeroll*roll_PID;
-
-
-}
-
-*/
-// USBSerial.println(A_ail1_scaled);
-
-// 3机一起飞 BAC
-if ((aircraftCount() == 3)) {
-
-  float coeab, coeac, coeroll;
-  if (abs(error_Phiab) > 20) {
-    coeab = abs(error_Phiab) / 20.0;
-  } else {
-    coeab = 0.8;
-  }
-  if (abs(error_Phiac) > 20) {
-    coeac = abs(error_Phiac) / 20.0;
-  } else {
-    coeac = 0.8;
-  }
-
-  coeac = 1.0;
-
-  // 策略1
-  if (channel_6_pwm > 1600) {
-    B_ail1_scaled =
-        1.016 * roll_PID + coeab * 1 * Phiab_PID - coeac * 0.68 * Phiac_PID;
-    B_ail2_scaled = 0.593 * roll_PID - coeab * 0.3392 * Phiab_PID -
-                   coeac * 0.12 * Phiac_PID;
-    B_thro_scaled = thro_des - 0.8 * yaw_PID;
-    B_rudd_scaled = yaw_PID;
-    B_pitch_sp = pitch_des_local; // 2机、3机
-
-    A_ail1_scaled =
-        0.1 * roll_PID - coeab * 1.186 * Phiab_PID + coeac * 0.71 * Phiac_PID;
-    A_ail2_scaled =
-        -0.1 * roll_PID - coeab * 0.71 * Phiab_PID + coeac * 1.16 * Phiac_PID;
+  if (aircraftIsSingle())
+  {
+    // 自己飞
+    A_ail1_scaled = roll_PID;
+    A_ail2_scaled = -roll_PID;
     A_ele_scaled = pitch_PID;
     A_thro_scaled = thro_des;
     A_rudd_scaled = yaw_PID;
-
-    C_ail1_scaled =
-        -0.593 * roll_PID + coeab * 0.12 * Phiab_PID + coeac * 0.34 * Phiac_PID;
-    C_ail2_scaled =
-        -1.016 * roll_PID + coeab * 0.68 * Phiab_PID - coeac * 1 * Phiac_PID;
-    C_thro_scaled = thro_des + 0.8 * yaw_PID;
-    C_rudd_scaled = yaw_PID;
-    C_pitch_sp = pitch_des_local; // 2机、3机
   }
-  // 策略2
+  else
+  {
 
-  else if (channel_6_pwm < 1600 && channel_6_pwm > 1400) {
-    coeroll = 0.2;
-    B_ail1_scaled = 1.016 * coeroll * roll_PID + coeab * 0.864 * Phiab_PID -
-                   coeac * 0.62 * Phiac_PID;
-    B_ail2_scaled = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
-                   coeac * 0.08 * Phiac_PID;
-    B_thro_scaled =
-        thro_des + keeppositive(-1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
+    /*
+    //2机一起飞 BA
+    //策略1
+
+    float coeroll=1.0;
+    if (channel_6_pwm>1600)
+    {
+    B_ail1_scaled = 0.81*roll_PID+0.5*Phiab_PID;
+    B_ail2_scaled = 0.41*roll_PID-0.5*Phiab_PID;
+    B_thro_scaled = thro_des-0.8*yaw_PID;
     B_rudd_scaled = yaw_PID;
-    B_pitch_sp = pitch_des_local + 20.0 * roll_PID_lpf; // 2机、3机
-    B_ele_control_ff_us = 0.0;
+    B_pitch_sp=pitch_des_local+coeroll*0.07*roll_des;//2机、3机
 
-    A_ail1_scaled =
-        0.1 * roll_PID - coeab * 1.0 * Phiab_PID + coeac * 0.65 * Phiac_PID;
-    A_ail2_scaled =
-        -0.1 * roll_PID - coeab * 0.65 * Phiab_PID + coeac * 1.0 * Phiac_PID;
+
+    A_ail1_scaled = -0.41*roll_PID-0.5*Phiab_PID;
+    A_ail2_scaled = -0.81*roll_PID+0.5*Phiab_PID;
     A_ele_scaled = pitch_PID;
-    A_thro_scaled = thro_des;
+    A_thro_scaled = thro_des+0.8*yaw_PID;
     A_rudd_scaled = yaw_PID;
+    central_pitch=-0.07*coeroll*roll_des;
+    }
+    else if(channel_6_pwm<1600&&channel_6_pwm>1400)
+    {
 
-    C_ail1_scaled = -0.593 * coeroll * roll_PID + coeab * 0.08 * Phiab_PID +
-                   coeac * 0.27 * Phiac_PID;
-    C_ail2_scaled = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
-                   coeac * 0.864 * Phiac_PID;
-    C_thro_scaled =
-        thro_des + keeppositive(1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
-    C_rudd_scaled = yaw_PID;
-    C_pitch_sp = pitch_des_local - 20.0 * roll_PID_lpf; // 2机、3机
-    C_ele_control_ff_us = 0.0;
-
-  } else {
-    coeroll = 0.2;
-
-    B_ail1_scaled = 1.016 * coeroll * roll_PID + coeab * 0.864 * Phiab_PID -
-                   coeac * 0.62 * Phiac_PID;
-    B_ail2_scaled = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
-                   coeac * 0.08 * Phiac_PID;
-    B_thro_scaled =
-        thro_des + keeppositive(-1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
+    //策略2
+    B_ail1_scaled = 0.5*0.81*roll_PID+0.5*Phiab_PID;
+    B_ail2_scaled = 0.5*0.41*roll_PID-0.5*Phiab_PID;
+    B_thro_scaled = thro_des-0.8*yaw_PID;
     B_rudd_scaled = yaw_PID;
-    B_pitch_sp = pitch_des_local + 30.0 * roll_PID_lpf +
-                 6.0 * (B_ail1_scaled + B_ail2_scaled); // 2机、3机
-    B_ele_control_ff_us =
-        -10.0 * 20.0 * roll_PID_lpf - 10.0 * roll_PID_dot_lpf;
+    B_pitch_sp=pitch_des_local+12.0*roll_PID;//2机、3机
 
-    A_ail1_scaled =
-        0.1 * roll_PID - coeab * 1.0 * Phiab_PID + coeac * 0.65 * Phiac_PID;
-    A_ail2_scaled =
-        -0.1 * roll_PID - coeab * 0.65 * Phiab_PID + coeac * 1.0 * Phiac_PID;
+
+    A_ail1_scaled = 0.5*-0.41*roll_PID-0.5*Phiab_PID;
+    A_ail2_scaled = 0.5*-0.81*roll_PID+0.5*Phiab_PID;
     A_ele_scaled = pitch_PID;
-    A_thro_scaled = thro_des;
+    A_thro_scaled = thro_des+0.8*yaw_PID;
     A_rudd_scaled = yaw_PID;
+    central_pitch=-12.0*coeroll*roll_PID;
 
-    C_ail1_scaled = -0.593 * coeroll * roll_PID + coeab * 0.08 * Phiab_PID +
-                   coeac * 0.27 * Phiac_PID;
-    C_ail2_scaled = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
-                   coeac * 0.864 * Phiac_PID;
-    C_thro_scaled =
-        thro_des + keeppositive(1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
-    C_rudd_scaled = yaw_PID;
-    C_pitch_sp =
-        pitch_des_local - 30.0 * roll_PID_lpf +
-        6.0 * (C_ail1_scaled + C_ail2_scaled); // 2机、3机 增加了相对滚转到升降舵
-    C_ele_control_ff_us = 10.0 * 20.0 * roll_PID_lpf + 10.0 * roll_PID_dot_lpf;
-  }
-
-} else if ((aircraftCount() == 4)) {
-
-  // 4机一起飞 DBAC
-  float coeab, coeac, coebd,
-      coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
-
-  coeroll = 1.5;
-
-  // USBSerial.println(coeroll);
-  if (abs(error_Phiab) > 20) {
-    coeab = 1.2 * abs(error_Phiab) / 20.0;
-  } else {
-    coeab = 1.2;
-  }
-
-  if (abs(error_Phiac) > 20) {
-    coeac = 1.0 * abs(error_Phiac) / 20.0;
-  } else {
-    coeac = 1.0;
-  }
-
-  if (abs(error_Phibd) > 20) {
-    coebd = 1.0 * abs(error_Phibd) / 20.0;
-  } else {
-    coebd = 1.0;
-  }
-
-  // 策略1
-  if (channel_6_pwm > 1600) {
-    D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                   0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
-    D_ail2_scaled = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
-                   0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
-    D_thro_scaled = thro_des - 1.2 * yaw_PID;
-    D_rudd_scaled = yaw_PID;
-    D_pitch_sp = pitch_des_local + 0.13 * coeroll * roll_des;
-
-    B_ail1_scaled = 0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
-                   0.19 * coeac * Phiac_PID - 1.0 * coebd * Phibd_PID;
-    B_ail2_scaled = 0.13 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
-                   0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
-    B_thro_scaled = thro_des - 0.6 * yaw_PID;
+    }
+    else
+    {
+    //策略3
+    B_ail1_scaled = 0.1*0.81*roll_PID+0.5*Phiab_PID;
+    B_ail2_scaled = 0.1*0.41*roll_PID-0.5*Phiab_PID;
+    B_thro_scaled = thro_des+keeppositive(-1.2*yaw_PID)+keeppositive(0.4*roll_PID);
     B_rudd_scaled = yaw_PID;
-    B_pitch_sp = pitch_des_local + 0.07 * coeroll * roll_des;
+    B_pitch_sp=pitch_des_local+45.0*coeroll*roll_PID;//2机、3机
 
-    A_ail1_scaled = -0.13 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
-                   0.736 * coeac * Phiac_PID - 0.39 * coebd * Phibd_PID;
-    A_ail2_scaled = -0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
-                   1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
+
+    A_ail1_scaled = 0.1*-0.41*roll_PID-0.5*Phiab_PID;
+    A_ail2_scaled = 0.1*-0.81*roll_PID+0.5*Phiab_PID;
     A_ele_scaled = pitch_PID;
-    A_thro_scaled = thro_des + 0.6 * yaw_PID;
-    ;
+    A_thro_scaled = thro_des+keeppositive(1.2*yaw_PID)+keeppositive(-0.4*roll_PID);
     A_rudd_scaled = yaw_PID;
-    central_pitch = -0.07 * coeroll * roll_des;
+    central_pitch=-45.0*coeroll*roll_PID;
 
-    C_ail1_scaled = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
-                   0.1 * coeac * Phiac_PID + 0.26 * coebd * Phibd_PID;
-    C_ail2_scaled = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                   1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
-    C_thro_scaled = thro_des + 1.2 * yaw_PID;
-    C_rudd_scaled = yaw_PID;
-    C_pitch_sp = pitch_des_local - 0.13 * coeroll * roll_des;
 
+    }
+
+    */
+    // USBSerial.println(A_ail1_scaled);
+
+    // 3机一起飞 BAC
+    if ((aircraftCount() == 3))
+    {
+
+      float coeab, coeac, coeroll;
+      if (abs(error_Phiab) > 20)
+      {
+        coeab = abs(error_Phiab) / 20.0;
+      }
+      else
+      {
+        coeab = 0.8;
+      }
+      if (abs(error_Phiac) > 20)
+      {
+        coeac = abs(error_Phiac) / 20.0;
+      }
+      else
+      {
+        coeac = 0.8;
+      }
+
+      coeac = 1.0;
+
+      // 策略1
+      if (channel_6_pwm > 1600)
+      {
+        B_ail1_scaled =
+            1.016 * roll_PID + coeab * 1 * Phiab_PID - coeac * 0.68 * Phiac_PID;
+        B_ail2_scaled = 0.593 * roll_PID - coeab * 0.3392 * Phiab_PID -
+                        coeac * 0.12 * Phiac_PID;
+        B_thro_scaled = thro_des - 0.8 * yaw_PID;
+        B_rudd_scaled = yaw_PID;
+        B_pitch_sp = pitch_des_local; // 2机、3机
+
+        A_ail1_scaled =
+            0.1 * roll_PID - coeab * 1.186 * Phiab_PID + coeac * 0.71 * Phiac_PID;
+        A_ail2_scaled =
+            -0.1 * roll_PID - coeab * 0.71 * Phiab_PID + coeac * 1.16 * Phiac_PID;
+        A_ele_scaled = pitch_PID;
+        A_thro_scaled = thro_des;
+        A_rudd_scaled = yaw_PID;
+
+        C_ail1_scaled =
+            -0.593 * roll_PID + coeab * 0.12 * Phiab_PID + coeac * 0.34 * Phiac_PID;
+        C_ail2_scaled =
+            -1.016 * roll_PID + coeab * 0.68 * Phiab_PID - coeac * 1 * Phiac_PID;
+        C_thro_scaled = thro_des + 0.8 * yaw_PID;
+        C_rudd_scaled = yaw_PID;
+        C_pitch_sp = pitch_des_local; // 2机、3机
+      }
+      // 策略2
+
+      else if (channel_6_pwm < 1600 && channel_6_pwm > 1400)
+      {
+        coeroll = 0.2;
+        B_ail1_scaled = 1.016 * coeroll * roll_PID + coeab * 0.864 * Phiab_PID -
+                        coeac * 0.62 * Phiac_PID;
+        B_ail2_scaled = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
+                        coeac * 0.08 * Phiac_PID;
+        B_thro_scaled =
+            thro_des + keeppositive(-1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
+        B_rudd_scaled = yaw_PID;
+        B_pitch_sp = pitch_des_local + 20.0 * roll_PID_lpf; // 2机、3机
+        B_ele_control_ff_us = 0.0;
+
+        A_ail1_scaled =
+            0.1 * roll_PID - coeab * 1.0 * Phiab_PID + coeac * 0.65 * Phiac_PID;
+        A_ail2_scaled =
+            -0.1 * roll_PID - coeab * 0.65 * Phiab_PID + coeac * 1.0 * Phiac_PID;
+        A_ele_scaled = pitch_PID;
+        A_thro_scaled = thro_des;
+        A_rudd_scaled = yaw_PID;
+
+        C_ail1_scaled = -0.593 * coeroll * roll_PID + coeab * 0.08 * Phiab_PID +
+                        coeac * 0.27 * Phiac_PID;
+        C_ail2_scaled = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
+                        coeac * 0.864 * Phiac_PID;
+        C_thro_scaled =
+            thro_des + keeppositive(1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
+        C_rudd_scaled = yaw_PID;
+        C_pitch_sp = pitch_des_local - 20.0 * roll_PID_lpf; // 2机、3机
+        C_ele_control_ff_us = 0.0;
+      }
+      else
+      {
+        coeroll = 0.2;
+
+        B_ail1_scaled = 1.016 * coeroll * roll_PID + coeab * 0.864 * Phiab_PID -
+                        coeac * 0.62 * Phiac_PID;
+        B_ail2_scaled = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
+                        coeac * 0.08 * Phiac_PID;
+        B_thro_scaled =
+            thro_des + keeppositive(-1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
+        B_rudd_scaled = yaw_PID;
+        B_pitch_sp = pitch_des_local + 30.0 * roll_PID_lpf +
+                     6.0 * (B_ail1_scaled + B_ail2_scaled); // 2机、3机
+        B_ele_control_ff_us =
+            -10.0 * 20.0 * roll_PID_lpf - 10.0 * roll_PID_dot_lpf;
+
+        A_ail1_scaled =
+            0.1 * roll_PID - coeab * 1.0 * Phiab_PID + coeac * 0.65 * Phiac_PID;
+        A_ail2_scaled =
+            -0.1 * roll_PID - coeab * 0.65 * Phiab_PID + coeac * 1.0 * Phiac_PID;
+        A_ele_scaled = pitch_PID;
+        A_thro_scaled = thro_des;
+        A_rudd_scaled = yaw_PID;
+
+        C_ail1_scaled = -0.593 * coeroll * roll_PID + coeab * 0.08 * Phiab_PID +
+                        coeac * 0.27 * Phiac_PID;
+        C_ail2_scaled = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
+                        coeac * 0.864 * Phiac_PID;
+        C_thro_scaled =
+            thro_des + keeppositive(1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
+        C_rudd_scaled = yaw_PID;
+        C_pitch_sp =
+            pitch_des_local - 30.0 * roll_PID_lpf +
+            6.0 * (C_ail1_scaled + C_ail2_scaled); // 2机、3机 增加了相对滚转到升降舵
+        C_ele_control_ff_us = 10.0 * 20.0 * roll_PID_lpf + 10.0 * roll_PID_dot_lpf;
+      }
+    }
+    else if ((aircraftCount() == 4))
+    {
+
+      // 4机一起飞 DBAC
+      float coeab, coeac, coebd,
+          coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
+
+      coeroll = 1.5;
+
+      // USBSerial.println(coeroll);
+      if (abs(error_Phiab) > 20)
+      {
+        coeab = 1.2 * abs(error_Phiab) / 20.0;
+      }
+      else
+      {
+        coeab = 1.2;
+      }
+
+      if (abs(error_Phiac) > 20)
+      {
+        coeac = 1.0 * abs(error_Phiac) / 20.0;
+      }
+      else
+      {
+        coeac = 1.0;
+      }
+
+      if (abs(error_Phibd) > 20)
+      {
+        coebd = 1.0 * abs(error_Phibd) / 20.0;
+      }
+      else
+      {
+        coebd = 1.0;
+      }
+
+      // 策略1
+      if (channel_6_pwm > 1600)
+      {
+        D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                        0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
+        D_ail2_scaled = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
+                        0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
+        D_thro_scaled = thro_des - 1.2 * yaw_PID;
+        D_rudd_scaled = yaw_PID;
+        D_pitch_sp = pitch_des_local + 0.13 * coeroll * roll_des;
+
+        B_ail1_scaled = 0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
+                        0.19 * coeac * Phiac_PID - 1.0 * coebd * Phibd_PID;
+        B_ail2_scaled = 0.13 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
+                        0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
+        B_thro_scaled = thro_des - 0.6 * yaw_PID;
+        B_rudd_scaled = yaw_PID;
+        B_pitch_sp = pitch_des_local + 0.07 * coeroll * roll_des;
+
+        A_ail1_scaled = -0.13 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
+                        0.736 * coeac * Phiac_PID - 0.39 * coebd * Phibd_PID;
+        A_ail2_scaled = -0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
+                        1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
+        A_ele_scaled = pitch_PID;
+        A_thro_scaled = thro_des + 0.6 * yaw_PID;
+        ;
+        A_rudd_scaled = yaw_PID;
+        central_pitch = -0.07 * coeroll * roll_des;
+
+        C_ail1_scaled = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
+                        0.1 * coeac * Phiac_PID + 0.26 * coebd * Phibd_PID;
+        C_ail2_scaled = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                        1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
+        C_thro_scaled = thro_des + 1.2 * yaw_PID;
+        C_rudd_scaled = yaw_PID;
+        C_pitch_sp = pitch_des_local - 0.13 * coeroll * roll_des;
+      }
+
+      // 策略2
+
+      else if (channel_6_pwm < 1600 && channel_6_pwm > 1400)
+      {
+        coeroll = 0.3;
+        D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                        0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
+        D_ail2_scaled = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
+                        0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
+        D_thro_scaled =
+            thro_des + keeppositive(-1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
+        D_rudd_scaled = yaw_PID;
+        D_pitch_sp = pitch_des_local + 70.0 * roll_PID;
+
+        B_ail1_scaled = 0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
+                        0.19 * coeac * Phiac_PID - 1.0 * coebd * Phibd_PID;
+        B_ail2_scaled = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
+                        0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
+        B_thro_scaled =
+            thro_des + keeppositive(-1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
+        B_rudd_scaled = yaw_PID;
+        B_pitch_sp = pitch_des_local + 30.0 * roll_PID;
+
+        A_ail1_scaled = -0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
+                        0.736 * coeac * Phiac_PID - 0.39 * coebd * Phibd_PID;
+        A_ail2_scaled = -0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
+                        1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
+        A_ele_scaled = pitch_PID;
+        A_thro_scaled =
+            thro_des + keeppositive(1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
+        A_rudd_scaled = yaw_PID;
+        central_pitch = -30.0 * roll_PID;
+
+        C_ail1_scaled = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
+                        0.1 * coeac * Phiac_PID + 0.26 * coebd * Phibd_PID;
+        C_ail2_scaled = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                        1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
+        C_thro_scaled =
+            thro_des + keeppositive(1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
+        C_rudd_scaled = yaw_PID;
+        C_pitch_sp = pitch_des_local - 70.0 * roll_PID;
+      }
+      else
+      {
+
+        coeroll = 0.2;
+        D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                        0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
+        D_ail2_scaled = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
+                        0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
+        D_thro_scaled =
+            thro_des + keeppositive(-1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
+        D_rudd_scaled = yaw_PID;
+        D_pitch_sp = pitch_des_local + 70.0 * roll_PID + 35.0 * Phiab_PID -
+                     20.0 * Phiac_PID + 20.0 * Phibd_PID;
+
+        B_ail1_scaled = 0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
+                        0.19 * coeac * Phiac_PID - 1.0 * coebd * Phibd_PID;
+        B_ail2_scaled = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
+                        0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
+        B_thro_scaled =
+            thro_des + keeppositive(-1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
+        B_rudd_scaled = yaw_PID;
+        B_pitch_sp = pitch_des_local + 30.0 * roll_PID - 40.0 * Phiab_PID +
+                     15.0 * Phiac_PID - 45.0 * Phibd_PID;
+
+        A_ail1_scaled = -0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
+                        0.736 * coeac * Phiac_PID - 0.39 * coebd * Phibd_PID;
+        A_ail2_scaled = -0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
+                        1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
+        A_ele_scaled = pitch_PID;
+        A_thro_scaled =
+            thro_des + keeppositive(1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
+        A_rudd_scaled = yaw_PID;
+        central_pitch = -30.0 * roll_PID - 40.0 * Phiab_PID + 45.0 * Phiac_PID -
+                        15.0 * Phibd_PID;
+
+        C_ail1_scaled = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
+                        0.1 * coeac * Phiac_PID + 0.26 * coebd * Phibd_PID;
+        C_ail2_scaled = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                        1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
+        C_thro_scaled =
+            thro_des + keeppositive(1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
+        C_rudd_scaled = yaw_PID;
+        C_pitch_sp = pitch_des_local - 70.0 * roll_PID + 35.0 * Phiab_PID -
+                     20.0 * Phiac_PID + 20.0 * Phibd_PID;
+      }
+    }
+    else if ((aircraftCount() == 5))
+    {
+
+      // 5机一起飞DBACE
+      float coeab, coeac, coebd, coece,
+          coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
+      if (abs(error_Phiab) > 20)
+      {
+        coeab = abs(error_Phiab) / 20.0;
+      }
+      else
+      {
+        coeab = 1.0;
+      }
+
+      if (abs(error_Phiac) > 20)
+      {
+        coeac = abs(error_Phiac) / 20.0;
+      }
+      else
+      {
+        coeac = 1.0;
+      }
+
+      if (abs(error_Phibd) > 20)
+      {
+        coebd = abs(error_Phibd) / 20.0;
+      }
+      else
+      {
+        coebd = 0.9;
+      }
+
+      if (abs(error_Phice) > 20)
+      {
+        coece = abs(error_Phice) / 20.0;
+      }
+      else
+      {
+        coece = 0.9;
+      }
+
+      // 策略1
+      coeroll = 1.2;
+      D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                      0.72 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID -
+                      0.38 * coece * Phice_PID;
+      D_ail2_scaled = 0.75 * coeroll * roll_PID + 0.44 * coeab * Phiab_PID -
+                      0.42 * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID -
+                      0.23 * coece * Phice_PID;
+      D_thro_scaled = thro_des - 1.0 * yaw_PID;
+      D_rudd_scaled = yaw_PID;
+      D_pitch_sp = pitch_des_local + 0.3 * coeroll * roll_des;
+
+      B_ail1_scaled = 0.417 * coeroll * roll_PID - 0.36 * coeab * Phiab_PID +
+                      0.05 * coeac * Phiac_PID - 0.7 * coebd * Phibd_PID -
+                      0.01 * coece * Phice_PID;
+      B_ail2_scaled = 0.33 * coeroll * roll_PID - 0.76 * coeab * Phiab_PID +
+                      0.31 * coeac * Phiac_PID - 0.6 * coebd * Phibd_PID +
+                      0.08 * coece * Phice_PID;
+      B_thro_scaled = thro_des - 0.8 * yaw_PID;
+      B_rudd_scaled = yaw_PID;
+      B_pitch_sp = pitch_des_local + 0.15 * coeroll * roll_des;
+
+      A_ail1_scaled = 0.15 * coeroll * roll_PID - 0.88 * coeab * Phiab_PID +
+                      0.66 * coeac * Phiac_PID - 0.42 * coebd * Phibd_PID +
+                      0.26 * coece * Phice_PID;
+      A_ail2_scaled = -0.15 * coeroll * roll_PID - 0.66 * coeab * Phiab_PID +
+                      0.88 * coeac * Phiac_PID - 0.27 * coebd * Phibd_PID +
+                      0.38 * coece * Phice_PID;
+      A_ele_scaled = pitch_PID;
+      A_thro_scaled = thro_des;
+      A_rudd_scaled = yaw_PID;
+
+      C_ail1_scaled = -0.33 * coeroll * roll_PID - 0.31 * coeab * Phiab_PID +
+                      0.76 * coeac * Phiac_PID - 0.08 * coebd * Phibd_PID +
+                      0.6 * coece * Phice_PID;
+      C_ail2_scaled = -0.417 * coeroll * roll_PID - 0.05 * coeab * Phiab_PID +
+                      0.36 * coeac * Phiac_PID - 0.01 * coebd * Phibd_PID +
+                      0.7 * coece * Phice_PID;
+      C_thro_scaled = thro_des + 0.8 * yaw_PID;
+      C_rudd_scaled = yaw_PID;
+      C_pitch_sp = pitch_des_local - 0.15 * coeroll * roll_des;
+
+      E_ail1_scaled = -0.75 * coeroll * roll_PID + 0.42 * coeab * Phiab_PID -
+                      coeac * 0.44 * Phiac_PID + 0.23 * coebd * Phibd_PID -
+                      0.06 * coece * Phice_PID;
+      E_ail2_scaled = -1.0 * coeroll * roll_PID + 0.72 * coeab * Phiab_PID -
+                      1.0 * coeac * Phiac_PID + 0.38 * coebd * Phibd_PID -
+                      1.0 * coece * Phice_PID;
+      E_thro_scaled = thro_des + 1.0 * yaw_PID;
+      E_rudd_scaled = yaw_PID;
+      E_pitch_sp = pitch_des_local - 0.3 * coeroll * roll_des;
+
+      /*
+       else if (channel_6_pwm < 1600 && channel_6_pwm > 1400) {
+         //策略2
+         coeroll = 0.5;
+         D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID - 0.72 *
+       coeac * Phiac_PID + 1.0 * coebd * Phibd_PID - 0.38 * coece * Phice_PID;
+         D_ail2_scaled = 0.75 * coeroll * roll_PID + 0.44 * coeab * Phiab_PID - 0.42
+       * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID - 0.23 * coece * Phice_PID;
+         D_thro_scaled = thro_des + keeppositive(-1.8 * yaw_PID) + keeppositive(0.7 *
+       roll_PID); D_rudd_scaled = yaw_PID; D_pitch_sp = pitch_des_local + 80.0 *
+       roll_PID ;
+
+         B_ail1_scaled = 0.417 * coeroll * roll_PID - 0.36 * coeab * Phiab_PID + 0.05
+       * coeac * Phiac_PID - 0.7 * coebd * Phibd_PID - 0.01 * coece * Phice_PID;
+         B_ail2_scaled = 0.33 * coeroll * roll_PID - 0.76 * coeab * Phiab_PID + 0.31
+       * coeac * Phiac_PID - 0.6 * coebd * Phibd_PID + 0.08 * coece * Phice_PID;
+         B_thro_scaled = thro_des + keeppositive(-1.0 * yaw_PID) + keeppositive(0.4 *
+       roll_PID); B_rudd_scaled = yaw_PID; B_pitch_sp = pitch_des_local + 30.0 *
+       roll_PID ;
+
+         A_ail1_scaled = 0.15 * coeroll * roll_PID - 0.88 * coeab * Phiab_PID + 0.66
+       * coeac * Phiac_PID - 0.42 * coebd * Phibd_PID + 0.27 * coece * Phice_PID;
+         A_ail2_scaled = -0.15 * coeroll * roll_PID - 0.66 * coeab * Phiab_PID + 0.88
+       * coeac * Phiac_PID - 0.27 * coebd * Phibd_PID + 0.42 * coece * Phice_PID;
+         A_ele_scaled = pitch_PID;
+         A_thro_scaled = thro_des;
+         A_rudd_scaled = yaw_PID;
+
+         C_ail1_scaled = -0.33 * coeroll * roll_PID - 0.31 * coeab * Phiab_PID + 0.76
+       * coeac * Phiac_PID - 0.08 * coebd * Phibd_PID + 0.6 * coece * Phice_PID;
+         C_ail2_scaled = -0.417 * coeroll * roll_PID - 0.05 * coeab * Phiab_PID +
+       0.36 * coeac * Phiac_PID - 0.01 * coebd * Phibd_PID + 0.7 * coece *
+       Phice_PID; C_thro_scaled = thro_des + keeppositive(1.0 * yaw_PID) +
+       keeppositive(-0.4 * roll_PID); C_rudd_scaled = yaw_PID; C_pitch_sp =
+       pitch_des_local - 30.0 * roll_PID;
+
+         E_ail1_scaled = -0.75 * coeroll * roll_PID + 0.42 * coeab * Phiab_PID -
+       coeac * 0.44 * Phiac_PID + 0.23 * coebd * Phibd_PID - 0.06 * coece *
+       Phice_PID; E_ail2_scaled = -1.0 * coeroll * roll_PID + 0.72 * coeab *
+       Phiab_PID - 1.0 * coeac * Phiac_PID + 0.38 * coebd * Phibd_PID - 1.0 * coece
+       * Phice_PID; E_thro_scaled = thro_des + keeppositive(1.8 * yaw_PID) +
+       keeppositive(-0.7 * roll_PID); E_rudd_scaled = yaw_PID; E_pitch_sp =
+       pitch_des_local - 80.0 * roll_PID;
+       }
+
+       else {
+         //USBSerial.println("ss");
+         //策略3 实时控制分配
+         //期望虚拟控制量
+         dw4 = roll_PID * 40.0;
+         dw6 = yaw_PID * 20.0;
+         dw7 = Phiab_PID * 130.0;
+         dw10 = Phiac_PID * 130.0;
+         dw13 = Phibd_PID * 110.0;
+         dw16 = Phice_PID * 110.0;
+
+
+         dw_att << dw4,
+           dw6,
+           0.0,
+           0.0,
+           0.0,
+           0.0;
+
+         dw_config << dw7,
+           dw10,
+           dw13,
+           dw16;
+
+         de_config = Bplusminismall_pinv * dw_config;
+         de_att = Bplusfullsmall_pinv * dw_att;
+         //printFullMatrix(de_config);
+         D_ail1_scaled = de_att(0) + de_config(0);
+         D_ail2_scaled = de_att(1) + de_config(1);
+         D_thro_scaled = thro_des + keeppositive(-1.4 * yaw_PID) + keeppositive(0.5 *
+       roll_PID); D_rudd_scaled = yaw_PID; D_pitch_sp = pitch_des_local + 80.0 *
+       roll_PID - 1.0;
+
+         B_ail1_scaled = de_att(2) + de_config(2);
+         B_ail2_scaled = de_att(3) + de_config(3);
+         B_thro_scaled = thro_des + keeppositive(-0.8 * yaw_PID) + keeppositive(0.3 *
+       roll_PID); B_rudd_scaled = yaw_PID; B_pitch_sp = pitch_des_local + 30.0 *
+       roll_PID - 1.0;
+
+         A_ail1_scaled = de_att(4) + de_config(4);
+         A_ail2_scaled = de_att(5) + de_config(5);
+         A_ele_scaled = pitch_PID;
+         A_thro_scaled = thro_des;
+         A_rudd_scaled = yaw_PID;
+
+         C_ail1_scaled = de_att(6) + de_config(6);
+         C_ail2_scaled = de_att(7) + de_config(7);
+         C_thro_scaled = thro_des + keeppositive(0.8 * yaw_PID) + keeppositive(-0.3 *
+       roll_PID); C_rudd_scaled = yaw_PID; C_pitch_sp = pitch_des_local - 30.0 *
+       roll_PID;
+
+         E_ail1_scaled = de_att(8) + de_config(8);
+         E_ail2_scaled = de_att(9) + de_config(9);
+         E_thro_scaled = thro_des + keeppositive(1.4 * yaw_PID) + keeppositive(-0.5 *
+       roll_PID); E_rudd_scaled = yaw_PID; E_pitch_sp = pitch_des_local - 80.0 *
+       roll_PID;
+       }
+         */
+    }
+    else if ((aircraftCount() == 7))
+    {
+
+      // 7机一起飞 FDBACEG
+      float coeab, coeac, coebd, coece, coedf, coeeg,
+          coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
+      if (abs(error_Phiab) > 20)
+      {
+        coeab = abs(error_Phiab) / 20.0;
+      }
+      else
+      {
+        coeab = 1.0;
+      }
+
+      if (abs(error_Phiac) > 20)
+      {
+        coeac = abs(error_Phiac) / 20.0;
+      }
+      else
+      {
+        coeac = 1.0;
+      }
+
+      if (abs(error_Phibd) > 20)
+      {
+        coebd = abs(error_Phibd) / 20.0;
+      }
+      else
+      {
+        coebd = 0.9;
+      }
+
+      if (abs(error_Phice) > 20)
+      {
+        coece = abs(error_Phice) / 20.0;
+      }
+      else
+      {
+        coece = 0.9;
+      }
+
+      if (abs(error_Phidf) > 20)
+      {
+        coedf = abs(error_Phidf) / 20.0;
+      }
+      else
+      {
+        coedf = 0.6;
+      }
+
+      if (abs(error_Phieg) > 20)
+      {
+        coeeg = abs(error_Phieg) / 20.0;
+      }
+      else
+      {
+        coeeg = 0.6;
+      }
+
+      // 策略1
+      coeroll = 1.8;
+
+      F_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
+                      0.77 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID -
+                      0.44 * coece * Phice_PID + 1.0 * coedf * Phidf_PID -
+                      0.24 * coeeg * Phieg_PID;
+      F_ail2_scaled = 0.87 * coeroll * roll_PID + 0.69 * coeab * Phiab_PID -
+                      0.56 * coeac * Phiac_PID + 0.54 * coebd * Phibd_PID -
+                      0.33 * coece * Phice_PID + 0.19 * coedf * Phidf_PID -
+                      0.18 * coeeg * Phieg_PID;
+      F_thro_scaled = 0.85 * thro_des - 1.5 * yaw_PID;
+      F_rudd_scaled = yaw_PID;
+      F_pitch_sp = pitch_des_local + 0.5 * coeroll * roll_des;
+
+      D_ail1_scaled = 0.72 * coeroll * roll_PID + 0.31 * coeab * Phiab_PID -
+                      0.32 * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID -
+                      0.21 * coece * Phice_PID - 0.27 * coedf * Phidf_PID -
+                      0.12 * coeeg * Phieg_PID;
+      D_ail2_scaled = 0.55 * coeroll * roll_PID - 0.12 * coeab * Phiab_PID -
+                      0.06 * coeac * Phiac_PID - 0.44 * coebd * Phibd_PID -
+                      0.07 * coece * Phice_PID - 0.41 * coedf * Phidf_PID -
+                      0.05 * coeeg * Phieg_PID;
+      D_thro_scaled = 0.92 * thro_des - 1.0 * yaw_PID;
+      D_rudd_scaled = yaw_PID;
+      D_pitch_sp = pitch_des_local + 0.3 * coeroll * roll_des;
+
+      B_ail1_scaled = 0.4 * coeroll * roll_PID - 0.50 * coeab * Phiab_PID +
+                      0.2 * coeac * Phiac_PID - 0.65 * coebd * Phibd_PID +
+                      0.05 * coece * Phice_PID - 0.41 * coedf * Phidf_PID +
+                      0.01 * coeeg * Phieg_PID;
+      B_ail2_scaled = 0.23 * coeroll * roll_PID - 0.83 * coeab * Phiab_PID +
+                      0.47 * coeac * Phiac_PID - 0.57 * coebd * Phibd_PID +
+                      0.17 * coece * Phice_PID - 0.27 * coedf * Phidf_PID +
+                      0.08 * coeeg * Phieg_PID;
+      B_thro_scaled = thro_des - 0.8 * yaw_PID;
+      B_rudd_scaled = yaw_PID;
+      B_pitch_sp = pitch_des_local + 0.15 * coeroll * roll_des;
+
+      A_ail1_scaled = 0.1 * coeroll * roll_PID - 0.89 * coeab * Phiab_PID +
+                      0.70 * coeac * Phiac_PID - 0.46 * coebd * Phibd_PID +
+                      0.31 * coece * Phice_PID - 0.18 * coedf * Phidf_PID +
+                      0.14 * coeeg * Phieg_PID;
+      A_ail2_scaled = -0.1 * coeroll * roll_PID - 0.70 * coeab * Phiab_PID +
+                      0.89 * coeac * Phiac_PID - 0.31 * coebd * Phibd_PID +
+                      0.46 * coece * Phice_PID - 0.14 * coedf * Phidf_PID +
+                      0.18 * coeeg * Phieg_PID;
+      A_ele_scaled = pitch_PID;
+      A_thro_scaled = thro_des;
+      A_rudd_scaled = yaw_PID;
+
+      C_ail1_scaled = -0.23 * coeroll * roll_PID - 0.47 * coeab * Phiab_PID +
+                      0.83 * coeac * Phiac_PID - 0.17 * coebd * Phibd_PID +
+                      0.57 * coece * Phice_PID - 0.08 * coedf * Phidf_PID +
+                      0.27 * coeeg * Phieg_PID;
+      C_ail2_scaled = -0.4 * coeroll * roll_PID - 0.2 * coeab * Phiab_PID +
+                      0.50 * coeac * Phiac_PID - 0.05 * coebd * Phibd_PID +
+                      0.65 * coece * Phice_PID - 0.01 * coedf * Phidf_PID +
+                      0.41 * coeeg * Phieg_PID;
+      C_thro_scaled = thro_des + 0.8 * yaw_PID;
+      C_rudd_scaled = yaw_PID;
+      C_pitch_sp = pitch_des_local - 0.15 * coeroll * roll_des;
+
+      E_ail1_scaled = -0.55 * coeroll * roll_PID + 0.06 * coeab * Phiab_PID +
+                      coeac * 0.12 * Phiac_PID + 0.07 * coebd * Phibd_PID +
+                      0.44 * coece * Phice_PID + 0.05 * coedf * Phidf_PID +
+                      0.41 * coeeg * Phieg_PID;
+      E_ail2_scaled = -0.72 * coeroll * roll_PID + 0.32 * coeab * Phiab_PID -
+                      0.31 * coeac * Phiac_PID + 0.21 * coebd * Phibd_PID -
+                      0.06 * coece * Phice_PID + 0.12 * coedf * Phidf_PID +
+                      0.27 * coeeg * Phieg_PID;
+      E_thro_scaled = 0.92 * thro_des + 1.0 * yaw_PID;
+      E_rudd_scaled = yaw_PID;
+      E_pitch_sp = pitch_des_local - 0.3 * coeroll * roll_des;
+
+      G_ail1_scaled = -0.87 * coeroll * roll_PID + 0.56 * coeab * Phiab_PID -
+                      coeac * 0.69 * Phiac_PID + 0.33 * coebd * Phibd_PID -
+                      0.54 * coece * Phice_PID + 0.18 * coedf * Phidf_PID -
+                      0.19 * coeeg * Phieg_PID;
+      G_ail2_scaled = -1.0 * coeroll * roll_PID + 0.77 * coeab * Phiab_PID -
+                      1.0 * coeac * Phiac_PID + 0.44 * coebd * Phibd_PID -
+                      1.0 * coece * Phice_PID + 0.24 * coedf * Phidf_PID -
+                      1.0 * coeeg * Phieg_PID;
+      G_thro_scaled = 0.85 * thro_des + 1.5 * yaw_PID;
+      G_rudd_scaled = yaw_PID;
+      G_pitch_sp = pitch_des_local - 0.5 * coeroll * roll_des;
+    }
   }
-
-  // 策略2
-
-  else if (channel_6_pwm < 1600 && channel_6_pwm > 1400) {
-    coeroll = 0.3;
-    D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                   0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
-    D_ail2_scaled = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
-                   0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
-    D_thro_scaled =
-        thro_des + keeppositive(-1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
-    D_rudd_scaled = yaw_PID;
-    D_pitch_sp = pitch_des_local + 70.0 * roll_PID;
-
-    B_ail1_scaled = 0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
-                   0.19 * coeac * Phiac_PID - 1.0 * coebd * Phibd_PID;
-    B_ail2_scaled = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
-                   0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
-    B_thro_scaled =
-        thro_des + keeppositive(-1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
-    B_rudd_scaled = yaw_PID;
-    B_pitch_sp = pitch_des_local + 30.0 * roll_PID;
-
-    A_ail1_scaled = -0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
-                   0.736 * coeac * Phiac_PID - 0.39 * coebd * Phibd_PID;
-    A_ail2_scaled = -0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
-                   1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
-    A_ele_scaled = pitch_PID;
-    A_thro_scaled =
-        thro_des + keeppositive(1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
-    A_rudd_scaled = yaw_PID;
-    central_pitch = -30.0 * roll_PID;
-
-    C_ail1_scaled = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
-                   0.1 * coeac * Phiac_PID + 0.26 * coebd * Phibd_PID;
-    C_ail2_scaled = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                   1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
-    C_thro_scaled =
-        thro_des + keeppositive(1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
-    C_rudd_scaled = yaw_PID;
-    C_pitch_sp = pitch_des_local - 70.0 * roll_PID;
-
-  } else {
-
-    coeroll = 0.2;
-    D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                   0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
-    D_ail2_scaled = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
-                   0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
-    D_thro_scaled =
-        thro_des + keeppositive(-1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
-    D_rudd_scaled = yaw_PID;
-    D_pitch_sp = pitch_des_local + 70.0 * roll_PID + 35.0 * Phiab_PID -
-                 20.0 * Phiac_PID + 20.0 * Phibd_PID;
-
-    B_ail1_scaled = 0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
-                   0.19 * coeac * Phiac_PID - 1.0 * coebd * Phibd_PID;
-    B_ail2_scaled = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
-                   0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
-    B_thro_scaled =
-        thro_des + keeppositive(-1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
-    B_rudd_scaled = yaw_PID;
-    B_pitch_sp = pitch_des_local + 30.0 * roll_PID - 40.0 * Phiab_PID +
-                 15.0 * Phiac_PID - 45.0 * Phibd_PID;
-
-    A_ail1_scaled = -0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
-                   0.736 * coeac * Phiac_PID - 0.39 * coebd * Phibd_PID;
-    A_ail2_scaled = -0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
-                   1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
-    A_ele_scaled = pitch_PID;
-    A_thro_scaled =
-        thro_des + keeppositive(1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
-    A_rudd_scaled = yaw_PID;
-    central_pitch = -30.0 * roll_PID - 40.0 * Phiab_PID + 45.0 * Phiac_PID -
-                    15.0 * Phibd_PID;
-
-    C_ail1_scaled = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
-                   0.1 * coeac * Phiac_PID + 0.26 * coebd * Phibd_PID;
-    C_ail2_scaled = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                   1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
-    C_thro_scaled =
-        thro_des + keeppositive(1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
-    C_rudd_scaled = yaw_PID;
-    C_pitch_sp = pitch_des_local - 70.0 * roll_PID + 35.0 * Phiab_PID -
-                 20.0 * Phiac_PID + 20.0 * Phibd_PID;
-  }
-
-} else if ((aircraftCount() == 5)) {
-
-  // 5机一起飞DBACE
-  float coeab, coeac, coebd, coece,
-      coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
-  if (abs(error_Phiab) > 20) {
-    coeab = abs(error_Phiab) / 20.0;
-  } else {
-    coeab = 1.0;
-  }
-
-  if (abs(error_Phiac) > 20) {
-    coeac = abs(error_Phiac) / 20.0;
-  } else {
-    coeac = 1.0;
-  }
-
-  if (abs(error_Phibd) > 20) {
-    coebd = abs(error_Phibd) / 20.0;
-  } else {
-    coebd = 0.9;
-  }
-
-  if (abs(error_Phice) > 20) {
-    coece = abs(error_Phice) / 20.0;
-  } else {
-    coece = 0.9;
-  }
-
-  // 策略1
-  coeroll = 1.2;
-  D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                 0.72 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID -
-                 0.38 * coece * Phice_PID;
-  D_ail2_scaled = 0.75 * coeroll * roll_PID + 0.44 * coeab * Phiab_PID -
-                 0.42 * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID -
-                 0.23 * coece * Phice_PID;
-  D_thro_scaled = thro_des - 1.0 * yaw_PID;
-  D_rudd_scaled = yaw_PID;
-  D_pitch_sp = pitch_des_local + 0.3 * coeroll * roll_des;
-
-  B_ail1_scaled = 0.417 * coeroll * roll_PID - 0.36 * coeab * Phiab_PID +
-                 0.05 * coeac * Phiac_PID - 0.7 * coebd * Phibd_PID -
-                 0.01 * coece * Phice_PID;
-  B_ail2_scaled = 0.33 * coeroll * roll_PID - 0.76 * coeab * Phiab_PID +
-                 0.31 * coeac * Phiac_PID - 0.6 * coebd * Phibd_PID +
-                 0.08 * coece * Phice_PID;
-  B_thro_scaled = thro_des - 0.8 * yaw_PID;
-  B_rudd_scaled = yaw_PID;
-  B_pitch_sp = pitch_des_local + 0.15 * coeroll * roll_des;
-
-  A_ail1_scaled = 0.15 * coeroll * roll_PID - 0.88 * coeab * Phiab_PID +
-                 0.66 * coeac * Phiac_PID - 0.42 * coebd * Phibd_PID +
-                 0.26 * coece * Phice_PID;
-  A_ail2_scaled = -0.15 * coeroll * roll_PID - 0.66 * coeab * Phiab_PID +
-                 0.88 * coeac * Phiac_PID - 0.27 * coebd * Phibd_PID +
-                 0.38 * coece * Phice_PID;
-  A_ele_scaled = pitch_PID;
-  A_thro_scaled = thro_des;
-  A_rudd_scaled = yaw_PID;
-
-  C_ail1_scaled = -0.33 * coeroll * roll_PID - 0.31 * coeab * Phiab_PID +
-                 0.76 * coeac * Phiac_PID - 0.08 * coebd * Phibd_PID +
-                 0.6 * coece * Phice_PID;
-  C_ail2_scaled = -0.417 * coeroll * roll_PID - 0.05 * coeab * Phiab_PID +
-                 0.36 * coeac * Phiac_PID - 0.01 * coebd * Phibd_PID +
-                 0.7 * coece * Phice_PID;
-  C_thro_scaled = thro_des + 0.8 * yaw_PID;
-  C_rudd_scaled = yaw_PID;
-  C_pitch_sp = pitch_des_local - 0.15 * coeroll * roll_des;
-
-  E_ail1_scaled = -0.75 * coeroll * roll_PID + 0.42 * coeab * Phiab_PID -
-                 coeac * 0.44 * Phiac_PID + 0.23 * coebd * Phibd_PID -
-                 0.06 * coece * Phice_PID;
-  E_ail2_scaled = -1.0 * coeroll * roll_PID + 0.72 * coeab * Phiab_PID -
-                 1.0 * coeac * Phiac_PID + 0.38 * coebd * Phibd_PID -
-                 1.0 * coece * Phice_PID;
-  E_thro_scaled = thro_des + 1.0 * yaw_PID;
-  E_rudd_scaled = yaw_PID;
-  E_pitch_sp = pitch_des_local - 0.3 * coeroll * roll_des;
-
-  /*
-   else if (channel_6_pwm < 1600 && channel_6_pwm > 1400) {
-     //策略2
-     coeroll = 0.5;
-     D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID - 0.72 *
-   coeac * Phiac_PID + 1.0 * coebd * Phibd_PID - 0.38 * coece * Phice_PID;
-     D_ail2_scaled = 0.75 * coeroll * roll_PID + 0.44 * coeab * Phiab_PID - 0.42
-   * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID - 0.23 * coece * Phice_PID;
-     D_thro_scaled = thro_des + keeppositive(-1.8 * yaw_PID) + keeppositive(0.7 *
-   roll_PID); D_rudd_scaled = yaw_PID; D_pitch_sp = pitch_des_local + 80.0 *
-   roll_PID ;
-
-     B_ail1_scaled = 0.417 * coeroll * roll_PID - 0.36 * coeab * Phiab_PID + 0.05
-   * coeac * Phiac_PID - 0.7 * coebd * Phibd_PID - 0.01 * coece * Phice_PID;
-     B_ail2_scaled = 0.33 * coeroll * roll_PID - 0.76 * coeab * Phiab_PID + 0.31
-   * coeac * Phiac_PID - 0.6 * coebd * Phibd_PID + 0.08 * coece * Phice_PID;
-     B_thro_scaled = thro_des + keeppositive(-1.0 * yaw_PID) + keeppositive(0.4 *
-   roll_PID); B_rudd_scaled = yaw_PID; B_pitch_sp = pitch_des_local + 30.0 *
-   roll_PID ;
-
-     A_ail1_scaled = 0.15 * coeroll * roll_PID - 0.88 * coeab * Phiab_PID + 0.66
-   * coeac * Phiac_PID - 0.42 * coebd * Phibd_PID + 0.27 * coece * Phice_PID;
-     A_ail2_scaled = -0.15 * coeroll * roll_PID - 0.66 * coeab * Phiab_PID + 0.88
-   * coeac * Phiac_PID - 0.27 * coebd * Phibd_PID + 0.42 * coece * Phice_PID;
-     A_ele_scaled = pitch_PID;
-     A_thro_scaled = thro_des;
-     A_rudd_scaled = yaw_PID;
-
-     C_ail1_scaled = -0.33 * coeroll * roll_PID - 0.31 * coeab * Phiab_PID + 0.76
-   * coeac * Phiac_PID - 0.08 * coebd * Phibd_PID + 0.6 * coece * Phice_PID;
-     C_ail2_scaled = -0.417 * coeroll * roll_PID - 0.05 * coeab * Phiab_PID +
-   0.36 * coeac * Phiac_PID - 0.01 * coebd * Phibd_PID + 0.7 * coece *
-   Phice_PID; C_thro_scaled = thro_des + keeppositive(1.0 * yaw_PID) +
-   keeppositive(-0.4 * roll_PID); C_rudd_scaled = yaw_PID; C_pitch_sp =
-   pitch_des_local - 30.0 * roll_PID;
-
-     E_ail1_scaled = -0.75 * coeroll * roll_PID + 0.42 * coeab * Phiab_PID -
-   coeac * 0.44 * Phiac_PID + 0.23 * coebd * Phibd_PID - 0.06 * coece *
-   Phice_PID; E_ail2_scaled = -1.0 * coeroll * roll_PID + 0.72 * coeab *
-   Phiab_PID - 1.0 * coeac * Phiac_PID + 0.38 * coebd * Phibd_PID - 1.0 * coece
-   * Phice_PID; E_thro_scaled = thro_des + keeppositive(1.8 * yaw_PID) +
-   keeppositive(-0.7 * roll_PID); E_rudd_scaled = yaw_PID; E_pitch_sp =
-   pitch_des_local - 80.0 * roll_PID;
-   }
-
-   else {
-     //USBSerial.println("ss");
-     //策略3 实时控制分配
-     //期望虚拟控制量
-     dw4 = roll_PID * 40.0;
-     dw6 = yaw_PID * 20.0;
-     dw7 = Phiab_PID * 130.0;
-     dw10 = Phiac_PID * 130.0;
-     dw13 = Phibd_PID * 110.0;
-     dw16 = Phice_PID * 110.0;
-
-
-     dw_att << dw4,
-       dw6,
-       0.0,
-       0.0,
-       0.0,
-       0.0;
-
-     dw_config << dw7,
-       dw10,
-       dw13,
-       dw16;
-
-     de_config = Bplusminismall_pinv * dw_config;
-     de_att = Bplusfullsmall_pinv * dw_att;
-     //printFullMatrix(de_config);
-     D_ail1_scaled = de_att(0) + de_config(0);
-     D_ail2_scaled = de_att(1) + de_config(1);
-     D_thro_scaled = thro_des + keeppositive(-1.4 * yaw_PID) + keeppositive(0.5 *
-   roll_PID); D_rudd_scaled = yaw_PID; D_pitch_sp = pitch_des_local + 80.0 *
-   roll_PID - 1.0;
-
-     B_ail1_scaled = de_att(2) + de_config(2);
-     B_ail2_scaled = de_att(3) + de_config(3);
-     B_thro_scaled = thro_des + keeppositive(-0.8 * yaw_PID) + keeppositive(0.3 *
-   roll_PID); B_rudd_scaled = yaw_PID; B_pitch_sp = pitch_des_local + 30.0 *
-   roll_PID - 1.0;
-
-     A_ail1_scaled = de_att(4) + de_config(4);
-     A_ail2_scaled = de_att(5) + de_config(5);
-     A_ele_scaled = pitch_PID;
-     A_thro_scaled = thro_des;
-     A_rudd_scaled = yaw_PID;
-
-     C_ail1_scaled = de_att(6) + de_config(6);
-     C_ail2_scaled = de_att(7) + de_config(7);
-     C_thro_scaled = thro_des + keeppositive(0.8 * yaw_PID) + keeppositive(-0.3 *
-   roll_PID); C_rudd_scaled = yaw_PID; C_pitch_sp = pitch_des_local - 30.0 *
-   roll_PID;
-
-     E_ail1_scaled = de_att(8) + de_config(8);
-     E_ail2_scaled = de_att(9) + de_config(9);
-     E_thro_scaled = thro_des + keeppositive(1.4 * yaw_PID) + keeppositive(-0.5 *
-   roll_PID); E_rudd_scaled = yaw_PID; E_pitch_sp = pitch_des_local - 80.0 *
-   roll_PID;
-   }
-     */
-
-} else if ((aircraftCount() == 7)) {
-
-  // 7机一起飞 FDBACEG
-  float coeab, coeac, coebd, coece, coedf, coeeg,
-      coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
-  if (abs(error_Phiab) > 20) {
-    coeab = abs(error_Phiab) / 20.0;
-  } else {
-    coeab = 1.0;
-  }
-
-  if (abs(error_Phiac) > 20) {
-    coeac = abs(error_Phiac) / 20.0;
-  } else {
-    coeac = 1.0;
-  }
-
-  if (abs(error_Phibd) > 20) {
-    coebd = abs(error_Phibd) / 20.0;
-  } else {
-    coebd = 0.9;
-  }
-
-  if (abs(error_Phice) > 20) {
-    coece = abs(error_Phice) / 20.0;
-  } else {
-    coece = 0.9;
-  }
-
-  if (abs(error_Phidf) > 20) {
-    coedf = abs(error_Phidf) / 20.0;
-  } else {
-    coedf = 0.6;
-  }
-
-  if (abs(error_Phieg) > 20) {
-    coeeg = abs(error_Phieg) / 20.0;
-  } else {
-    coeeg = 0.6;
-  }
-
-  // 策略1
-  coeroll = 1.8;
-
-  F_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
-                 0.77 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID -
-                 0.44 * coece * Phice_PID + 1.0 * coedf * Phidf_PID -
-                 0.24 * coeeg * Phieg_PID;
-  F_ail2_scaled = 0.87 * coeroll * roll_PID + 0.69 * coeab * Phiab_PID -
-                 0.56 * coeac * Phiac_PID + 0.54 * coebd * Phibd_PID -
-                 0.33 * coece * Phice_PID + 0.19 * coedf * Phidf_PID -
-                 0.18 * coeeg * Phieg_PID;
-  F_thro_scaled = 0.85 * thro_des - 1.5 * yaw_PID;
-  F_rudd_scaled = yaw_PID;
-  F_pitch_sp = pitch_des_local + 0.5 * coeroll * roll_des;
-
-  D_ail1_scaled = 0.72 * coeroll * roll_PID + 0.31 * coeab * Phiab_PID -
-                 0.32 * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID -
-                 0.21 * coece * Phice_PID - 0.27 * coedf * Phidf_PID -
-                 0.12 * coeeg * Phieg_PID;
-  D_ail2_scaled = 0.55 * coeroll * roll_PID - 0.12 * coeab * Phiab_PID -
-                 0.06 * coeac * Phiac_PID - 0.44 * coebd * Phibd_PID -
-                 0.07 * coece * Phice_PID - 0.41 * coedf * Phidf_PID -
-                 0.05 * coeeg * Phieg_PID;
-  D_thro_scaled = 0.92 * thro_des - 1.0 * yaw_PID;
-  D_rudd_scaled = yaw_PID;
-  D_pitch_sp = pitch_des_local + 0.3 * coeroll * roll_des;
-
-  B_ail1_scaled = 0.4 * coeroll * roll_PID - 0.50 * coeab * Phiab_PID +
-                 0.2 * coeac * Phiac_PID - 0.65 * coebd * Phibd_PID +
-                 0.05 * coece * Phice_PID - 0.41 * coedf * Phidf_PID +
-                 0.01 * coeeg * Phieg_PID;
-  B_ail2_scaled = 0.23 * coeroll * roll_PID - 0.83 * coeab * Phiab_PID +
-                 0.47 * coeac * Phiac_PID - 0.57 * coebd * Phibd_PID +
-                 0.17 * coece * Phice_PID - 0.27 * coedf * Phidf_PID +
-                 0.08 * coeeg * Phieg_PID;
-  B_thro_scaled = thro_des - 0.8 * yaw_PID;
-  B_rudd_scaled = yaw_PID;
-  B_pitch_sp = pitch_des_local + 0.15 * coeroll * roll_des;
-
-  A_ail1_scaled = 0.1 * coeroll * roll_PID - 0.89 * coeab * Phiab_PID +
-                 0.70 * coeac * Phiac_PID - 0.46 * coebd * Phibd_PID +
-                 0.31 * coece * Phice_PID - 0.18 * coedf * Phidf_PID +
-                 0.14 * coeeg * Phieg_PID;
-  A_ail2_scaled = -0.1 * coeroll * roll_PID - 0.70 * coeab * Phiab_PID +
-                 0.89 * coeac * Phiac_PID - 0.31 * coebd * Phibd_PID +
-                 0.46 * coece * Phice_PID - 0.14 * coedf * Phidf_PID +
-                 0.18 * coeeg * Phieg_PID;
-  A_ele_scaled = pitch_PID;
-  A_thro_scaled = thro_des;
-  A_rudd_scaled = yaw_PID;
-
-  C_ail1_scaled = -0.23 * coeroll * roll_PID - 0.47 * coeab * Phiab_PID +
-                 0.83 * coeac * Phiac_PID - 0.17 * coebd * Phibd_PID +
-                 0.57 * coece * Phice_PID - 0.08 * coedf * Phidf_PID +
-                 0.27 * coeeg * Phieg_PID;
-  C_ail2_scaled = -0.4 * coeroll * roll_PID - 0.2 * coeab * Phiab_PID +
-                 0.50 * coeac * Phiac_PID - 0.05 * coebd * Phibd_PID +
-                 0.65 * coece * Phice_PID - 0.01 * coedf * Phidf_PID +
-                 0.41 * coeeg * Phieg_PID;
-  C_thro_scaled = thro_des + 0.8 * yaw_PID;
-  C_rudd_scaled = yaw_PID;
-  C_pitch_sp = pitch_des_local - 0.15 * coeroll * roll_des;
-
-  E_ail1_scaled = -0.55 * coeroll * roll_PID + 0.06 * coeab * Phiab_PID +
-                 coeac * 0.12 * Phiac_PID + 0.07 * coebd * Phibd_PID +
-                 0.44 * coece * Phice_PID + 0.05 * coedf * Phidf_PID +
-                 0.41 * coeeg * Phieg_PID;
-  E_ail2_scaled = -0.72 * coeroll * roll_PID + 0.32 * coeab * Phiab_PID -
-                 0.31 * coeac * Phiac_PID + 0.21 * coebd * Phibd_PID -
-                 0.06 * coece * Phice_PID + 0.12 * coedf * Phidf_PID +
-                 0.27 * coeeg * Phieg_PID;
-  E_thro_scaled = 0.92 * thro_des + 1.0 * yaw_PID;
-  E_rudd_scaled = yaw_PID;
-  E_pitch_sp = pitch_des_local - 0.3 * coeroll * roll_des;
-
-  G_ail1_scaled = -0.87 * coeroll * roll_PID + 0.56 * coeab * Phiab_PID -
-                 coeac * 0.69 * Phiac_PID + 0.33 * coebd * Phibd_PID -
-                 0.54 * coece * Phice_PID + 0.18 * coedf * Phidf_PID -
-                 0.19 * coeeg * Phieg_PID;
-  G_ail2_scaled = -1.0 * coeroll * roll_PID + 0.77 * coeab * Phiab_PID -
-                 1.0 * coeac * Phiac_PID + 0.44 * coebd * Phibd_PID -
-                 1.0 * coece * Phice_PID + 0.24 * coedf * Phidf_PID -
-                 1.0 * coeeg * Phieg_PID;
-  G_thro_scaled = 0.85 * thro_des + 1.5 * yaw_PID;
-  G_rudd_scaled = yaw_PID;
-  G_pitch_sp = pitch_des_local - 0.5 * coeroll * roll_des;
-
-}
-
-}
 
   // s6_command_scaled = 0;
   // s7_command_scaled = 0;
 }
 
-
 // 将遥控 PWM 归一化并限幅，生成油门、姿态角和角速度期望及手动直通量。
-void getDesState() { // 调整了通道顺序
+void getDesState()
+{ // 调整了通道顺序
   // 将接收机 PWM 映射为油门、姿态角和角速度期望值，并限制在配置范围内。
   // RAW 与 passthru 变量保留未增稳的归一化输入，供手动混控使用。
   float GyroZ;
@@ -848,111 +897,126 @@ void getDesState() { // 调整了通道顺序
   GyroZ = GyroZ_9250;
 #endif
 
-if ((aircraftId() == 1)) {
+  if ((aircraftId() == 1))
   {
-    thro_des_RAW = (channel_3_pwm - 1100.0) / 1000.0; // 范围 0～1。
-    roll_des_RAW = (channel_1_pwm - PWM_CENTER_US) / 500.0;  // 范围 -1～1。
-    pitch_des_RAW = (channel_2_pwm - PWM_CENTER_US) / 500.0; // 范围 -1～1。
-    yaw_des_RAW = (channel_4_pwm - PWM_CENTER_US) / 500.0;   // 范围 -1～1。
-
-    /*
-    if (channel_6_pwm>1600) //水平构型
     {
-      Phiab_des_nf = 0.0;
-      Phiac_des_nf = 0.0;
-      Phibd_des_nf = 0.0;
-      Phice_des_nf = 0.0;
-      Phidf_des_nf = 0.0;
-      Phieg_des_nf = 0.0;
-     }
-     else if (channel_6_pwm<1600&&channel_6_pwm>1400) //下反
-     {
-        Phiab_des_nf = -5.0;
-        Phiac_des_nf = 5.0;
-        Phibd_des_nf = -5.0;
-        Phice_des_nf = 5.0;
-        Phidf_des_nf = -5.0;
-        Phieg_des_nf = 5.0;
-     }
-     else //Z字
-     {
-        Phiab_des_nf = 10.0;
-        Phiac_des_nf = 10.0;
-        Phibd_des_nf = 10.0;
-        Phice_des_nf = 10.0;
-        Phidf_des_nf = 10.0;
-        Phieg_des_nf = 10.0;
-     }
+      thro_des_RAW = (channel_3_pwm - 1100.0) / 1000.0;        // 范围 0～1。
+      roll_des_RAW = (channel_1_pwm - PWM_CENTER_US) / 500.0;  // 范围 -1～1。
+      pitch_des_RAW = (channel_2_pwm - PWM_CENTER_US) / 500.0; // 范围 -1～1。
+      yaw_des_RAW = (channel_4_pwm - PWM_CENTER_US) / 500.0;   // 范围 -1～1。
 
-     Phiab_des=0.02*Phiab_des_nf+(1-0.02)*Phiab_des;
-     Phiac_des=0.02*Phiac_des_nf+(1-0.02)*Phiac_des;
-     Phibd_des=0.02*Phibd_des_nf+(1-0.02)*Phibd_des;
-     Phice_des=0.02*Phice_des_nf+(1-0.02)*Phice_des;
-     Phidf_des=0.02*Phidf_des_nf+(1-0.02)*Phidf_des;
-     Phieg_des=0.02*Phieg_des_nf+(1-0.02)*Phieg_des;
-    */
+      /*
+      if (channel_6_pwm>1600) //水平构型
+      {
+        Phiab_des_nf = 0.0;
+        Phiac_des_nf = 0.0;
+        Phibd_des_nf = 0.0;
+        Phice_des_nf = 0.0;
+        Phidf_des_nf = 0.0;
+        Phieg_des_nf = 0.0;
+       }
+       else if (channel_6_pwm<1600&&channel_6_pwm>1400) //下反
+       {
+          Phiab_des_nf = -5.0;
+          Phiac_des_nf = 5.0;
+          Phibd_des_nf = -5.0;
+          Phice_des_nf = 5.0;
+          Phidf_des_nf = -5.0;
+          Phieg_des_nf = 5.0;
+       }
+       else //Z字
+       {
+          Phiab_des_nf = 10.0;
+          Phiac_des_nf = 10.0;
+          Phibd_des_nf = 10.0;
+          Phice_des_nf = 10.0;
+          Phidf_des_nf = 10.0;
+          Phieg_des_nf = 10.0;
+       }
 
-    roll_passthru = roll_des_RAW / 2.0;   // 范围 -0.5～0.5。
-    pitch_passthru = pitch_des_RAW / 2.0; // 范围 -0.5～0.5。
-    yaw_passthru = yaw_des_RAW / 2.0;     // 范围 -0.5～0.5。
+       Phiab_des=0.02*Phiab_des_nf+(1-0.02)*Phiab_des;
+       Phiac_des=0.02*Phiac_des_nf+(1-0.02)*Phiac_des;
+       Phibd_des=0.02*Phibd_des_nf+(1-0.02)*Phibd_des;
+       Phice_des=0.02*Phice_des_nf+(1-0.02)*Phice_des;
+       Phidf_des=0.02*Phidf_des_nf+(1-0.02)*Phidf_des;
+       Phieg_des=0.02*Phieg_des_nf+(1-0.02)*Phieg_des;
+      */
 
-    // 将各轴指令限制在归一化或配置的最大范围内。
-    thro_des = constrain(thro_des_RAW, 0.0, 1.0); // 范围 0～1。
-    roll_des = constrain(roll_des_RAW, -1.0, 1.0) *
-               maxRoll; // 范围为 ±maxRoll。
-    pitch_des_local = constrain(pitch_des_RAW, -1.0, 1.0) *
-                      maxPitch; // 范围为 ±maxPitch。
-    yaw_des = constrain(yaw_des_RAW, -1.0, 1.0) *
-              maxYaw; // 范围为 ±maxYaw。
-    roll_passthru = constrain(roll_passthru, -0.5, 0.5);
-    pitch_passthru = constrain(pitch_passthru, -0.5, 0.5);
-    yaw_passthru = constrain(yaw_passthru, -0.5, 0.5);
+      roll_passthru = roll_des_RAW / 2.0;   // 范围 -0.5～0.5。
+      pitch_passthru = pitch_des_RAW / 2.0; // 范围 -0.5～0.5。
+      yaw_passthru = yaw_des_RAW / 2.0;     // 范围 -0.5～0.5。
 
-    // Phiab_des=constrain(Phiab_des, -1.0, 1.0)*15.0; // 历史试验方案已停用。
+      // 将各轴指令限制在归一化或配置的最大范围内。
+      thro_des = constrain(thro_des_RAW, 0.0, 1.0); // 范围 0～1。
+      roll_des = constrain(roll_des_RAW, -1.0, 1.0) *
+                 maxRoll; // 范围为 ±maxRoll。
+      pitch_des_local = constrain(pitch_des_RAW, -1.0, 1.0) *
+                        maxPitch; // 范围为 ±maxPitch。
+      yaw_des = constrain(yaw_des_RAW, -1.0, 1.0) *
+                maxYaw; // 范围为 ±maxYaw。
+      roll_passthru = constrain(roll_passthru, -0.5, 0.5);
+      pitch_passthru = constrain(pitch_passthru, -0.5, 0.5);
+      yaw_passthru = constrain(yaw_passthru, -0.5, 0.5);
 
-    pitch_des_local += Trim_pitch_angle;
+      // Phiab_des=constrain(Phiab_des, -1.0, 1.0)*15.0; // 历史试验方案已停用。
 
+      pitch_des_local += Trim_pitch_angle;
 
-    // 1600以上是手动  1400-1600是速率 1400以下是增稳
-    if (channel_5_pwm > 1600) {
-      currentMode = MANUAL_MODE;
-    } else {
-      currentMode =
-          (channel_5_pwm < 1400) ? STABILIZE_MODE : STABLIZE_MODE_NO_I;
+      // 1600以上是手动  1400-1600是速率 1400以下是增稳
+      if (channel_5_pwm > 1600)
+      {
+        currentMode = MANUAL_MODE;
+      }
+      else
+      {
+        currentMode =
+            (channel_5_pwm < 1400) ? STABILIZE_MODE : STABLIZE_MODE_NO_I;
+      }
+
+      if (currentMode != lastMode)
+      {
+        ModeChange = 1;
+      }
+      else
+      {
+        ModeChange = 0;
+      }
+      lastMode = currentMode;
     }
-
-    if (currentMode != lastMode) {
-      ModeChange = 1;
-    } else {
-      ModeChange = 0;
-    }
-    lastMode = currentMode;
   }
-} else {
+  else
   {
-    receiveCommandData();
-    if (int_is_valid) {
-      currentMode = STABILIZE_MODE;
-    } else {
-      currentMode = STABLIZE_MODE_NO_I;
-    }
-    if (force_manual) {
-      currentMode = MANUAL_MODE;
-    }
-    if (currentMode != lastMode) {
-      ModeChange = 1;
-    } else {
-      ModeChange = 0;
-    }
-    lastMode = currentMode;
+    {
+      receiveCommandData();
+      if (int_is_valid)
+      {
+        currentMode = STABILIZE_MODE;
+      }
+      else
+      {
+        currentMode = STABLIZE_MODE_NO_I;
+      }
+      if (force_manual)
+      {
+        currentMode = MANUAL_MODE;
+      }
+      if (currentMode != lastMode)
+      {
+        ModeChange = 1;
+      }
+      else
+      {
+        ModeChange = 0;
+      }
+      lastMode = currentMode;
 
-    thro_des = 0;
-    roll_des = 0;
-    pitch_des_local = Local_pitch_des;
-    // USBSerial.println(pitch_des_local);
-    yaw_des = 0;
+      thro_des = 0;
+      roll_des = 0;
+      pitch_des_local = Local_pitch_des;
+      // USBSerial.println(pitch_des_local);
+      yaw_des = 0;
+    }
   }
-}
 }
 
 // 单环控制：滚转、俯仰使用角度误差，偏航使用陀螺仪角速度误差。
@@ -1043,7 +1107,8 @@ if ((aircraftId() == 1)) {
 // }
 
 // 用当前滚转角速度生成等效滚转阻尼补偿，并换算为副翼 PWM 修正量。
-void increase_Clp() {
+void increase_Clp()
+{
   float GyroX;
 #if defined EXTIMU
   GyroX = Gyro_X_EXT;
@@ -1059,7 +1124,8 @@ void increase_Clp() {
 }
 
 // 串级姿态控制：外环产生角速度目标，内环 PID 生成舵面控制量。
-void controlANGLE2() {
+void controlANGLE2()
+{
   // 串级姿态控制：外环角度误差生成角速度期望，内环跟踪角速度。
   float GyroZ;
   float GyroY;
@@ -1094,55 +1160,66 @@ void controlANGLE2() {
 
   // 外环：角度误差生成角速度期望。
   float roll_des_ol, pitch_des_ol;
-// 滚转通道。
-if (aircraftIsSingle()) {
-  roll_eq = roll_IMU;
-} else {
+  // 滚转通道。
+  if (aircraftIsSingle())
+  {
+    roll_eq = roll_IMU;
+  }
+  else
+  {
 
-  float phiA, phiB, phiC, phiD, phiE, phiF, phiG;
+    float phiA, phiB, phiC, phiD, phiE, phiF, phiG;
 
-  // 直接测量的方式
-  phiA = roll_IMU / 57.3;
-  phiB = phiB_raw / 57.3;
-  phiC = phiC_raw / 57.3;
-  phiD = phiD_raw / 57.3;
-  phiE = phiE_raw / 57.3;
-  phiF = phiF_raw / 57.3;
-  phiG = phiG_raw / 57.3;
+    // 直接测量的方式
+    phiA = roll_IMU / 57.3;
+    phiB = phiB_raw / 57.3;
+    phiC = phiC_raw / 57.3;
+    phiD = phiD_raw / 57.3;
+    phiE = phiE_raw / 57.3;
+    phiF = phiF_raw / 57.3;
+    phiG = phiG_raw / 57.3;
 
-
-// roll_eq=(roll_IMU+roll_IMU+relativeAngle_ready)/2.0; //2机等效姿态
-if ((aircraftCount() == 3)) {
-  roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC)) /
-                 (cos(phiA) + cos(phiB) + cos(phiC))) *
-            57.3; // 3机等效姿态
-} else if ((aircraftCount() == 4)) {
-  roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD)) /
-                 (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD))) *
-            57.3; // 4机等效姿态
-} else if ((aircraftCount() == 5)) {
-  roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD) + sin(phiE)) /
-                 (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD) + cos(phiE))) *
-            57.3; // 5机等效姿态
-} else if ((aircraftCount() == 7)) {
-  roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD) + sin(phiE) +
-                  sin(phiF) + sin(phiG)) /
-                 (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD) + cos(phiE) +
-                  cos(phiF) + cos(phiG))) *
-            57.3; // 7机等效姿态
-}
-}
+    // roll_eq=(roll_IMU+roll_IMU+relativeAngle_ready)/2.0; //2机等效姿态
+    if ((aircraftCount() == 3))
+    {
+      roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC)) /
+                     (cos(phiA) + cos(phiB) + cos(phiC))) *
+                57.3; // 3机等效姿态
+    }
+    else if ((aircraftCount() == 4))
+    {
+      roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD)) /
+                     (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD))) *
+                57.3; // 4机等效姿态
+    }
+    else if ((aircraftCount() == 5))
+    {
+      roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD) + sin(phiE)) /
+                     (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD) + cos(phiE))) *
+                57.3; // 5机等效姿态
+    }
+    else if ((aircraftCount() == 7))
+    {
+      roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD) + sin(phiE) +
+                      sin(phiF) + sin(phiG)) /
+                     (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD) + cos(phiE) +
+                      cos(phiF) + cos(phiG))) *
+                57.3; // 7机等效姿态
+    }
+  }
 
   error_roll = roll_des - roll_eq;
   integral_roll_ol = integral_roll_prev_ol + error_roll * dt; // I
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_roll_ol = 0;
   }
   integral_roll_ol =
       constrain(integral_roll_ol, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
-  if (ModeChange == 1) {
+  if (ModeChange == 1)
+  {
     integral_roll_ol = 0;
   }
   derivative_roll = (roll_IMU - roll_IMU_prev) / dt;
@@ -1153,29 +1230,36 @@ if ((aircraftCount() == 3)) {
   // 俯仰通道。
   // USBSerial.println(pitch_des_local);
 
-if ((aircraftId() == 1)) {
+  if ((aircraftId() == 1))
+  {
 
-if ((aircraftCount() % 2 == 0)) {
-  error_pitch = pitch_des_local + central_pitch - pitch_IMU;
-} else if ((aircraftCount() % 2 != 0)) {
-  error_pitch = pitch_des_local - pitch_IMU;
-}
-
-} else {
-  error_pitch = pitch_des_local - pitch_IMU;
-}
+    if ((aircraftCount() % 2 == 0))
+    {
+      error_pitch = pitch_des_local + central_pitch - pitch_IMU;
+    }
+    else if ((aircraftCount() % 2 != 0))
+    {
+      error_pitch = pitch_des_local - pitch_IMU;
+    }
+  }
+  else
+  {
+    error_pitch = pitch_des_local - pitch_IMU;
+  }
 
   // USBSerial.println(error_pitch);
   // error_pitch = pitch_des_local - pitch_IMU;
   integral_pitch_ol = integral_pitch_prev_ol + error_pitch * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_pitch_ol = 0;
   }
   integral_pitch_ol =
       constrain(integral_pitch_ol, -i_limit,
                 i_limit); // saturate integrator to prevent unsafe buildup
-  if (ModeChange == 1) {
+  if (ModeChange == 1)
+  {
     integral_pitch_ol = 0;
   }
   derivative_pitch = (pitch_IMU - pitch_IMU_prev) / dt;
@@ -1198,34 +1282,46 @@ if ((aircraftCount() % 2 == 0)) {
   // 内环：角速度误差 PID。
   // 滚转通道。
   float Rollrate;
-if (aircraftIsSingle()) {
-  Rollrate = GyroX;
-} else {
-// 历史方案：可将相邻机体角速度用于等效滚转角速度估计。
-if ((aircraftCount() == 3)) {
-  Rollrate = (GYRO_X_B + GYRO_X_C + GyroX) / 3.0;
-} else if ((aircraftCount() == 4)) {
-  Rollrate = (GYRO_X_B + GYRO_X_C + GYRO_X_D + GyroX) / 4.0;
-} else if ((aircraftCount() == 5)) {
-  Rollrate = (GYRO_X_B + GYRO_X_C + GYRO_X_D + GYRO_X_E + GyroX) / 5.0;
-} else if ((aircraftCount() == 7)) {
-  Rollrate = (GYRO_X_B + GYRO_X_C + GYRO_X_D + GYRO_X_E + GYRO_X_F + GYRO_X_G +
-              GyroX) /
-             7.0; // 7机等效滚转角速度
-}
-}
+  if (aircraftIsSingle())
+  {
+    Rollrate = GyroX;
+  }
+  else
+  {
+    // 历史方案：可将相邻机体角速度用于等效滚转角速度估计。
+    if ((aircraftCount() == 3))
+    {
+      Rollrate = (GYRO_X_B + GYRO_X_C + GyroX) / 3.0;
+    }
+    else if ((aircraftCount() == 4))
+    {
+      Rollrate = (GYRO_X_B + GYRO_X_C + GYRO_X_D + GyroX) / 4.0;
+    }
+    else if ((aircraftCount() == 5))
+    {
+      Rollrate = (GYRO_X_B + GYRO_X_C + GYRO_X_D + GYRO_X_E + GyroX) / 5.0;
+    }
+    else if ((aircraftCount() == 7))
+    {
+      Rollrate = (GYRO_X_B + GYRO_X_C + GYRO_X_D + GYRO_X_E + GYRO_X_F + GYRO_X_G +
+                  GyroX) /
+                 7.0; // 7机等效滚转角速度
+    }
+  }
   // USBSerial.println(Rollrate);
 
   error_roll = roll_des_ol - Rollrate;
   integral_roll_il = integral_roll_prev_il + error_roll * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_roll_il = 0;
   }
   integral_roll_il =
       constrain(integral_roll_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
-  if (ModeChange == 1) {
+  if (ModeChange == 1)
+  {
     integral_roll_il = 0;
   }
   derivative_roll = (error_roll - error_roll_prev) / dt;
@@ -1241,24 +1337,33 @@ if ((aircraftCount() == 3)) {
   roll_PID_lpf = roll_PID_lpf + alpha_roll_pid * (roll_PID - roll_PID_lpf);
 
   // 指令的变化率
-  if (!roll_pid_dot_initialized) {
+  if (!roll_pid_dot_initialized)
+  {
     roll_PID_prev = roll_PID;
     roll_PID_dot = 0.0f;
     roll_PID_dot_lpf = 0.0f;
     roll_pid_dot_initialized = true;
-  } else {
-    if (dt > 1.0e-6f) {
+  }
+  else
+  {
+    if (dt > 1.0e-6f)
+    {
       roll_PID_dot = (roll_PID - roll_PID_prev) / dt;
-    } else {
+    }
+    else
+    {
       roll_PID_dot = 0.0f;
     }
 
-    if (roll_pid_dot_lpf_fc > 0.0f && dt > 1.0e-6f) {
+    if (roll_pid_dot_lpf_fc > 0.0f && dt > 1.0e-6f)
+    {
       float tau_dot = 1.0f / (6.28f * roll_pid_dot_lpf_fc);
       float alpha_dot = dt / (tau_dot + dt);
       roll_PID_dot_lpf =
           roll_PID_dot_lpf + alpha_dot * (roll_PID_dot - roll_PID_dot_lpf);
-    } else {
+    }
+    else
+    {
       roll_PID_dot_lpf = roll_PID_dot;
     }
     roll_PID_prev = roll_PID;
@@ -1270,13 +1375,15 @@ if ((aircraftCount() == 3)) {
   error_pitch = pitch_des_ol - GyroY;
   integral_pitch_il = integral_pitch_prev_il + error_pitch * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_pitch_il = 0;
   }
   integral_pitch_il =
       constrain(integral_pitch_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
-  if (ModeChange == 1) {
+  if (ModeChange == 1)
+  {
     integral_pitch_il = 0;
   }
   derivative_pitch = (error_pitch - error_pitch_prev) / dt;
@@ -1294,13 +1401,15 @@ if ((aircraftCount() == 3)) {
       GyroZ;
   integral_yaw = integral_yaw_prev + error_yaw * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_yaw = 0;
   }
   integral_yaw =
       constrain(integral_yaw, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
-  if (ModeChange == 1) {
+  if (ModeChange == 1)
+  {
     integral_yaw = 0;
   }
   derivative_yaw = (error_yaw - error_yaw_prev) / dt;
@@ -1416,7 +1525,8 @@ if ((aircraftCount() == 3)) {
 
 // 使用俯仰角速度、角加速度和升降舵舵效计算 INDI 升降舵指令。
 // 返回值为经限幅后的 PWM 微秒数；函数维护独立滤波与舵机估计状态。
-int PITCH_INDI_control() {
+int PITCH_INDI_control()
+{
   // 1. 读取当前俯仰角速度原始值。
   // 这里先只统一到当前工程已经在用的角速度定义，不改变原有轴系约定。
   float GyroY_raw;
@@ -1446,7 +1556,8 @@ int PITCH_INDI_control() {
   // 3. 如果线性映射或舵效系数还没有填写，直接返回一个安全中位 PWM。
   // 这里是保护逻辑，避免参数未填完时函数输出发散。
   if (fabsf(indi_pitch_pwm_to_deg_k) < 1.0e-6f ||
-      fabsf(indi_pitch_effectiveness) < 1.0e-6f) {
+      fabsf(indi_pitch_effectiveness) < 1.0e-6f)
+  {
     indi_pitch_q_des_log = 0.0f;
     indi_pitch_q_filt_log = 0.0f;
     indi_pitch_dq_des_log = 0.0f;
@@ -1468,9 +1579,11 @@ int PITCH_INDI_control() {
   // - 初始化独立滤波器的内部状态
   // - 初始化纯延迟队列
   // - 初始化实际舵偏估计值和上一次指令值
-  if (!indi_initialized) {
+  if (!indi_initialized)
+  {
     gyroFiltYIndi.reset(GyroY_raw);
-    for (int i = 0; i < queue_len; i++) {
+    for (int i = 0; i < queue_len; i++)
+    {
       delayed_pwm_queue[i] = pwm_trim_center;
     }
     delta_e_est_deg = delta_e_trim_deg;
@@ -1487,25 +1600,33 @@ int PITCH_INDI_control() {
 
   float pitch_des_local_rate_raw;
   static bool pitch_des_local_rate_lpf_initialized = false;
-  if (dt > 1.0e-6f) {
+  if (dt > 1.0e-6f)
+  {
     pitch_des_local_rate_raw = (pitch_des_local - pitch_des_local_last) / dt;
-  } else {
+  }
+  else
+  {
     pitch_des_local_rate_raw = 0.0f;
   }
   pitch_des_local_last = pitch_des_local;
   pitch_des_local_rate_raw = constrain(pitch_des_local_rate_raw, -10.0, 10.0);
 
-  if (!pitch_des_local_rate_lpf_initialized) {
+  if (!pitch_des_local_rate_lpf_initialized)
+  {
     pitch_des_local_rate = pitch_des_local_rate_raw;
     pitch_des_local_rate_lpf_initialized = true;
-  } else if (pitch_des_local_rate_lpf_fc > 0.0f && dt > 1.0e-6f) {
+  }
+  else if (pitch_des_local_rate_lpf_fc > 0.0f && dt > 1.0e-6f)
+  {
     float tau_pitch_des_rate =
         1.0f / (6.28318530718f * pitch_des_local_rate_lpf_fc);
     float alpha_pitch_des_rate = dt / (tau_pitch_des_rate + dt);
     pitch_des_local_rate = pitch_des_local_rate +
                            alpha_pitch_des_rate * (pitch_des_local_rate_raw -
                                                    pitch_des_local_rate);
-  } else {
+  }
+  else
+  {
     pitch_des_local_rate = pitch_des_local_rate_raw;
   }
 
@@ -1546,7 +1667,8 @@ int PITCH_INDI_control() {
   // 12. 对最终输出舵偏指令再做一阶低通。
   // 这一步压的是“打给舵机的命令带宽”，不是状态反馈带宽。
   // 这样可以减少 INDI 因 dq 噪声带来的高频抖舵。
-  if (indi_pitch_cmd_lpf_fc_hz > 0.0f && dt > 1.0e-6f) {
+  if (indi_pitch_cmd_lpf_fc_hz > 0.0f && dt > 1.0e-6f)
+  {
     float tau_cmd = 1.0f / (6.28318530718f * indi_pitch_cmd_lpf_fc_hz);
     float alpha_cmd = dt / (tau_cmd + dt);
     delta_e_cmd_deg = delta_e_cmd_lpf_prev_deg +
@@ -1571,14 +1693,16 @@ int PITCH_INDI_control() {
 
   // 15. 将你测到的 0.03s 舵机纯延迟，离散成若干个采样周期。
   int delay_samples = 0;
-  if (dt > 1.0e-6f) {
+  if (dt > 1.0e-6f)
+  {
     delay_samples = (int)(indi_pitch_servo_delay_s / dt + 0.5f);
   }
   delay_samples = constrain(delay_samples, 0, queue_len - 1);
 
   // 16. 从延迟队列中取出“经过纯延迟后才真正进入舵机的一条 PWM 命令”。
   int delayed_index = queue_head - 1 - delay_samples;
-  if (delayed_index < 0) {
+  if (delayed_index < 0)
+  {
     delayed_index += queue_len;
   }
   float pwm_delayed = delayed_pwm_queue[delayed_index];
@@ -1588,9 +1712,12 @@ int PITCH_INDI_control() {
   // 17. 用一阶舵机动态模型更新“当前实际舵偏估计值”。
   // 这就是你测到的 tau = 0.015s 所对应的执行器模型。
   float tau = indi_pitch_servo_tau_s;
-  if (tau < 1.0e-4f) {
+  if (tau < 1.0e-4f)
+  {
     delta_e_est_deg = delta_e_delayed_deg;
-  } else {
+  }
+  else
+  {
     float alpha_servo = dt / (tau + dt);
     delta_e_est_deg += alpha_servo * (delta_e_delayed_deg - delta_e_est_deg);
   }
@@ -1611,7 +1738,8 @@ int PITCH_INDI_control() {
 }
 
 // 检测遥控 PWM 是否越过设定范围；任一通道异常时回退到安全值。
-void failSafe() {
+void failSafe()
+{
   // 任一遥控通道超出 800～2200 μs 时，将全部通道置为预设安全值。
   unsigned minVal = 800;
   unsigned maxVal = 2200;
@@ -1646,7 +1774,8 @@ void failSafe() {
 
   // 任一通道异常时，全部通道恢复为预设安全值。
   if ((check1 + check2 + check3 + check4 + check5 + check6 + check7 + check8) >
-      0) {
+      0)
+  {
     channel_1_pwm = channel_1_fs;
     channel_2_pwm = channel_2_fs;
     channel_3_pwm = channel_3_fs;
@@ -1668,7 +1797,8 @@ void armMotors() {}
 void calibrateESCs() {}
 
 // 交换滚转和偏航期望值，并按输入的 1 或 -1 决定各轴方向。
-void switchRollYaw(int reverseRoll, int reverseYaw) {
+void switchRollYaw(int reverseRoll, int reverseYaw)
+{
   // 交换滚转和偏航期望值，并分别按输入符号（1 或 -1）决定方向。
   float switch_holder;
 
@@ -1680,9 +1810,9 @@ void switchRollYaw(int reverseRoll, int reverseYaw) {
 // 预留的油门切断接口；当前函数体为空。
 void throttleCut() {}
 
-
 // 按机间相对角与角速度误差计算六个构型通道的控制量。
-void controlFlapMotion() {
+void controlFlapMotion()
+{
   // 根据相邻机体角度误差和角速度误差计算襟翼构型控制量。
   float GyroX;
 #if defined USE_MPU6050_I2C
@@ -1697,7 +1827,6 @@ void controlFlapMotion() {
 #endif
 
   Phiab_Mea = phiB_raw - roll_IMU; //
-  // Phiab_Mea=rollAB_rad_Qua;
   Phiac_Mea = phiC_raw - roll_IMU; //
   Phibd_Mea = phiD_raw - phiB_raw;
   Phice_Mea = phiE_raw - phiC_raw;
@@ -1760,7 +1889,8 @@ void controlFlapMotion() {
   error_Phiab_RATE = Phiab_des_ol - Pab;
   integral_Phiab_RATE_il = integral_Phiab_RATE_prev_il + error_Phiab_RATE * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_Phiab_RATE_il = 0;
   }
   integral_Phiab_RATE_il =
@@ -1776,7 +1906,8 @@ void controlFlapMotion() {
   error_Phiac_RATE = Phiac_des_ol - Pac;
   integral_Phiac_RATE_il = integral_Phiac_RATE_prev_il + error_Phiac_RATE * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_Phiac_RATE_il = 0;
   }
   integral_Phiac_RATE_il =
@@ -1792,7 +1923,8 @@ void controlFlapMotion() {
   error_Phibd_RATE = Phibd_des_ol - Pbd;
   integral_Phibd_RATE_il = integral_Phibd_RATE_prev_il + error_Phibd_RATE * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_Phibd_RATE_il = 0;
   }
   integral_Phibd_RATE_il =
@@ -1808,7 +1940,8 @@ void controlFlapMotion() {
   error_Phice_RATE = Phice_des_ol - Pce;
   integral_Phice_RATE_il = integral_Phice_RATE_prev_il + error_Phice_RATE * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_Phice_RATE_il = 0;
   }
   integral_Phice_RATE_il =
@@ -1824,7 +1957,8 @@ void controlFlapMotion() {
   error_Phidf_RATE = Phidf_des_ol - Pdf;
   integral_Phidf_RATE_il = integral_Phidf_RATE_prev_il + error_Phidf_RATE * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_Phice_RATE_il = 0;
   }
   integral_Phidf_RATE_il =
@@ -1840,7 +1974,8 @@ void controlFlapMotion() {
   error_Phieg_RATE = Phieg_des_ol - Peg;
   integral_Phieg_RATE_il = integral_Phieg_RATE_prev_il + error_Phieg_RATE * dt;
   if (channel_1_pwm <
-      1060) { // 通道 1 低于阈值时清零积分项。
+      1060)
+  { // 通道 1 低于阈值时清零积分项。
     integral_Phieg_RATE_il = 0;
   }
   integral_Phieg_RATE_il =
@@ -1869,7 +2004,8 @@ void controlFlapMotion() {
 }
 
 // 上电时把遥控通道 1～6 初始化为预设安全 PWM。
-void initializeRadioFailsafeChannels() {
+void initializeRadioFailsafeChannels()
+{
   channel_1_pwm = channel_1_fs;
   channel_2_pwm = channel_2_fs;
   channel_3_pwm = channel_3_fs;
@@ -1879,7 +2015,8 @@ void initializeRadioFailsafeChannels() {
 }
 
 // 根据当前模式选择带积分增稳、无积分增稳或手动，并更新模式标志和指示灯。
-void runSelectedControlMode() {
+void runSelectedControlMode()
+{
   if (currentMode == STABILIZE_MODE) // 增稳
   {
     i_valid = 1.0;
@@ -1887,16 +2024,21 @@ void runSelectedControlMode() {
     force_manual = false;
     controlANGLE2(); // 使用串级角度控制器；内环角速度增益需先完成整定。
     displayFlightModeIndicators(currentMode);
-    if (!aircraftIsSingle()) controlFlapMotion();
-  } else if (currentMode == STABLIZE_MODE_NO_I) // 增稳
+    if (!aircraftIsSingle())
+      controlFlapMotion();
+  }
+  else if (currentMode == STABLIZE_MODE_NO_I) // 增稳
   {
     int_is_valid = false;
     force_manual = false;
     i_valid = 0.0;
-    controlANGLE2();        // 使用无积分的角度增稳模式。
+    controlANGLE2(); // 使用无积分的角度增稳模式。
     displayFlightModeIndicators(currentMode);
-    if (!aircraftIsSingle()) controlFlapMotion();
-  } else if (currentMode == MANUAL_MODE) {
+    if (!aircraftIsSingle())
+      controlFlapMotion();
+  }
+  else if (currentMode == MANUAL_MODE)
+  {
     force_manual = true;
     displayFlightModeIndicators(currentMode);
     Phiab_PID = 0.0;
@@ -1906,5 +2048,4 @@ void runSelectedControlMode() {
     Phidf_PID = 0.0;
     Phieg_PID = 0.0;
   }
-
 }

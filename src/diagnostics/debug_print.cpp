@@ -1,8 +1,8 @@
-#include "communication/serial_ports.h"
+#include "config/serial_config.h"
 #include "diagnostics/debug_print.h"
 #include "control/control_state.h"
 #include "system/flight_clock.h"
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
 
 // 所有调试打印共用一个节流时间戳；同一周期调用多个打印函数时可能只输出第一个。

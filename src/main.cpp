@@ -10,12 +10,12 @@
 #include "diagnostics/firmware_debug.h"
 #include "system/flight_clock.h"
 #include "interface/human_interface.h"
-#include "communication/interaircraft_comm.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include "logging/logger.h"
 #include "parameters/parameter_service.h"
-#include "communication/radio_comm.h"
+#include "radio_comm/radio_comm.h"
 #include "sensors/sensor_processing.h"
-#include "communication/telemetry.h"
+#include "telemetry/telemetry.h"
 #include <Arduino.h>
 
 // 按通信、人机界面、传感器、执行器和控制器的依赖顺序完成上电初始化。

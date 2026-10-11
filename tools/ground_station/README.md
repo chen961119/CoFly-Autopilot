@@ -79,7 +79,7 @@ CAPS/DATA 返回 TSV 的 `key=value` 字段，定义见 `station_protocol.py`。
 
 校准目标：IMU/GYRO/ACCEL、启用时的 EXTIMU、AIRSPEED、ROTATE。SENSOR_SET 接收单个 ASCII 设置标识，界面暂提供 DEFAULT。模式标识 MANUAL/STABILIZE_NO_I/STABILIZE 对应现有三种模式。
 
-校准、设置、遥控器校准、模式映射均返回 ERROR / NOT_IMPLEMENTED。接口位于 `src/communication/ground_station_service.h` 与 `src/communication/ground_station_service.cpp`，不修改校准、EEPROM、模式或执行器状态。现有按键/开机校准存在阻塞流程，未直接接到 USB；下一版本通过异步任务、进度、取消与持久化实现接口。
+校准、设置、遥控器校准、模式映射均返回 ERROR / NOT_IMPLEMENTED。接口位于 `src/ground_station_service/ground_station_service.h` 与 `src/ground_station_service/ground_station_service.cpp`，不修改校准、EEPROM、模式或执行器状态。现有按键/开机校准存在阻塞流程，未直接接到 USB；下一版本通过异步任务、进度、取消与持久化实现接口。
 
 参数协议和 SD 恢复见 [参数协议说明](PARAMETER_PROTOCOL.md)。[历史参数板上测试](BOARD_TEST_REPORT.md) 不代表本版地面站已完成板上验证。
 
@@ -88,12 +88,11 @@ CAPS/DATA 返回 TSV 的 `key=value` 字段，定义见 `station_protocol.py`。
 本目录执行 `./build.ps1` 输出 `dist/CoFlyGroundStation.exe`，产物不提交 Git。仓库根目录运行：
 
 ```powershell
-& ./tools/ground_station/.venv/Scripts/python.exe -m unittest discover -s tools/ground_station -p 'test_*.py' -v
 & ./tools/ground_station/.venv/Scripts/python.exe ./tools/ground_station/main.py --self-test
 pio run -e teensy41
 ```
 
-2026-10-11：48 项自动测试通过，涵盖电脑 V8 文本文件校验、EEPROM 排除、USB 导入、部分失败停止、延迟保存确认及异步结果、旧 RAM_ONLY 回复和实时构型。参数服务主机集成测试通过；EEPROM 主备测试通过 686 个写入中断用例。尚未完成本版实板 USB 通信与存储故障验证。
+2026-10-11：48 项自动测试通过，涵盖电脑 V8 文本文件校验、EEPROM 排除、USB 导入、部分失败停止、延迟保存确认及异步结果、旧 RAM_ONLY 回复和实时构型。参数服务主机集成测试通过；EEPROM 主备测试通过 686 个写入中断用例。按项目要求，测试脚本在验证后删除；程序自身的 `--self-test` 窗口启动检查保留。尚未完成本版实板 USB 通信与存储故障验证。
 
 飞机编号/数量现在是 EEPROM 参数，首次设置 `aircraft_count` 和 `aircraft_id` 后重启。参数表显示存储介质；保存重启参数后状态栏提示重启，只读参数禁止编辑。详见 [统一参数与持久存储](../../docs/parameter-storage.md)。无 SD 也可保存 EEPROM 参数。
 

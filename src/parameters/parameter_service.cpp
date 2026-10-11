@@ -1,6 +1,6 @@
 #include "parameters/parameter_service.h"
-#include "communication/ground_station_service.h"
-#include "communication/serial_ports.h"
+#include "ground_station_service/ground_station_service.h"
+#include "config/serial_config.h"
 #include "config/aircraft_config.h"
 #include "parameters/imu_calibration_integrity.h"
 #include "parameters/parameter_eeprom.h"
