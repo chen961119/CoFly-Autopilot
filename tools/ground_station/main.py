@@ -276,7 +276,7 @@ class GroundStation(ParameterConsole):
             idle = self.connected and self.pending is None and self.gcs_pending is None and self.file_import is None
             self.read_button.configure(state="normal" if idle else "disabled")
             self.parameter_read.configure(state="normal" if idle else "disabled")
-            files_ready = idle and bool(self.parameters) and bool(self.parameter_profile)
+            files_ready = idle and bool(self.parameters) and self.parameter_file_version == "COFLY_PARAMS_V8"
             self.parameter_load_file.configure(state="normal" if files_ready else "disabled")
             self.parameter_save_file.configure(state="normal" if files_ready else "disabled")
             self.probe_button.configure(state="normal" if idle else "disabled")
@@ -323,7 +323,8 @@ class GroundStation(ParameterConsole):
             if kind == "ERROR":
                 code = fields[0] if fields else "UNKNOWN"
                 self.status.set("该接口暂未实现，待下一版本开放；飞控状态未修改。" if code == "NOT_IMPLEMENTED" else
-                                "请先锁定飞机，再重启飞控" if code == "LOCK_REQUIRED" else f"固件拒绝地面站请求：{code}")
+                                "请先锁定飞机，再重启飞控" if code == "LOCK_REQUIRED" else
+                                "待保存参数写入失败，已取消重启；请检查存储介质" if code == "SAVE_FAILED" else f"固件拒绝地面站请求：{code}")
                 if pending["verb"] == "CAPS":
                     self.device_label.set("固件不支持地面站协议；参数页仍可使用。请更新固件后重试识别。")
                 elif pending["verb"] == "CONFIG":

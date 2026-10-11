@@ -4,7 +4,7 @@
 
 当前注册 75 项参数，协议和固件服务最多支持 512 项。表格显示类型、范围和存储位置；双击当前值编辑，Enter 提交、Esc 取消。只读状态和生效方式仍保留在协议元数据中。浮点值采用能恢复 float32 的普通十进制，不使用科学计数法；整数拒绝小数、指数形式及 int32 溢出。列标题支持排序。
 
-立即生效参数通过验证后先修改 RAM，再尝试保存到声明介质。无 SD、写入或读回失败时返回 `OK / RAM_ONLY`，内存仍保持新值，地面站显示“未持久保存”；重启后可能恢复旧值。重启生效参数仍必须保存成功才更新待启动值。身份、校准和 EEPROM 参数要求锁定。校准标记由固件管理；手动修改零偏会立即使内存中的校准无效，不能因保存失败继续使用混合校准。超时或连接中断表示结果未确认，需重新读取，不自动重试。
+参数通过验证后先修改 RAM（重启参数修改的是待启动设置），返回 `OK / PENDING`。每种介质最后一次实际变动后等待 2 秒合并保存；相同值不重置计时，改回原值也作为一次 RAM 变动，仍到期保存，不与已保存值比较。身份、校准和 EEPROM 参数要求锁定；重启参数变动立即提示重启并禁止解锁。保存失败保留 RAM 值，每 2 秒重试，通过异步 `STORAGE` 通知结果。手动修改零偏立即使内存校准无效。USB 断开后继续保存；保存前断电可能丢失修改。地面站重启命令先强制保存，失败则拒绝重启。完整 IMU 校准整组更新 RAM 后共用两秒延迟保存；全部校准字段必须位于同一介质。命令超时表示接收结果未确认，需重新读取，不自动重发 SET。
 
 ## 请求与回复
 
@@ -20,43 +20,45 @@ PARAM HELP
 回复中 `\t` 代表实际制表符：
 
 ```text
-@COFLY\t1\tBEGIN\tBOARD-<UID>-TEAM-INDI-EXP\t75\tSD_READY\tLOADED\t57\t18\t0\t1
+@COFLY\t1\tBEGIN\tCOFLY_PARAMS_V8\t75\tSD_READY\tLOADED\t57\t18\t0\t27
 @COFLY\t1\tVALUE\tKp_roll_angle\tfloat\t0.25\t0\t10\tAttitude\tRoll angle P\tSD\tIMMEDIATE\tEDITABLE
 @COFLY\t1\tVALUE\taircraft_id\tint\t0\t0\t7\tAircraft\tIdentity\tEEPROM\tREBOOT\tEDITABLE
 ...其余参数...
 @COFLY\t1\tEND\t75
-@COFLY\t2\tOK\taircraft_count\tint\t7\tSAVED\t1
-@COFLY\t4\tOK\tKp_roll_angle\tfloat\t0.3\tRAM_ONLY\t1
+@COFLY\t2\tOK\taircraft_count\tint\t7\tPENDING
+@COFLY\t4\tOK\tKp_roll_angle\tfloat\t0.3\tPENDING
+@COFLY\t0\tSTORAGE\tEEPROM\tSAVED
+@COFLY\t0\tSTORAGE\tSD\tSAVED
 @COFLY\t3\tERROR\tLOCK_REQUIRED\tLock aircraft before changing identity or calibration
 ```
 
-`BEGIN` 三个统计字段依次为所选 SD 文件的匹配项、未匹配项和跳过旧项，最后一字段是当前 SD 代次，用于电脑端生成相同文件格式；未匹配项可能来自 EEPROM 或默认值，不能把它理解为 EEPROM 是否加载成功。当前介质状态由固件启动日志进一步报告。电脑端兼容旧固件不带代次的回复，此时代次采用 0。
+`BEGIN` 的首字段为固定文件版本 `COFLY_PARAMS_V8`，不再包含板卡或宏配置名称；三个统计字段依次为所选 SD 文件的匹配项、未匹配项和跳过旧项。未匹配项可能来自 EEPROM 或默认值。最后一字段为固件参数名称上限（默认 27），电脑按此上限校验导出名称，不填充字段。SD 和 USB 回复不再携带代次。
 
 `VALUE` 为名称、类型、当前/待启动值、最小值、最大值、分组、说明、`SD|EEPROM`、`IMMEDIATE|REBOOT`、`EDITABLE|READ_ONLY`。电脑端仍支持以前未携带后三项元数据的格式。
 
-`OK` 依次携带名称、类型、当前值、`SAVED|RAM_ONLY` 和当前 SD 代次。`SAVED` 表示声明介质保存并读回校验成功；`RAM_ONLY` 表示立即生效参数已在内存应用，但持久保存未成功。范围、只读和锁定验证失败不修改内存。错误包含 `UNKNOWN_PARAMETER`、`RANGE`、`READ_ONLY`、`LOCK_REQUIRED`、`NO_SD`、`SAVE_FAILED` 等。
+`OK` 依次携带名称、类型、当前值、`SAVED|PENDING`。`PENDING` 表示已接受，相关介质等待合并保存；`SAVED` 表示相关介质没有待保存变动。地面站也兼容旧固件的 `RAM_ONLY`。范围、只读和锁定验证失败不修改内存。错误包含 `UNKNOWN_PARAMETER`、`RANGE`、`READ_ONLY`、`LOCK_REQUIRED`、`NO_SD`、`SAVE_FAILED` 等。异步通知使用请求 ID 0：`@COFLY\t0\tSTORAGE\tSD|EEPROM\tSAVED|FAILED`；其中 `SAVED` 才表示本次合并写入及校验成功，`FAILED` 表示保留待保存状态并在 2 秒后重试。`BEGIN` 的来源状态 `PENDING` 表示仍有待写入参数。
 
 `GCS CONFIG` 返回当前生效的 `aircraft_id` 和 `config_valid`，以及构型数量/姿态。参数页的编号/数量是待启动值，飞行页显示当前生效身份。
 
 ## 文件与运行成本
 
-SD 的 V5 主文件 `params.cfg` 与回退文件 `params_backup.cfg` 仅保存声明在 SD 的条目：
+SD 主文件 `params.cfg`、回退文件 `params_backup.cfg`、EEPROM 槽与电脑文件均使用同一 V8 ASCII/LF 文本容器：
 
 ```text
-COFLY_PARAMS_V5 BOARD-<UID>-TEAM-INDI-EXP
-GEN=1
-COUNT=57
-Kp_roll_angle:float=0.25
-usb_throttle_debug:int=0
-...SD 条目...
+COFLY_PARAMS_V8
+COUNT=2
+gain:float=0.25
+pwm_rev:int=-1
 CRC32=xxxxxxxx
 ```
 
-板卡 UID 与硬件/算法配置限制加载来源。按名称和类型恢复；表重排保留值，改名、类型或范围失配单项回默认值。文件 CRC、缺行或重复名称错误拒绝整份文件。仅支持当前 V5 文件，不导入旧格式。不要手改文件而忽略 CRC。
+记录为 `name:float=value` 或 `name:int=value`，末尾 LF，没有名称补零或持久化 NUL。float32 使用可原样恢复数值的最短普通十进制；头部仅有固定版本和数量，不带 ID、代次、板卡名称及额外完成标记。CRC 尾部 15 字节，覆盖之前全部文本。
 
-EEPROM 为两个 2048 B 槽，每槽 24 B 头部加 2024 B 变长记录，参数记录与 SD 完全相同，共用编码和解析代码；版本、长度、CRC32、代次及最后提交标记保护快照。具体地址和校准保存规则见存储说明。
+名称上限默认 27，每条占用随名称和数值变化，不再有固定偏移。EEPROM 主备槽各 2048 字节，有效文本不超过 2047 字节；SD 文件缓冲 103168 字节，文件须小于该容量，全表最多 512 项。均主数据优先、失败回退备份；写入前备份旧主数据，从备份恢复则直接修复主数据。
 
-参数服务静态预留 512 项缓存，SD 文件缓冲由记录兼容长度自动推导；参数名默认上限 32，可在 `include/parameter_storage_config.h` 配置为 1～128，地面站兼容到 128 字符。主循环直接读取 RAM 变量，不访问持久存储或遍历参数表。USB 每轮最多接收 64 字节或发送一行。保存、CRC、读回校验同步执行，会延长命令所在控制周期；本版尚未真机验证最坏周期。
+电脑导入允许在其他检查通过后确认 CRC 不匹配；固件读取介质仍严格校验 CRC。V7 二进制和其他版本的旧文本不读取，升级后需重新生成文件并设置、校准。详见存储说明。
+
+参数服务静态预留 512 项缓存，SD 文件缓冲由记录兼容长度自动推导；参数名默认上限 27，可在 `src/parameters/parameter_storage_config.h` 配置为 1～128，地面站兼容到 128 字符。控制运算直接读取 RAM 变量；USB 每轮最多接收 64 字节或发送一行。2 秒等待不阻塞主循环；到期保存、CRC、读回校验仍同步执行，会延长该控制周期。本版尚未真机验证最坏周期。
 
 ## 构建与验证
 
@@ -64,7 +66,6 @@ EEPROM 为两个 2048 B 槽，每槽 24 B 头部加 2024 B 变长记录，参数
 
 ```powershell
 & ./tools/ground_station/.venv/Scripts/python.exe -m unittest discover -s tools/ground_station -p 'test_*.py' -v
-./tools/firmware_parameter_tests/run.ps1
 ```
 
-第二条命令需要 MinGW g++，直接编译真实参数服务并注入存储失败，验证立即更新 RAM、失败不回滚和重启参数的保存约束，同时生成真实 SD 格式样本用于电脑端字节比较。详见 [参数服务测试](../firmware_parameter_tests/README.md)。[旧版板上记录](BOARD_TEST_REPORT.md) 不代表本版已完成真机验证。
+自动测试使用本机 socket 模拟飞控，覆盖 V8 文本文件与 CRC、USB 参数导入和失败处理。[旧版板上记录](BOARD_TEST_REPORT.md) 不代表本版已完成真机验证。

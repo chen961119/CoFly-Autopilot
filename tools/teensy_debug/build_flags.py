@@ -5,7 +5,7 @@ Import("env")
 def debug_modules(build_env, node):
     source = node.srcnode().get_abspath().replace("\\", "/")
     project = build_env.subst("$PROJECT_DIR").replace("\\", "/")
-    selected = {project + "/src/main.cpp", project + "/src/actuator_output.cpp"}
+    selected = {project + "/src/main.cpp", project + "/src/actuators/actuator_output.cpp"}
     if source not in selected:
         return node
     flags = [flag for flag in build_env.get("CCFLAGS", [])

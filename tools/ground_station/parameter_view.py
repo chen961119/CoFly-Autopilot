@@ -16,7 +16,7 @@ try:
 except ImportError as exc:
     raise SystemExit("缺少 pySerial。请运行：python -m pip install -r requirements.txt") from exc
 from protocol import ReplyFramer, parameter_from_fields, validate_edit, format_value
-from parameter_file import FILE_LIMIT, CrcMismatchError, encode_sd_file, decode_sd_file
+from parameter_file import FILE_LIMIT, FILE_VERSION, CrcMismatchError, encode_sd_file, decode_sd_file
 
 MAX_PARAMETERS = 512
 
@@ -34,8 +34,8 @@ class ParameterConsole:
         self.request_id = 0
         self.pending = None
         self.parameters = {}
-        self.parameter_profile = None
-        self.parameter_generation = 0
+        self.parameter_file_version = None
+        self.parameter_name_limit = 27
         self.file_import = None
         self.received_parameters = {}
         self.framer = ReplyFramer()
@@ -203,8 +203,8 @@ class ParameterConsole:
 
     def disconnect(self):
         self.file_import = None
-        self.parameter_profile = None
-        self.parameter_generation = 0
+        self.parameter_file_version = None
+        self.parameter_name_limit = 27
         if self.worker:
             self.worker.stop()
             self.worker.join(timeout=0.75)
@@ -363,7 +363,7 @@ class ParameterConsole:
         if self.pending or self.file_import is not None or getattr(self, "gcs_pending", None):
             return
         try:
-            data = encode_sd_file(self.parameters, self.parameter_profile, self.parameter_generation)
+            data = encode_sd_file(self.parameters, self.parameter_name_limit)
             path = filedialog.asksaveasfilename(title="保存 SD 参数到电脑", defaultextension=".cfg",
                                               initialfile="params.cfg", filetypes=[("CoFly 参数", "*.cfg"), ("所有文件", "*.*")])
             if not path:
@@ -374,7 +374,7 @@ class ParameterConsole:
             self.status.set(f"保存电脑文件失败：{exc}")
 
     def load_parameters_from_file(self):
-        if not self.connected or self.pending or self.file_import is not None or not self.parameter_profile or getattr(self, "gcs_pending", None):
+        if not self.connected or self.pending or self.file_import is not None or self.parameter_file_version != FILE_VERSION or getattr(self, "gcs_pending", None):
             self.status.set("请先连接飞控并读取完整参数")
             return
         path = filedialog.askopenfilename(title="从电脑读取 SD 参数并应用到飞控",
@@ -383,16 +383,16 @@ class ParameterConsole:
             return
         try:
             with open(path, "rb") as source:
-                data = source.read(FILE_LIMIT)
+                data = source.read(FILE_LIMIT + 1)
             try:
-                values = decode_sd_file(data, self.parameters, self.parameter_profile)
+                values = decode_sd_file(data, self.parameters)
             except CrcMismatchError:
                 # Validate every parameter before offering to accept a manual edit.
-                values = decode_sd_file(data, self.parameters, self.parameter_profile, allow_crc_mismatch=True)
+                values = decode_sd_file(data, self.parameters, allow_crc_mismatch=True)
                 if not messagebox.askyesno(
                         "参数文件 CRC 不匹配",
                         "文件内容与 CRC 校验值不匹配，可能经过手动编辑，也可能已损坏。\n\n"
-                        "参数名称、类型、范围、完整性及硬件/控制配置检查已通过。\n"
+                        "参数名称、类型、范围、完整性及版本检查已通过。\n"
                         "是否继续通过 USB 将这些参数应用到飞控？\n\n"
                         "此操作不会修改电脑上的原文件；重新保存到文件会生成正确的 CRC。",
                         parent=self.root, default=messagebox.NO):
@@ -402,7 +402,7 @@ class ParameterConsole:
             self.status.set(f"文件导入失败，飞控未修改：{exc}")
             return
         self.file_import = {"queue": deque((name, value) for name, value in values.items() if not self.parameters[name].read_only),
-                            "done": 0, "ram_only": 0, "acked": False}
+                            "done": 0, "ram_only": 0, "pending_save": 0, "acked": False}
         self._next_file_parameter()
 
     def _next_file_parameter(self):
@@ -416,7 +416,7 @@ class ParameterConsole:
             return
         if not importing["queue"]:
             self.file_import = None
-            self.status.set(f"文件导入完成：已确认应用 {importing['done']} 项 SD 参数，其中 {importing['ram_only']} 项仅内存生效、未持久保存；EEPROM 参数未修改")
+            self.status.set(f"文件导入完成：已确认应用 {importing['done']} 项 SD 参数，{importing.get('pending_save', 0)} 项等待合并保存，{importing['ram_only']} 项仅内存生效；最后变动后 2 秒保存")
             self._update_controls()
             return
         name, value = importing["queue"].popleft()
@@ -439,6 +439,14 @@ class ParameterConsole:
 
     def _handle_reply(self, reply):
         request_id, kind, fields = reply
+        if request_id == 0 and kind == "STORAGE" and len(fields) == 2:
+            medium, result = fields
+            if medium in ("SD", "EEPROM") and result in ("SAVED", "FAILED"):
+                message = (f"{medium} 参数已合并保存" if result == "SAVED" else
+                           f"{medium} 参数保存失败，内存值保留；2 秒后重试，重启可能恢复旧值")
+                if not self.pending and self.file_import is None:
+                    self.status.set(message)
+            return
         if not self.pending or request_id != self.pending["id"]:
             return
         try:
@@ -457,16 +465,16 @@ class ParameterConsole:
                     count = int(fields[1])
                     if not 0 < count <= MAX_PARAMETERS:
                         raise ValueError("参数数量无效")
-                    self.pending.update(count=count, profile=fields[0], storage=fields[2], source=fields[3])
+                    self.pending.update(count=count, file_version=fields[0], storage=fields[2], source=fields[3])
                     if len(fields) >= 7:
                         matched, defaults_used, skipped = map(int, fields[4:7])
                         if min(matched, defaults_used, skipped) < 0 or matched + defaults_used != count:
                             raise ValueError("参数迁移统计无效")
                         self.pending["migration_stats"] = (matched, defaults_used, skipped)
-                    generation = int(fields[7]) if len(fields) == 8 else 0
-                    if not 0 <= generation <= 0xffffffff:
-                        raise ValueError("SD 代次无效")
-                    self.pending["generation"] = generation
+                    name_limit = int(fields[7]) if len(fields) == 8 else 27
+                    if not 1 <= name_limit <= 128:
+                        raise ValueError("参数名称字段宽度无效")
+                    self.pending["name_limit"] = name_limit
                     self.received_parameters.clear()
                 elif kind == "VALUE" and self.pending["count"] is not None:
                     parameter = parameter_from_fields(fields)
@@ -479,34 +487,30 @@ class ParameterConsole:
                             len(self.received_parameters) != self.pending["count"]):
                         raise ValueError("参数响应不完整，请重新读取")
                     self.parameters = dict(self.received_parameters)
-                    self.parameter_profile = self.pending["profile"]
-                    self.parameter_generation = self.pending["generation"]
+                    self.parameter_file_version = self.pending["file_version"]
+                    self.parameter_name_limit = self.pending["name_limit"]
                     self._render_table()
                     pending = self.pending
                     storage = "SD 就绪" if pending["storage"] == "SD_READY" else "SD 不可用"
                     source = {"LOADED": "从持久参数加载", "SAVED": "已保存", "DEFAULTS": "源码默认值",
+                              "PENDING": "参数已修改，等待合并保存",
                               "MIGRATED": "已迁移到新参数表", "MIGRATION_PENDING": "已加载旧值，SD 迁移待完成"}.get(
                         pending["source"], pending["source"])
                     stats = pending.get("migration_stats")
-                    details = ((f" · SD 匹配 {stats[0]} / 其余 EEPROM 或默认 {stats[1]} / 跳过旧项 {stats[2]}" if pending["profile"].startswith("BOARD-") else f" · 开机匹配 {stats[0]} / 默认 {stats[1]} / 跳过旧项 {stats[2]}")
+                    details = (f" · SD 匹配 {stats[0]} / 其余 EEPROM 或默认 {stats[1]} / 跳过旧项 {stats[2]}"
                                if stats and (stats[1] or stats[2]) else "")
-                    self._finish_request(f"已读取 {len(self.parameters)} 项 · {pending['profile']} · {storage} · {source}{details}")
-            elif kind == "OK" and len(fields) in (3, 4, 5):
+                    self._finish_request(f"已读取 {len(self.parameters)} 项 · {storage} · {source}{details}")
+            elif kind == "OK" and len(fields) in (3, 4):
                 if len(fields) >= 4:
                     name, dtype, text, saved = fields[:4]
                     if dtype != self.parameters[name].dtype:
                         raise ValueError("写入确认的类型不匹配")
                 else:
                     name, text, saved = fields
-                if name != self.pending["name"] or saved not in ("SAVED", "RAM_ONLY"):
+                if name != self.pending["name"] or saved not in ("SAVED", "RAM_ONLY", "PENDING"):
                     raise ValueError("写入确认内容不匹配")
                 if saved == "RAM_ONLY" and self.parameters[name].effect != "IMMEDIATE":
                     raise ValueError("重启参数不能仅修改内存")
-                if len(fields) == 5:
-                    generation = int(fields[4])
-                    if not 0 <= generation <= 0xffffffff:
-                        raise ValueError("SD 代次无效")
-                    self.parameter_generation = generation
                 value = validate_edit(self.parameters[name], text)
                 self.parameters[name] = replace(self.parameters[name], value=value)
                 self._render_table()
@@ -514,8 +518,11 @@ class ParameterConsole:
                 if self.file_import is not None:
                     self.file_import["done"] += 1
                     self.file_import["ram_only"] += saved == "RAM_ONLY"
+                    self.file_import["pending_save"] = self.file_import.get("pending_save", 0) + (saved == "PENDING")
                     self.file_import["acked"] = True
-                outcome = f"已保存 {self.parameters[name].storage}" if saved == "SAVED" else "内存已生效，未持久保存；重启可能恢复旧值"
+                outcome = {"SAVED": f"{self.parameters[name].storage} 无待保存变动",
+                           "PENDING": f"等待合并保存到 {self.parameters[name].storage}（最后变动后 2 秒）",
+                           "RAM_ONLY": "内存已生效，未持久保存；重启可能恢复旧值"}[saved]
                 self._finish_request(f"{name} = {format_value(value, self.parameters[name].dtype)}，{outcome}" + ("；重启后生效" if self.parameters[name].effect == "REBOOT" else ""))
         except (ValueError, KeyError) as exc:
             self._finish_request(f"响应错误：{exc}")

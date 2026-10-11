@@ -15,12 +15,12 @@ CoFly 表达协同飞行，Autopilot 明确飞控定位；项目名称不限定�
 
 当前实现是基于 Teensy 4.1、Arduino/Teensyduino 和 PlatformIO 的飞控固件，由 dRehmFlight 演化而来。它支持 A–G 节点的主从级联通信、姿态与构型控制、本机俯仰 INDI、执行器输出、SD 日志及 USB 参数配置。
 
-串联构型可扩展至 `F-D-B-A-C-E-G`，当前编译配置为 A 主机、三机组合。项目面向多种协同飞行场景；通用编队控制属于扩展方向，现有七机混控也尚未接入源码中保留的五体动态分配器。实现边界见 [架构说明](docs/architecture.md)。
+串联构型可扩展至 `F-D-B-A-C-E-G`，飞机身份和机数通过参数配置，也支持单机运行。项目面向多种协同飞行场景；通用编队控制属于扩展方向，现有七机混控也尚未接入源码中保留的五体动态分配器。实现边界见 [架构说明](docs/architecture.md)。
 
 ## 快速开始
 
 1. 安装 PlatformIO Core，或在 VS Code 中安装 PlatformIO IDE，并确保终端可以运行 `pio`。
-2. 在 [flight_config.h](include/flight_config.h) 中确认目标机体、组合规模、IMU 和控制模式。给其他节点烧录前必须修改身份宏并重新构建。
+2. 在 [flight_config.h](src/config/flight_config.h) 中确认 IMU 和控制模式。飞机身份与组合数量通过地面站参数页设置，修改后重启生效，同一硬件配置的 A～G 节点共用固件。参数维护入口见[参数模块](src/parameters/README.md)。
 3. 在仓库根目录构建：
 
 ```sh
@@ -48,8 +48,18 @@ pio device monitor -e teensy41
 
 ```text
 CoFly-Autopilot/
-├── src/                      # 飞控实现与主循环
-├── include/                  # 配置、模块接口与共享类型
+├── src/                      # 主循环及各模块的头文件与实现
+│   ├── config/               # 固件配置与飞机身份
+│   ├── control/              # 控制模式、分配与运行状态
+│   ├── sensors/              # 传感器、滤波与姿态估计
+│   ├── actuators/            # 执行器输出与 PWM 限制
+│   ├── communication/        # 串口映射、遥控、级联与地面站通讯
+│   ├── system/               # 时钟、锁定与重启
+│   ├── diagnostics/          # 诊断输出与固件调试
+│   ├── interface/            # 按键与 OLED
+│   ├── logging/              # SD 日志
+│   ├── math/                 # 数学工具
+│   └── parameters/           # 参数声明、注册、编解码、存储与 USB 服务
 ├── lib/                      # 随仓库保存的驱动和依赖库
 ├── tools/
 │   ├── flight_data_browser/  # Python 飞行日志读取与分析

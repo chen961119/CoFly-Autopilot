@@ -56,7 +56,7 @@ class MockFlightController:
                     parts = line.decode().split()
                     if parts[:2] == ["PARAM", "READ"]:
                         request_id = parts[2]
-                        reply = (f"普通日志：1111\n@COFLY\t{request_id}\tBEGIN\tF-TEAM-7-INDI-EXP\t1\tSD_READY\tLOADED\n"
+                        reply = (f"普通日志：1111\n@COFLY\t{request_id}\tBEGIN\tCOFLY_PARAMS_V8\t1\tSD_READY\tLOADED\n"
                                  f"@COFLY\t{request_id}\tVALUE\tKp_roll_angle\t{self.value}\t0\t10\tAttitude\tRoll P\n"
                                  f"@COFLY\t{request_id}\tEND\t1\n").encode()
                         # Split inside UTF-8 characters and parameter fields.
@@ -85,15 +85,29 @@ class MockFlightController:
 
 
 class GuiTests(unittest.TestCase):
+    def test_export_uses_name_limit_reported_by_firmware(self):
+        name = "gain" + "x" * 36
+        self.app.pending = {"id": 10, "kind": "READ", "count": None}
+        self.app._handle_reply((10, "BEGIN", ["COFLY_PARAMS_V8", "1", "SD_READY", "LOADED", "1", "0", "0", "48"]))
+        self.app._handle_reply((10, "VALUE", [name, "float", "0.25", "0", "10", "T", "T", "SD", "IMMEDIATE", "EDITABLE"]))
+        self.app._handle_reply((10, "END", ["1"]))
+        self.assertEqual(self.app.parameter_name_limit, 48)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "params.cfg"
+            with patch("parameter_view.filedialog.asksaveasfilename", return_value=str(path)):
+                self.app.save_parameters_to_file()
+            self.assertIn((name + ":float=0.25\n").encode(), path.read_bytes())
+            self.assertEqual(path.read_bytes(), encode_sd_file(self.app.parameters, 48))
+
     def test_edited_file_requires_confirmation_before_usb_write(self):
         self.app.connected = True
         self.app.worker = Mock()
         self.app.parameters = {"gain": Parameter("gain", .25, 0, 10, "T", "T")}
-        self.app.parameter_profile = "BOARD-1234567887654321-TEAM-INDI-EXP"
-        data = encode_sd_file(self.app.parameters, self.app.parameter_profile)
+        self.app.parameter_file_version = "COFLY_PARAMS_V8"
+        data = encode_sd_file(self.app.parameters)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "params.cfg"
-            path.write_bytes(data.replace(b"0.25", b"0.5"))
+            path.write_bytes(data.replace(b"gain:float=0.25", b"gain:float=0.5"))
             with patch("parameter_view.filedialog.askopenfilename", return_value=str(path)), \
                     patch("parameter_view.messagebox.askyesno", return_value=False) as confirm:
                 self.app.load_parameters_from_file()
@@ -107,17 +121,17 @@ class GuiTests(unittest.TestCase):
                 confirm.assert_called_once()
             self.assertEqual(self.app.pending["name"], "gain")
             self.assertIn(b"gain 0.5", self.app.worker.send.call_args.args[0])
-            self.assertEqual(path.read_bytes(), data.replace(b"0.25", b"0.5"))
+            self.assertEqual(path.read_bytes(), data.replace(b"gain:float=0.25", b"gain:float=0.5"))
 
     def test_invalid_edited_file_cannot_be_confirmed_or_sent(self):
         self.app.connected = True
         self.app.worker = Mock()
         self.app.parameters = {"gain": Parameter("gain", .25, 0, 10, "T", "T")}
-        self.app.parameter_profile = "BOARD-1234567887654321-TEAM-INDI-EXP"
-        data = encode_sd_file(self.app.parameters, self.app.parameter_profile)
+        self.app.parameter_file_version = "COFLY_PARAMS_V8"
+        data = encode_sd_file(self.app.parameters)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "params.cfg"
-            path.write_bytes(data.replace(b"0.25", b"11"))
+            path.write_bytes(data.replace(b"gain:float=0.25", b"gain:float=11"))
             with patch("parameter_view.filedialog.askopenfilename", return_value=str(path)), \
                     patch("parameter_view.messagebox.askyesno", return_value=True) as confirm:
                 self.app.load_parameters_from_file()
@@ -131,7 +145,7 @@ class GuiTests(unittest.TestCase):
         self.app.parameters = {name: Parameter(name, .25, 0, 10, "T", "T") for name in ("first", "second", "third")}
         self.app.file_import = {"queue": deque([("second", 2), ("third", 3)]), "done": 0, "ram_only": 0, "acked": False}
         self.app.pending = {"id": 9, "kind": "SET", "name": "first"}
-        self.app._handle_reply((9, "OK", ["first", "float", "1", "RAM_ONLY", "3"]))
+        self.app._handle_reply((9, "OK", ["first", "float", "1", "RAM_ONLY"]))
         self.assertEqual(self.app.pending["name"], "second")
         self.app._handle_reply((self.app.pending["id"], "ERROR", ["LOCK_REQUIRED", "Lock first"]))
         self.assertIsNone(self.app.file_import)
@@ -143,10 +157,35 @@ class GuiTests(unittest.TestCase):
     def test_ram_only_ack_updates_table_without_claiming_saved(self):
         self.app.parameters = {"gain": Parameter("gain", .25, 0, 10, "T", "T")}
         self.app.pending = {"id": 9, "kind": "SET", "name": "gain"}
-        self.app._handle_reply((9, "OK", ["gain", "float", "2", "RAM_ONLY", "7"]))
+        self.app._handle_reply((9, "OK", ["gain", "float", "2", "RAM_ONLY"]))
         self.assertEqual(self.app.parameters["gain"].value, 2)
-        self.assertEqual(self.app.parameter_generation, 7)
         self.assertIn("未持久保存", self.app.status.get())
+
+    def test_pending_reboot_ack_and_storage_notifications(self):
+        self.app.parameters = {"aircraft_id": Parameter("aircraft_id", 1, 0, 7, "A", "A", "int", "EEPROM", "REBOOT")}
+        self.app.pending = {"id": 9, "kind": "SET", "name": "aircraft_id"}
+        self.app._handle_reply((9, "OK", ["aircraft_id", "int", "2", "PENDING"]))
+        self.assertEqual(self.app.parameters["aircraft_id"].value, 2)
+        self.assertIn("等待合并保存", self.app.status.get())
+        self.assertIn("重启后生效", self.app.status.get())
+        self.app._handle_reply((0, "STORAGE", ["EEPROM", "FAILED"]))
+        self.assertIn("2 秒后重试", self.app.status.get())
+        self.app._handle_reply((0, "STORAGE", ["EEPROM", "SAVED"]))
+        self.assertIn("已合并保存", self.app.status.get())
+
+    def test_pending_file_import_continues_until_final_storage_event(self):
+        self.app.connected = True
+        self.app.worker = Mock()
+        self.app.parameters = {name: Parameter(name, .25, 0, 10, "T", "T") for name in ("first", "second")}
+        self.app.file_import = {"queue": deque([("second", 2)]), "done": 0, "ram_only": 0, "acked": False}
+        self.app.pending = {"id": 9, "kind": "SET", "name": "first"}
+        self.app._handle_reply((9, "OK", ["first", "float", "1", "PENDING"]))
+        request_id = self.app.pending["id"]
+        self.app._handle_reply((request_id, "OK", ["second", "float", "2", "PENDING"]))
+        self.assertIsNone(self.app.file_import)
+        self.assertIn("2 项等待合并保存", self.app.status.get())
+        self.app._handle_reply((0, "STORAGE", ["SD", "SAVED"]))
+        self.assertIn("SD 参数已合并保存", self.app.status.get())
 
     def test_local_file_save_and_serial_import_exclude_eeprom(self):
         self.app.port.set(f"socket://127.0.0.1:{self.device.port}")
@@ -156,8 +195,7 @@ class GuiTests(unittest.TestCase):
             "Kp_roll_angle": Parameter("Kp_roll_angle", .35, 0, 10, "T", "T"),
             "aircraft_id": Parameter("aircraft_id", 1, 0, 7, "A", "A", "int", "EEPROM", "REBOOT"),
         }
-        self.app.parameter_profile = "BOARD-1234567887654321-TEAM-INDI-EXP"
-        self.app.parameter_generation = 3
+        self.app.parameter_file_version = "COFLY_PARAMS_V8"
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "params.cfg"
             with patch("parameter_view.filedialog.asksaveasfilename", return_value=str(path)):
@@ -229,7 +267,7 @@ class GuiTests(unittest.TestCase):
         self.wait_for(lambda: self.app.pending is None)
         self.assertEqual(self.device.value, "0.75")
         self.assertEqual(self.app.parameters["Kp_roll_angle"].value, 0.75)
-        self.assertIn("已保存 SD", self.app.status.get())
+        self.assertIn("SD 无待保存变动", self.app.status.get())
 
         self.app.new_value.set("0.9")
         self.app.write_parameter()
@@ -274,7 +312,7 @@ class GuiTests(unittest.TestCase):
         self.app._handle_reply((6, "END", ["2"]))
         self.assertEqual(len(self.app.parameters), 2)
         self.assertIn("已迁移到新参数表", self.app.status.get())
-        self.assertIn("开机匹配 1 / 默认 1 / 跳过旧项 1", self.app.status.get())
+        self.assertIn("SD 匹配 1 / 其余 EEPROM 或默认 1 / 跳过旧项 1", self.app.status.get())
 
     def test_complete_75_and_512_parameter_snapshots(self):
         for count in (75, 512):
@@ -315,7 +353,7 @@ class GuiTests(unittest.TestCase):
         self.app.pending = {"id": 9, "kind": "SET", "name": "p2"}
         self.app._handle_reply((9, "OK", ["p2", "int", "0", "SAVED"]))
         self.assertEqual(self.app.parameters["p2"].value, 0)
-        self.assertIn("已保存", self.app.status.get())
+        self.assertIn("无待保存变动", self.app.status.get())
 
     def test_hex_switch_preserves_raw_bytes_and_text_history(self):
         wire = "中文日志\n".encode() + bytes([0, 255, 10])

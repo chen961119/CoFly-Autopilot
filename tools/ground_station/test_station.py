@@ -64,7 +64,7 @@ class Controller:
                     elif verb == "SET":
                         reply = f"@COFLY\t{request_id}\tOK\t{command[3]}\tfloat\t{command[4]}\tSAVED\n"
                     else:
-                        reply = (f"@COFLY\t{request_id}\tBEGIN\tA-TEAM-3\t1\tSD_READY\tLOADED\n"
+                        reply = (f"@COFLY\t{request_id}\tBEGIN\tCOFLY_PARAMS_V8\t1\tSD_READY\tLOADED\n"
                                  f"@COFLY\t{request_id}\tVALUE\tKp_roll_angle\tfloat\t0.25\t0\t10\tAttitude\tRoll P\n"
                                  f"@COFLY\t{request_id}\tEND\t1\n")
                     raw = ("board log\n" + reply).encode()
@@ -119,11 +119,11 @@ class StationTests(unittest.TestCase):
         self.wait_for(lambda: bool(self.app.caps) and self.app.gcs_pending is None)
         self.app.read_parameters()
         self.wait_for(lambda: "Kp_roll_angle" in self.app.parameters and self.app.pending is None)
-        profile = "BOARD-1234567887654321-TEAM-INDI-EXP"
-        self.app.parameter_profile = profile
+        file_version = "COFLY_PARAMS_V8"
+        self.app.parameter_file_version = file_version
         parameters = {name: replace(p, value=.5) for name, p in self.app.parameters.items()}
         path = Path(self.directory.name) / "params.cfg"
-        path.write_bytes(encode_sd_file(parameters, profile))
+        path.write_bytes(encode_sd_file(parameters))
         def choose_file(**_kwargs):
             self.app._request("CAPS")
             self.assertIsNotNone(self.app.gcs_pending)
