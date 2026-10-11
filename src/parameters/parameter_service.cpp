@@ -51,9 +51,7 @@ ParameterSD::MigrationStats loadStats;
 
 using ParameterRecord::parseUnsigned;
 bool validValue(size_t index, double value) {
-  return validParameterValue(table[index], value) &&
-         (table[index].id != ParameterKey::AircraftCount || value == 1 || value == 3 ||
-          value == 4 || value == 5 || value == 7);
+  return validParameterValue(table[index], value);
 }
 bool parseValue(size_t index, const char *text, double &value) {
   return ParameterRecord::parseValue(table[index], text, value) && validValue(index, value);
@@ -147,10 +145,8 @@ SaveResult saveOne(size_t index, double value) {
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
   candidate[index] = value;
-  const size_t idIndex = parameterIndex(ParameterKey::AircraftId),
-               countIndex = parameterIndex(ParameterKey::AircraftCount);
-  if (idIndex < count && countIndex < count &&
-      !validAircraftConfiguration(candidate[idIndex], candidate[countIndex]))
+  const size_t idIndex = parameterIndex(ParameterKey::AircraftId);
+  if (idIndex < count && !validAircraftConfiguration(candidate[idIndex]))
     return SaveResult::Rejected;
   const bool calibrationOffset = table[index].id >= ParameterKey::ImuOffsetFirst &&
                                  table[index].id <= ParameterKey::ImuOffsetLast;
@@ -299,7 +295,6 @@ void initializeParameterService(bool sdReady) {
       }
   }
   if (parameterIndex(ParameterKey::AircraftId) == count ||
-      parameterIndex(ParameterKey::AircraftCount) == count ||
       parameterIndex(ParameterKey::ImuCalibrationValid) == count) {
     count = 0;
     return;
@@ -362,16 +357,12 @@ void initializeParameterService(bool sdReady) {
   }
   if (!completeCalibration && calibrationMarker < count)
     candidate[calibrationMarker] = 0;
-  const size_t idIndex = parameterIndex(ParameterKey::AircraftId),
-               countIndex = parameterIndex(ParameterKey::AircraftCount);
-  if ((table[idIndex].storage == ParameterStorage::SD && !ParameterSD::hasRecord(idIndex) &&
-       !hasEEPROMMigrationSource(table[idIndex])) ||
-      (table[countIndex].storage == ParameterStorage::SD && !ParameterSD::hasRecord(countIndex) &&
-       !hasEEPROMMigrationSource(table[countIndex])))
+  const size_t idIndex = parameterIndex(ParameterKey::AircraftId);
+  if (table[idIndex].storage == ParameterStorage::SD && !ParameterSD::hasRecord(idIndex) &&
+      !hasEEPROMMigrationSource(table[idIndex]))
     candidate[idIndex] = 0;
-  if (!validAircraftConfiguration(candidate[idIndex], candidate[countIndex])) {
+  if (!validAircraftConfiguration(candidate[idIndex])) {
     candidate[idIndex] = 0;
-    candidate[countIndex] = 3;
   }
   const bool eeSaved = saveEEPROMParameters(table, count, candidate);
   if (!eeSaved) {

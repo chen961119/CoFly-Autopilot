@@ -9,15 +9,15 @@
 | 配置 | 当前值 | 说明 |
 | --- | --- | --- |
 | 飞机身份 | EEPROM `aircraft_id` | 默认 0 未配置，1=A～7=G，重启生效 |
-| 组合规模 | EEPROM `aircraft_count` | 默认 3，支持 1/3/4/5/7，重启生效 |
-| 工作方式 | `aircraft_count == 1` | 1 为单机，其余为编队；`TEAM` 保留为存储配置标识 |
-| 奇偶构型 | `aircraftCount() % 2` | 从启动数量计算 |
+| 组合规模 | `COFLY_AIRCRAFT_COUNT` | 在 `src/config/aircraft_config.h` 定义，默认 3，支持 1/3/4/5/7，修改后重新构建 |
+| 工作方式 | `COFLY_AIRCRAFT_COUNT == 1` | 1 为单机，其余为编队；`TEAM` 保留为存储配置标识 |
+| 奇偶构型 | `aircraftCount() % 2` | 从编译期数量计算 |
 | IMU 路径 | `INTIMU` | 使用本机 IMU |
 | 接收机 | `USE_SBUS_RX` | 使用 SBUS 接收机 |
 | 俯仰控制 | `TESTINDI` | 增稳状态下启用俯仰 INDI |
 | 机型配置 | `expensive` | 启用贵飞机专用限幅和启动逻辑 |
 
-同一硬件/算法配置下，单机和编队节点共用同一个固件，通过 USB 设置身份和数量并重启。单机设 `aircraft_id=1`、`aircraft_count=1`；已保存增益保留，切换后应确认调参。存储声明与校验见 [统一参数与持久存储](parameter-storage.md)。
+同一数量及硬件/算法配置下，各节点共用同一个固件，通过 USB 设置身份并重启。数量使用编译宏，不在参数页出现；单机将 `COFLY_AIRCRAFT_COUNT` 设为 1 后重新构建，设置 `aircraft_id=1`。已保存增益保留，切换后应确认调参。存储声明与校验见 [统一参数与持久存储](parameter-storage.md)。
 
 ## 开发环境
 
@@ -179,7 +179,7 @@ pio device monitor
 ## 通信协议概览
 
 - `55 60`：50 字节级联控制帧，包含模式标志、舵机指令、俯仰目标、升降舵命令、前馈和灯光状态。
-- `55 71`：33 字节状态帧，包含相对角、滚转角速度、姿态角和升降舵 PWM。
+- `55 71`：34 字节状态帧，包含左右 bool 标志、相对角、滚转角速度、姿态角和升降舵 PWM；与旧 33 字节协议不兼容，各节点须同步更新。
 - Modbus RTU：通过 `Serial7` 请求五通道应变数据，使用 CRC16/Modbus。
 - `AA 55`：通过 `Serial8` 接收二进制气动数据包。
 

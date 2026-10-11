@@ -18,7 +18,7 @@ void printLocalThrottle() {
   const int room = USBSerial.availableForWrite();
   if (room < 80) return;
   USBSerial.printf("[THROTTLE] parent_received=%d control_us=%d\n",
-                hasReceivedParentCommand() ? 1 : 0, Local_thro_control_us);
+                hasReceivedCommandData() ? 1 : 0, Local_thro_control_us);
 }
 
 // 按共享时间戳节流输出遥控各通道 PWM。

@@ -1,6 +1,7 @@
 #include "parameters/parameter_registry.h"
 #include "config/aircraft_config.h"
 #include "diagnostics/debug_print.h"
+#include "interaircraft_comm/interaircraft_comm.h"
 #include "parameters/control_parameters.h"
 #include "parameters/parameter_keys.h"
 #include "sensors/sensor_processing.h"
@@ -42,6 +43,12 @@ const FlightParameter *flightParameterTable(size_t &count) {
        "Elevator effectiveness (deg/s^2 per deg)"},
       {28, "usb_throttle_debug", &localThrottleDebugSetting(), 0, 1, "Debug",
        "Throttle USB log: 0 off, 1 on (10 Hz)"},
+      {ParameterKey::UsbCommandLinkDebug, "usb_commandlink_debug", &commandLinkDebugSetting(), 0, 1,
+       "Debug", "Received command fields USB log: 0 off, 1 on", ParameterStorage::SD,
+       ParameterEffect::Immediate},
+      {ParameterKey::UsbSensorLinkDebug, "usb_sensorlink_debug", &sensorLinkDebugSetting(), 0, 1,
+       "Debug", "Received sensor fields USB log: 0 off, 1 on", ParameterStorage::SD,
+       ParameterEffect::Immediate},
       {29, "k_Clp", &k_Clp, 0, 10, "Control", "Roll damping gain"},
       {30, "i_limit", &i_limit, 0, 1000, "Control", "Controller integral limit"},
       {31, "maxRoll", &maxRoll, 0, 180, "Control", "Maximum roll command (deg or deg/s)"},
@@ -95,11 +102,9 @@ const FlightParameter *flightParameterTable(size_t &count) {
        "Local channel mechanical trim (us)"},
       {57, "pwm_channel5_trim", &pwm_channel5_trim, -500, 500, "Actuator",
        "Local channel mechanical trim (us)"},
-      {ParameterKey::AircraftId, "aircraft_id", &aircraftIdParameter, 0, 7, "Aircraft",
-       "0 unconfigured; 1 A through 7 G", ParameterStorage::EEPROM, ParameterEffect::Reboot, false},
-      {ParameterKey::AircraftCount, "aircraft_count", &aircraftCountParameter, 1, 7, "Aircraft",
-       "Allowed counts: 1 (single), 3, 4, 5, 7", ParameterStorage::EEPROM, ParameterEffect::Reboot,
-       false},
+      {ParameterKey::AircraftId, "aircraft_id", &aircraftIdParameter, 0, COFLY_AIRCRAFT_COUNT, "Aircraft",
+       "0 unconfigured; 1 A through 7 G; limited by firmware count", ParameterStorage::EEPROM,
+       ParameterEffect::Reboot, false},
       {ParameterKey::ImuAccErrorX6050, "imu_accerrorx_6050", &calAccGyroData.AccErrorX_6050, -6, 6,
        "IMU Calibration", "AccErrorX_6050", ParameterStorage::EEPROM, ParameterEffect::Immediate,
        false},

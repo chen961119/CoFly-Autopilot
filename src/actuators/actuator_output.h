@@ -1,7 +1,7 @@
 #pragma once
 
 // 舵机与电调上电时的锁定位置；调用顺序由 setup() 决定。
-void prepareActuatorPower();
+// void prepareActuatorPower();
 void attachActuators();
 void commandSafeActuatorPositions();
 

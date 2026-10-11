@@ -113,8 +113,6 @@ def validate_edit(parameter: Parameter, text: str) -> float:
         raise ValueError("此参数由固件管理，只能读取")
     if parameter.dtype == "int":
         value = parse_integer(text)
-        if parameter.name == "aircraft_count" and value not in (1, 3, 4, 5, 7):
-            raise ValueError("飞机数量只支持 1（单机）、3、4、5、7")
         if parameter.name.endswith("_rev") and value not in (-1, 1):
             raise ValueError("反向系数只能为 -1 或 1")
         if not parameter.minimum <= value <= parameter.maximum:

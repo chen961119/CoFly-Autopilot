@@ -27,16 +27,16 @@ static_assert(validActuatorPwmLimits(PWM_SERVO3_MIN_US, PWM_SERVO3_MAX_US), "Inv
 static_assert(validActuatorPwmLimits(PWM_SERVO4_MIN_US, PWM_SERVO4_MAX_US), "Invalid channel 4 PWM limits");
 static_assert(validActuatorPwmLimits(PWM_SERVO5_MIN_US, PWM_SERVO5_MAX_US), "Invalid channel 5 PWM limits");
 
-// Aircraft identity/count are EEPROM boot parameters; no per-aircraft builds.
+// Identity is an EEPROM boot parameter; count is COFLY_AIRCRAFT_COUNT in aircraft_config.h.
 #define TESTINDI
 
 // MT6701 is measurement/logging only. Wing control uses adjacent IMU rolls.
-#define expensive
+// #define expensive
 
 // #define EXTIMU
 #define INTIMU
 
-// Storage profile label only; aircraft_count=1 selects single-aircraft operation.
+// Storage profile label only; COFLY_AIRCRAFT_COUNT=1 selects single-aircraft operation.
 #define TEAM
 
 

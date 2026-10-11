@@ -36,6 +36,8 @@ void setup() {
   initializeLogger();
   displayfilenum();
   initializeParameterService(loggerSdReady());
+  initializeCommandLinks();
+  initializeSensorLinks();
   initBAROMETER();
   loadRotateSensorOffset();
   initializeRotateSensor();
@@ -76,7 +78,7 @@ void loop() {
   displayAttitude();
   Strain_read_all();
   getairdata();
-  if (!aircraftIsSingle()) receiveAdjacentAircraftStates();
+  if (!aircraftIsSingle()) receiveSensorData();
   // telemetry(); //数传。 传输等效姿态角，相对转角，相对扭转角 10hz
 
   if (!aircraftConfigurationValid() || parameterRebootRequired()) {

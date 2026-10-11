@@ -126,7 +126,8 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
       static_cast<unsigned long>(id), static_cast<unsigned>(aircraftCount()), master, roll_IMU,
       phiB_raw - roll_IMU, phiC_raw - roll_IMU, phiD_raw - phiB_raw,
       phiE_raw - phiC_raw, phiF_raw - phiD_raw, phiG_raw - phiE_raw,
-      wingStateFresh(true), wingStateFresh(false), aircraftId(), aircraftConfigurationValid());
+      isSensorDataFresh(true), isSensorDataFresh(false),
+      aircraftId(), aircraftConfigurationValid());
     if (written < 0 || static_cast<size_t>(written) >= capacity)
       snprintf(response, capacity, "@COFLY\t%lu\tERROR\tDATA_TOO_LONG\tConfiguration exceeds frame capacity\n",
                static_cast<unsigned long>(id));

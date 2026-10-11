@@ -1,12 +1,8 @@
 #include "parameters/control_parameters.h"
-#include "config/flight_config.h"
+//#include "config/flight_config.h"
 
 namespace ControlParameters {
-#if defined expensive
 float Trim_pitch_angle = 3.0;
-#else
-float Trim_pitch_angle = 8.0;
-#endif
 float k_Clp = 0.05;
 float i_limit = 45.0;        // 积分项限幅，防止长时间误差导致指令过大。
 float maxRoll = 80.0;        // 最大滚转期望；角度模式为 °，角速度模式为 °/s。

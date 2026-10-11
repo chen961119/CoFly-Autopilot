@@ -15,12 +15,12 @@ CoFly 表达协同飞行，Autopilot 明确飞控定位；项目名称不限定�
 
 当前实现是基于 Teensy 4.1、Arduino/Teensyduino 和 PlatformIO 的飞控固件，由 dRehmFlight 演化而来。它支持 A–G 节点的主从级联通信、姿态与构型控制、本机俯仰 INDI、执行器输出、SD 日志及 USB 参数配置。
 
-串联构型可扩展至 `F-D-B-A-C-E-G`，飞机身份和机数通过参数配置，也支持单机运行。项目面向多种协同飞行场景；通用编队控制属于扩展方向，现有七机混控也尚未接入源码中保留的五体动态分配器。实现边界见 [架构说明](docs/architecture.md)。
+串联构型可扩展至 `F-D-B-A-C-E-G`，飞机身份通过参数配置，机数使用编译宏 `COFLY_AIRCRAFT_COUNT`，也支持单机运行。项目面向多种协同飞行场景；通用编队控制属于扩展方向，现有七机混控也尚未接入源码中保留的五体动态分配器。实现边界见 [架构说明](docs/architecture.md)。
 
 ## 快速开始
 
 1. 安装 PlatformIO Core，或在 VS Code 中安装 PlatformIO IDE，并确保终端可以运行 `pio`。
-2. 在 [flight_config.h](src/config/flight_config.h) 中确认 IMU 和控制模式。飞机身份与组合数量通过地面站参数页设置，修改后重启生效，同一硬件配置的 A～G 节点共用固件。参数维护入口见[参数模块](src/parameters/README.md)。
+2. 在 [flight_config.h](src/config/flight_config.h) 中确认 IMU 和控制模式。飞机身份通过地面站参数页设置，修改后重启生效；组合数量在 [aircraft_config.h](src/config/aircraft_config.h) 通过 `COFLY_AIRCRAFT_COUNT` 设置，同一数量和硬件配置的 A～G 节点共用固件。参数维护入口见[参数模块](src/parameters/README.md)。
 3. 在仓库根目录构建：
 
 ```sh
@@ -86,4 +86,4 @@ CoFly-Autopilot/
 
 项目源码与文档统一使用 UTF-8；`.pio/`、`.vscode/`、Python 环境和打包产物属于本机生成文件，不提交到仓库。
 
-飞机身份与组合数量可通过 USB 参数页设置，A～G 共用同一硬件配置的固件；首次使用需配置身份并重启。[参数存储和迁移说明](docs/parameter-storage.md)。
+飞机身份可通过 USB 参数页设置，组合数量由 `COFLY_AIRCRAFT_COUNT` 编译宏决定；A～G 共用同一数量及硬件配置的固件；首次使用需配置身份并重启。[参数存储和迁移说明](docs/parameter-storage.md)。
