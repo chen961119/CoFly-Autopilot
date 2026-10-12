@@ -1210,11 +1210,11 @@ void controlANGLE2()
 
   error_roll = roll_des - roll_eq;
   integral_roll_ol = integral_roll_prev_ol + error_roll * dt; // I
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_roll_ol = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_roll_ol = 0;
+  // }
   integral_roll_ol =
       constrain(integral_roll_ol, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1250,11 +1250,11 @@ void controlANGLE2()
   // USBSerial.println(error_pitch);
   // error_pitch = pitch_des_local - pitch_IMU;
   integral_pitch_ol = integral_pitch_prev_ol + error_pitch * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_pitch_ol = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_pitch_ol = 0;
+  // }
   integral_pitch_ol =
       constrain(integral_pitch_ol, -i_limit,
                 i_limit); // saturate integrator to prevent unsafe buildup
@@ -1312,11 +1312,11 @@ void controlANGLE2()
 
   error_roll = roll_des_ol - Rollrate;
   integral_roll_il = integral_roll_prev_il + error_roll * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_roll_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_roll_il = 0;
+  // }
   integral_roll_il =
       constrain(integral_roll_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1374,11 +1374,11 @@ void controlANGLE2()
   // 俯仰通道。
   error_pitch = pitch_des_ol - GyroY;
   integral_pitch_il = integral_pitch_prev_il + error_pitch * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_pitch_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_pitch_il = 0;
+  // }
   integral_pitch_il =
       constrain(integral_pitch_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1400,11 +1400,11 @@ void controlANGLE2()
       57.3 * (9.8 / V_cruise * tan(roll_des / 57.3) * cos(pitch_des / 57.3)) -
       GyroZ;
   integral_yaw = integral_yaw_prev + error_yaw * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_yaw = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_yaw = 0;
+  // }
   integral_yaw =
       constrain(integral_yaw, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1751,8 +1751,6 @@ void failSafe()
   int check6 = 0;
   int check7 = 0;
   int check8 = 0;
-  int check9 = 0;
-  int check10 = 0;
 
   // 检查遥控信号越界条件。
   if (channel_1_pwm > maxVal || channel_1_pwm < minVal)
@@ -1888,11 +1886,11 @@ void controlFlapMotion()
       1.0 + constrain((channel_7_pwm - PWM_CENTER_US) / 500.0, -1, 1);
   error_Phiab_RATE = Phiab_des_ol - Pab;
   integral_Phiab_RATE_il = integral_Phiab_RATE_prev_il + error_Phiab_RATE * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_Phiab_RATE_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_Phiab_RATE_il = 0;
+  // }
   integral_Phiab_RATE_il =
       constrain(integral_Phiab_RATE_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1905,11 +1903,11 @@ void controlFlapMotion()
   // Phiac
   error_Phiac_RATE = Phiac_des_ol - Pac;
   integral_Phiac_RATE_il = integral_Phiac_RATE_prev_il + error_Phiac_RATE * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_Phiac_RATE_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_Phiac_RATE_il = 0;
+  // }
   integral_Phiac_RATE_il =
       constrain(integral_Phiac_RATE_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1922,11 +1920,11 @@ void controlFlapMotion()
   // Phibd
   error_Phibd_RATE = Phibd_des_ol - Pbd;
   integral_Phibd_RATE_il = integral_Phibd_RATE_prev_il + error_Phibd_RATE * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_Phibd_RATE_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_Phibd_RATE_il = 0;
+  // }
   integral_Phibd_RATE_il =
       constrain(integral_Phibd_RATE_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1939,11 +1937,11 @@ void controlFlapMotion()
   // Phice
   error_Phice_RATE = Phice_des_ol - Pce;
   integral_Phice_RATE_il = integral_Phice_RATE_prev_il + error_Phice_RATE * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_Phice_RATE_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_Phice_RATE_il = 0;
+  // }
   integral_Phice_RATE_il =
       constrain(integral_Phice_RATE_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1956,11 +1954,11 @@ void controlFlapMotion()
   // Phidf
   error_Phidf_RATE = Phidf_des_ol - Pdf;
   integral_Phidf_RATE_il = integral_Phidf_RATE_prev_il + error_Phidf_RATE * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_Phice_RATE_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_Phice_RATE_il = 0;
+  // }
   integral_Phidf_RATE_il =
       constrain(integral_Phidf_RATE_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
@@ -1973,11 +1971,11 @@ void controlFlapMotion()
   // Phieg
   error_Phieg_RATE = Phieg_des_ol - Peg;
   integral_Phieg_RATE_il = integral_Phieg_RATE_prev_il + error_Phieg_RATE * dt;
-  if (channel_1_pwm <
-      1060)
-  { // 通道 1 低于阈值时清零积分项。
-    integral_Phieg_RATE_il = 0;
-  }
+  // if (channel_1_pwm <
+  //     1060)
+  // { // 通道 1 低于阈值时清零积分项。
+  //   integral_Phieg_RATE_il = 0;
+  // }
   integral_Phieg_RATE_il =
       constrain(integral_Phieg_RATE_il, -i_limit,
                 i_limit); // 对积分项限幅，防止持续饱和。
