@@ -15,7 +15,7 @@ def decode_fields(kind, fields):
         result[key] = value
     if kind == "CAPS":
         required = ("version", "imu", "external", "airspeed", "rotate", "barometer", "radio",
-                    "calibration", "sensor_setting", "radio_calibration", "flight_modes")
+                    "calibration", "sensor_setting", "flight_modes")
         if any(key not in result for key in required) or result["version"] != "1":
             raise ValueError("不支持的地面站协议版本")
     elif kind == "DATA":
@@ -30,6 +30,13 @@ def decode_fields(kind, fields):
                 raise ValueError("状态字段无效")
         if not 0 <= result["ms"] <= 0xffffffff or not result["ms"].is_integer():
             raise ValueError("时间戳无效")
+        for key in ("rc7", "rc8", "n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8", "radio_valid"):
+            if key in result:
+                result[key] = float(result[key])
+                if not math.isfinite(result[key]):
+                    raise ValueError("遥控数据包含非有限数值")
+        if "radio_valid" in result and result["radio_valid"] not in (0, 1):
+            raise ValueError("遥控接收状态无效")
     elif kind == "CONFIG":
         required = ("count", "master", "roll_a", "ab", "ac", "bd", "ce", "df", "eg", "left_valid", "right_valid")
         if any(key not in result for key in required):
@@ -54,6 +61,21 @@ def decode_fields(kind, fields):
             if bool(identity) != bool(valid) or bool(result["master"]) != (identity == 1):
                 raise ValueError("飞机身份与构型状态不一致")
             result["aircraft_id"], result["config_valid"] = int(identity), int(valid)
+        if any(key.startswith(("r_", "p_", "v_")) for key in result):
+            for node in range(result["count"]):
+                suffix = chr(97 + node)
+                for prefix in ("r", "p", "v"):
+                    key = f"{prefix}_{suffix}"
+                    if key not in result:
+                        raise ValueError("多机姿态字段不完整")
+                    result[key] = float(result[key])
+                    if not math.isfinite(result[key]):
+                        raise ValueError("多机姿态包含非有限数值")
+                if result[f"v_{suffix}"] not in (0, 1):
+                    raise ValueError("多机姿态有效标志错误")
+    elif kind == "RC_SAVE":
+        if result != {"status": "SAVED"}:
+            raise ValueError("遥控校准保存响应无效")
     elif kind == "REBOOT":
         if result != {"status": "REBOOTING"}:
             raise ValueError("重启响应无效")

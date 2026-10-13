@@ -14,6 +14,40 @@ from serial.tools import list_ports
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def windows_usb_interface(port):
+    """Recover the CDC interface when Windows omits pyserial location metadata."""
+    if sys.platform != "win32":
+        return None
+    import winreg
+
+    prefix = f"VID_{port.vid:04X}&PID_{port.pid:04X}&MI_" if port.vid is not None and port.pid is not None else None
+    if prefix is None:
+        return None
+    interfaces = set()
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Enum\USB") as devices:
+            for index in range(winreg.QueryInfoKey(devices)[0]):
+                name = winreg.EnumKey(devices, index)
+                if not name.upper().startswith(prefix):
+                    continue
+                match = re.fullmatch(re.escape(prefix) + r"([0-9A-F]{2})", name, re.I)
+                if not match:
+                    continue
+                with winreg.OpenKey(devices, name) as instances:
+                    for instance_index in range(winreg.QueryInfoKey(instances)[0]):
+                        instance = winreg.EnumKey(instances, instance_index)
+                        try:
+                            with winreg.OpenKey(instances, instance + r"\Device Parameters") as parameters:
+                                device, _ = winreg.QueryValueEx(parameters, "PortName")
+                            if device.upper() == port.device.upper():
+                                interfaces.add(int(match[1], 16))
+                        except OSError:
+                            continue
+    except OSError:
+        return None
+    return next(iter(interfaces)) if len(interfaces) == 1 else None
+
+
 def usb_interface(port):
     """Use interface metadata, never COM ordering (CDC0=ground, CDC2=GDB)."""
     match = re.search(r"MI_([0-9a-f]{2})", getattr(port, "hwid", "") or "", re.I)
@@ -21,7 +55,7 @@ def usb_interface(port):
         return int(match[1], 16)
     # pyserial: Windows LOCATION=1-2:x.2; Linux LOCATION=1-2:1.2.
     match = re.search(r":(?:x|\d+)\.(\d+)$", getattr(port, "location", "") or "", re.I)
-    return int(match[1]) if match else None
+    return int(match[1]) if match else windows_usb_interface(port)
 
 
 def select_usb_ports(ports):

@@ -1,6 +1,7 @@
 #include "config/aircraft_config.h"
 #include "config/serial_config.h"
 #include "control/control_modes.h"
+#include "radio_comm/radio_comm.h"
 #include "parameters/control_parameters.h"
 #include "diagnostics/debug_print.h"
 #include "control/control_state.h"
@@ -14,8 +15,6 @@
 
 using namespace ControlParameters;
 
-int channel_1_pwm, channel_2_pwm, channel_3_pwm, channel_4_pwm, channel_5_pwm,
-    channel_6_pwm, channel_7_pwm, channel_8_pwm;
 
 FlightMode currentMode;
 FlightMode lastMode;
@@ -33,16 +32,6 @@ static bool ModeChange = 0;
 // 巡航速度
 static float V_cruise = 13;
 
-// 遥控信号异常时写入各通道的安全 PWM 值（单位：μs）。
-static unsigned long channel_1_fs = 1500; // 滚转
-static unsigned long channel_2_fs = 1500; // 俯仰
-static unsigned long channel_3_fs = 1000; // 油门
-static unsigned long channel_4_fs = 1500; // 方向舵
-static unsigned long channel_5_fs = 1500; // 油门切断开关
-static unsigned long channel_6_fs = 2000; // 辅助通道 1
-static unsigned long channel_7_fs = 2000; // 辅助通道 2
-static unsigned long channel_8_fs = 2000; // 辅助通道 3
-
 // 控制输出与各机指令状态。
 //  刹车
 float ailBrake_PWM = 0.0, flap2eleratio = 0.0;
@@ -59,8 +48,6 @@ float B_ele_control_ff_us, C_ele_control_ff_us, D_ele_control_ff_us,
 // static float relativeAngle_ready_prev;
 
 // 控制器运行状态；可调参数及默认值见 control_parameters.cpp。
-// 注意：积分清零条件检查 channel_1_pwm，而 getDesState() 将通道 1 映射为滚转；
-// 若原意是低油门清零，需核对接收机通道映射后再修改判断条件。
 // 等效滚转阻尼补偿。
 int Ail_Clp;
 static float Clp_PID = 0.0;
@@ -191,7 +178,7 @@ void controlMixer()
     //策略1
 
     float coeroll=1.0;
-    if (channel_6_pwm>1600)
+    if (radio_channel6_normalized > 0.2f)
     {
     B_ail1_scaled = 0.81*roll_PID+0.5*Phiab_PID;
     B_ail2_scaled = 0.41*roll_PID-0.5*Phiab_PID;
@@ -207,7 +194,7 @@ void controlMixer()
     A_rudd_scaled = yaw_PID;
     central_pitch=-0.07*coeroll*roll_des;
     }
-    else if(channel_6_pwm<1600&&channel_6_pwm>1400)
+    else if(radio_channel6_normalized < 0.2f&&radio_channel6_normalized > -0.2f)
     {
 
     //策略2
@@ -274,7 +261,7 @@ void controlMixer()
       coeac = 1.0;
 
       // 策略1
-      if (channel_6_pwm > 1600)
+      if (radio_channel6_normalized > 0.2f)
       {
         B_ail1_scaled =
             1.016 * roll_PID + coeab * 1 * Phiab_PID - coeac * 0.68 * Phiac_PID;
@@ -302,7 +289,7 @@ void controlMixer()
       }
       // 策略2
 
-      else if (channel_6_pwm < 1600 && channel_6_pwm > 1400)
+      else if (radio_channel6_normalized < 0.2f && radio_channel6_normalized > -0.2f)
       {
         coeroll = 0.2;
         B_ail1_scaled = 1.016 * coeroll * roll_PID + coeab * 0.864 * Phiab_PID -
@@ -408,7 +395,7 @@ void controlMixer()
       }
 
       // 策略1
-      if (channel_6_pwm > 1600)
+      if (radio_channel6_normalized > 0.2f)
       {
         D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
                         0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
@@ -447,7 +434,7 @@ void controlMixer()
 
       // 策略2
 
-      else if (channel_6_pwm < 1600 && channel_6_pwm > 1400)
+      else if (radio_channel6_normalized < 0.2f && radio_channel6_normalized > -0.2f)
       {
         coeroll = 0.3;
         D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
@@ -628,7 +615,7 @@ void controlMixer()
       E_pitch_sp = pitch_des_local - 0.3 * coeroll * roll_des;
 
       /*
-       else if (channel_6_pwm < 1600 && channel_6_pwm > 1400) {
+       else if (radio_channel6_normalized < 0.2f && radio_channel6_normalized > -0.2f) {
          //策略2
          coeroll = 0.5;
          D_ail1_scaled = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID - 0.72 *
@@ -900,13 +887,13 @@ void getDesState()
   if ((aircraftId() == 1))
   {
     {
-      thro_des_RAW = (channel_3_pwm - 1100.0) / 1000.0;        // 范围 0～1。
-      roll_des_RAW = (channel_1_pwm - PWM_CENTER_US) / 500.0;  // 范围 -1～1。
-      pitch_des_RAW = (channel_2_pwm - PWM_CENTER_US) / 500.0; // 范围 -1～1。
-      yaw_des_RAW = (channel_4_pwm - PWM_CENTER_US) / 500.0;   // 范围 -1～1。
+      thro_des_RAW = radio_channel3_normalized;        // 范围 -1～1。
+      roll_des_RAW = radio_channel1_normalized;  // 范围 -1～1。
+      pitch_des_RAW = radio_channel2_normalized; // 范围 -1～1。
+      yaw_des_RAW = radio_channel4_normalized;   // 范围 -1～1。
 
       /*
-      if (channel_6_pwm>1600) //水平构型
+      if (radio_channel6_normalized > 0.2f) //水平构型
       {
         Phiab_des_nf = 0.0;
         Phiac_des_nf = 0.0;
@@ -915,7 +902,7 @@ void getDesState()
         Phidf_des_nf = 0.0;
         Phieg_des_nf = 0.0;
        }
-       else if (channel_6_pwm<1600&&channel_6_pwm>1400) //下反
+       else if (radio_channel6_normalized < 0.2f&&radio_channel6_normalized > -0.2f) //下反
        {
           Phiab_des_nf = -5.0;
           Phiac_des_nf = 5.0;
@@ -947,7 +934,8 @@ void getDesState()
       yaw_passthru = yaw_des_RAW / 2.0;     // 范围 -0.5～0.5。
 
       // 将各轴指令限制在归一化或配置的最大范围内。
-      thro_des = constrain(thro_des_RAW, 0.0, 1.0); // 范围 0～1。
+      // Receiver input is [-1,1]; thrust mixing uses [0,1] (no reverse thrust).
+      thro_des = 0.5f * (constrain(thro_des_RAW, -1.0f, 1.0f) + 1.0f);
       roll_des = constrain(roll_des_RAW, -1.0, 1.0) *
                  maxRoll; // 范围为 ±maxRoll。
       pitch_des_local = constrain(pitch_des_RAW, -1.0, 1.0) *
@@ -963,14 +951,14 @@ void getDesState()
       pitch_des_local += Trim_pitch_angle;
 
       // 1600以上是手动  1400-1600是速率 1400以下是增稳
-      if (channel_5_pwm > 1600)
+      if (radio_channel5_normalized > 0.2f)
       {
         currentMode = MANUAL_MODE;
       }
       else
       {
         currentMode =
-            (channel_5_pwm < 1400) ? STABILIZE_MODE : STABLIZE_MODE_NO_I;
+            (radio_channel5_normalized < -0.2f) ? STABILIZE_MODE : STABLIZE_MODE_NO_I;
       }
 
       if (currentMode != lastMode)
@@ -1045,7 +1033,7 @@ void getDesState()
 //   // 滚转通道。
 //   error_roll = roll_des - roll_IMU;
 //   integral_roll = integral_roll_prev + error_roll * dt;
-//   if (channel_3_pwm <
+//   if (radio_channel3_raw <
 //       1160) { // 通道 1 低于阈值时清零积分项。
 //     integral_roll = 0;
 //   }
@@ -1062,7 +1050,7 @@ void getDesState()
 //   // 俯仰通道。
 //   error_pitch = pitch_des - pitch_IMU;
 //   integral_pitch = integral_pitch_prev + error_pitch * dt;
-//   if (channel_3_pwm <
+//   if (radio_channel3_raw <
 //       1160) { // 通道 1 低于阈值时清零积分项。
 //     integral_pitch = 0;
 //   }
@@ -1084,7 +1072,7 @@ void getDesState()
 //       57.3 * (9.8 / V_cruise * tan(roll_des / 57.3) * cos(pitch_des / 57.3)) -
 //       GyroZ;
 //   integral_yaw = integral_yaw_prev + error_yaw * dt;
-//   if (channel_3_pwm <
+//   if (radio_channel3_raw <
 //       1160) { // 通道 1 低于阈值时清零积分项。
 //     integral_yaw = 0;
 //   }
@@ -1210,7 +1198,7 @@ void controlANGLE2()
 
   error_roll = roll_des - roll_eq;
   integral_roll_ol = integral_roll_prev_ol + error_roll * dt; // I
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_roll_ol = 0;
@@ -1250,7 +1238,7 @@ void controlANGLE2()
   // USBSerial.println(error_pitch);
   // error_pitch = pitch_des_local - pitch_IMU;
   integral_pitch_ol = integral_pitch_prev_ol + error_pitch * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_pitch_ol = 0;
@@ -1312,7 +1300,7 @@ void controlANGLE2()
 
   error_roll = roll_des_ol - Rollrate;
   integral_roll_il = integral_roll_prev_il + error_roll * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_roll_il = 0;
@@ -1374,7 +1362,7 @@ void controlANGLE2()
   // 俯仰通道。
   error_pitch = pitch_des_ol - GyroY;
   integral_pitch_il = integral_pitch_prev_il + error_pitch * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_pitch_il = 0;
@@ -1400,7 +1388,7 @@ void controlANGLE2()
       57.3 * (9.8 / V_cruise * tan(roll_des / 57.3) * cos(pitch_des / 57.3)) -
       GyroZ;
   integral_yaw = integral_yaw_prev + error_yaw * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_yaw = 0;
@@ -1463,7 +1451,7 @@ void controlANGLE2()
 //   // 滚转通道。
 //   error_roll = roll_des * 3.0 - GyroX;
 //   integral_roll = integral_roll_prev + error_roll * dt;
-//   if (channel_1_pwm <
+//   if (radio_channel1_raw <
 //       1060) { // 通道 1 低于阈值时清零积分项。
 //     integral_roll = 0;
 //   }
@@ -1480,7 +1468,7 @@ void controlANGLE2()
 //   // 俯仰通道。
 //   error_pitch = pitch_des_local * 3.0 - GyroY;
 //   integral_pitch = integral_pitch_prev + error_pitch * dt;
-//   if (channel_1_pwm <
+//   if (radio_channel1_raw <
 //       1060) { // 通道 1 低于阈值时清零积分项。
 //     integral_pitch = 0;
 //   }
@@ -1497,7 +1485,7 @@ void controlANGLE2()
 //   // 偏航通道使用 Z 轴角速度反馈。
 //   error_yaw = yaw_des * 3.0 - GyroZ;
 //   integral_yaw = integral_yaw_prev + error_yaw * dt;
-//   if (channel_1_pwm <
+//   if (radio_channel1_raw <
 //       1060) { // 通道 1 低于阈值时清零积分项。
 //     integral_yaw = 0;
 //   }
@@ -1737,52 +1725,9 @@ int PITCH_INDI_control()
   return (int)(pwm_cmd + 0.5f);
 }
 
-// 检测遥控 PWM 是否越过设定范围；任一通道异常时回退到安全值。
-void failSafe()
-{
-  // 任一遥控通道超出 800～2200 μs 时，将全部通道置为预设安全值。
-  unsigned minVal = 800;
-  unsigned maxVal = 2200;
-  int check1 = 0;
-  int check2 = 0;
-  int check3 = 0;
-  int check4 = 0;
-  int check5 = 0;
-  int check6 = 0;
-  int check7 = 0;
-  int check8 = 0;
-
-  // 检查遥控信号越界条件。
-  if (channel_1_pwm > maxVal || channel_1_pwm < minVal)
-    check1 = 1;
-  if (channel_2_pwm > maxVal || channel_2_pwm < minVal)
-    check2 = 1;
-  if (channel_3_pwm > maxVal || channel_3_pwm < minVal)
-    check3 = 1;
-  if (channel_4_pwm > maxVal || channel_4_pwm < minVal)
-    check4 = 1;
-  if (channel_5_pwm > maxVal || channel_5_pwm < minVal)
-    check5 = 1;
-  if (channel_6_pwm > maxVal || channel_6_pwm < minVal)
-    check6 = 1;
-  if (channel_7_pwm > maxVal || channel_7_pwm < minVal)
-    check7 = 1;
-  if (channel_8_pwm > maxVal || channel_8_pwm < minVal)
-    check8 = 1;
-
-  // 任一通道异常时，全部通道恢复为预设安全值。
-  if ((check1 + check2 + check3 + check4 + check5 + check6 + check7 + check8) >
-      0)
-  {
-    channel_1_pwm = channel_1_fs;
-    channel_2_pwm = channel_2_fs;
-    channel_3_pwm = channel_3_fs;
-    channel_4_pwm = channel_4_fs;
-    channel_5_pwm = channel_5_fs;
-    channel_6_pwm = channel_6_fs;
-    channel_7_pwm = channel_7_fs;
-    channel_8_pwm = channel_8_fs;
-  }
+// 按八路 MIN/MAX/TRIM/REV/DZ 参数计算归一化指令。
+void failSafe() {
+  updateRadioNormalized();
 }
 
 // 预留的电机输出接口；当前函数体为空，不会驱动电机。
@@ -1883,10 +1828,10 @@ void controlFlapMotion()
   // 内环 PI
   // Phiab
   float coeffconfiguration =
-      1.0 + constrain((channel_7_pwm - PWM_CENTER_US) / 500.0, -1, 1);
+      1.0 + radio_channel7_normalized;
   error_Phiab_RATE = Phiab_des_ol - Pab;
   integral_Phiab_RATE_il = integral_Phiab_RATE_prev_il + error_Phiab_RATE * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_Phiab_RATE_il = 0;
@@ -1903,7 +1848,7 @@ void controlFlapMotion()
   // Phiac
   error_Phiac_RATE = Phiac_des_ol - Pac;
   integral_Phiac_RATE_il = integral_Phiac_RATE_prev_il + error_Phiac_RATE * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_Phiac_RATE_il = 0;
@@ -1920,7 +1865,7 @@ void controlFlapMotion()
   // Phibd
   error_Phibd_RATE = Phibd_des_ol - Pbd;
   integral_Phibd_RATE_il = integral_Phibd_RATE_prev_il + error_Phibd_RATE * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_Phibd_RATE_il = 0;
@@ -1937,7 +1882,7 @@ void controlFlapMotion()
   // Phice
   error_Phice_RATE = Phice_des_ol - Pce;
   integral_Phice_RATE_il = integral_Phice_RATE_prev_il + error_Phice_RATE * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_Phice_RATE_il = 0;
@@ -1954,7 +1899,7 @@ void controlFlapMotion()
   // Phidf
   error_Phidf_RATE = Phidf_des_ol - Pdf;
   integral_Phidf_RATE_il = integral_Phidf_RATE_prev_il + error_Phidf_RATE * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_Phice_RATE_il = 0;
@@ -1971,7 +1916,7 @@ void controlFlapMotion()
   // Phieg
   error_Phieg_RATE = Phieg_des_ol - Peg;
   integral_Phieg_RATE_il = integral_Phieg_RATE_prev_il + error_Phieg_RATE * dt;
-  // if (channel_1_pwm <
+  // if (radio_channel1_raw <
   //     1060)
   // { // 通道 1 低于阈值时清零积分项。
   //   integral_Phieg_RATE_il = 0;
@@ -2001,15 +1946,9 @@ void controlFlapMotion()
   // relativeAngle_ready_prev = relativeAngle_ready;
 }
 
-// 上电时把遥控通道 1～6 初始化为预设安全 PWM。
-void initializeRadioFailsafeChannels()
-{
-  channel_1_pwm = channel_1_fs;
-  channel_2_pwm = channel_2_fs;
-  channel_3_pwm = channel_3_fs;
-  channel_4_pwm = channel_4_fs;
-  channel_5_pwm = channel_5_fs;
-  channel_6_pwm = channel_6_fs;
+// 上电时初始化八路归一化指令。
+void initializeRadioFailsafeChannels() {
+  updateRadioNormalized();
 }
 
 // 根据当前模式选择带积分增稳、无积分增稳或手动，并更新模式标志和指示灯。

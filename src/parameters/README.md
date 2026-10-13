@@ -23,3 +23,5 @@
 本次整理不改变 V8 文本格式或 USB 协议。PC 地面站的匹配实现位于 `tools/ground_station/parameter_file.py`。存储格式、容量和迁移行为详见 [参数存储说明](../../docs/parameter-storage.md)。
 
 固件使用 `pio run -e teensy41 -e teensy41_debug` 构建。参数服务与 EEPROM 主备故障测试已完成验证；按项目要求，测试脚本在验证后删除。
+
+八路遥控归一化参数为 `RC1_MIN/MAX/TRIM/REV/DZ` 至 `RC8_MIN/MAX/TRIM/REV/DZ`，直接绑定 `radio_comm` 的参数，全部位于 SD，可通过普通参数读写接口修改。

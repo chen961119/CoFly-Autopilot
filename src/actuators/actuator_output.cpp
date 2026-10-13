@@ -189,7 +189,7 @@ void prepareActuatorCommands()
     int deviation5 = A_rudd_control_us - PWM_CENTER_US;
 
     // 刹车量与副翼偏移使用相同的方向约定，在 rev 反向前叠加。
-    if (channel_8_pwm > 1600)
+    if (radio_channel8_normalized > 0.2f)
     {
       ailBrake_PWM = 0.0;
     }

@@ -12,6 +12,7 @@
 #include "sensors/sensor_processing.h"
 #include "system/device_reboot.h"
 #include "system/flight_lock.h"
+#include "radio_comm/radio_comm.h"
 #include <Arduino.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -21,7 +22,7 @@
 
 namespace {
 constexpr size_t MAX_PARAMETERS = PARAMETER_COUNT_LIMIT;
-constexpr size_t LINE_SIZE = 512;
+constexpr size_t LINE_SIZE = 768;
 constexpr size_t VALUE_SIZE = PARAMETER_VALUE_SIZE;
 
 bool eepromLoaded[MAX_PARAMETERS];
@@ -394,6 +395,31 @@ void initializeParameterService(bool sdReady) {
 bool saveParameterValue(uint16_t id, double value) {
   return saveOne(parameterIndex(id), value) != SaveResult::Rejected;
 }
+bool saveRadioCalibrationParameters(const char *const *values) {
+  if (!table || !count || !storageReady || !values || !isFlightLocked() || !radioInputValid())
+    return false;
+  for (size_t i = 0; i < count; ++i) candidate[i] = table[i].read();
+  for (unsigned channel = 0; channel < 4; ++channel) {
+    double group[4];
+    for (unsigned field = 0; field < 4; ++field) {
+      const size_t index = parameterIndex(1401 + channel * 5 + field);
+      if (index == count || table[index].readOnly || table[index].storage != ParameterStorage::SD ||
+          !parseValue(index, values[channel * 4 + field], group[field])) return false;
+      candidate[index] = group[field];
+    }
+    const float deadzone = radioChannelParameters[channel].deadzone;
+    if (group[1] - group[0] < 400 || group[2] - group[0] <= deadzone ||
+        group[1] - group[2] <= deadzone) return false;
+  }
+  // Write and read back the complete snapshot before changing live values.
+  if (!ParameterSD::save(candidate)) return false;
+  applyCandidateParameters();
+  sdSave.completed(true, millis());
+  sdNotice = StorageNotice::Saved;
+  loadState = "SAVED";
+  updateRadioNormalized();
+  return true;
+}
 bool flushParameterWrites() {
   if (!table || !count)
     return true;
@@ -497,7 +523,7 @@ void pollParameterService() {
       continue;
     if (c == '\n') {
       if (rxOverflow)
-        error(0, "LINE_TOO_LONG", "Command exceeds 511 bytes");
+        error(0, "LINE_TOO_LONG", "Command exceeds 767 bytes");
       else {
         rxLine[rxLength] = '\0';
         handleCommand(rxLine);

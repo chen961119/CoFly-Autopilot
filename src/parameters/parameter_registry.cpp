@@ -5,12 +5,53 @@
 #include "parameters/control_parameters.h"
 #include "parameters/parameter_keys.h"
 #include "sensors/sensor_processing.h"
+#include "radio_comm/radio_comm.h"
 
 using namespace ControlParameters;
 
 const FlightParameter *flightParameterTable(size_t &count) {
   // Unified registry for control, aircraft identity, sensors and calibration.
   static const FlightParameter parameters[] = {
+      {1401, "RC1_MIN", &radioChannelParameters[0].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1402, "RC1_MAX", &radioChannelParameters[0].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1403, "RC1_TRIM", &radioChannelParameters[0].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1404, "RC1_REV", &radioChannelParameters[0].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1405, "RC1_DZ", &radioChannelParameters[0].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
+      {1406, "RC2_MIN", &radioChannelParameters[1].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1407, "RC2_MAX", &radioChannelParameters[1].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1408, "RC2_TRIM", &radioChannelParameters[1].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1409, "RC2_REV", &radioChannelParameters[1].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1410, "RC2_DZ", &radioChannelParameters[1].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
+      {1411, "RC3_MIN", &radioChannelParameters[2].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1412, "RC3_MAX", &radioChannelParameters[2].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1413, "RC3_TRIM", &radioChannelParameters[2].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1414, "RC3_REV", &radioChannelParameters[2].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1415, "RC3_DZ", &radioChannelParameters[2].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
+      {1416, "RC4_MIN", &radioChannelParameters[3].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1417, "RC4_MAX", &radioChannelParameters[3].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1418, "RC4_TRIM", &radioChannelParameters[3].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1419, "RC4_REV", &radioChannelParameters[3].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1420, "RC4_DZ", &radioChannelParameters[3].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
+      {1421, "RC5_MIN", &radioChannelParameters[4].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1422, "RC5_MAX", &radioChannelParameters[4].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1423, "RC5_TRIM", &radioChannelParameters[4].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1424, "RC5_REV", &radioChannelParameters[4].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1425, "RC5_DZ", &radioChannelParameters[4].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
+      {1426, "RC6_MIN", &radioChannelParameters[5].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1427, "RC6_MAX", &radioChannelParameters[5].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1428, "RC6_TRIM", &radioChannelParameters[5].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1429, "RC6_REV", &radioChannelParameters[5].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1430, "RC6_DZ", &radioChannelParameters[5].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
+      {1431, "RC7_MIN", &radioChannelParameters[6].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1432, "RC7_MAX", &radioChannelParameters[6].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1433, "RC7_TRIM", &radioChannelParameters[6].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1434, "RC7_REV", &radioChannelParameters[6].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1435, "RC7_DZ", &radioChannelParameters[6].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
+      {1436, "RC8_MIN", &radioChannelParameters[7].minimum, 800, 1500, "Radio", "Minimum PWM (us)"},
+      {1437, "RC8_MAX", &radioChannelParameters[7].maximum, 1500, 2200, "Radio", "Maximum PWM (us)"},
+      {1438, "RC8_TRIM", &radioChannelParameters[7].trim, 800, 2200, "Radio", "Neutral PWM (us)"},
+      {1439, "RC8_REV", &radioChannelParameters[7].reverse, -1, 1, "Radio", "Direction: -1 or +1"},
+      {1440, "RC8_DZ", &radioChannelParameters[7].deadzone, 0, 100, "Radio", "Neutral deadzone (us)"},
       {1, "Kp_roll_angle", &Kp_roll_angle, 0, 10, "Attitude", "Roll angle P"},
       {2, "Ki_roll_angle", &Ki_roll_angle, 0, 10, "Attitude", "Roll angle I"},
       {3, "Kd_roll_angle", &Kd_roll_angle, 0, 1, "Attitude", "Roll angle D (controlANGLE only)"},

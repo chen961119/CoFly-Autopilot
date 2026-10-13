@@ -123,15 +123,15 @@ namespace
       return;
     if (aircraftIsSingle())
     {
-      dataFile.println("TimeStamp(us),q0,q1,q2,q3,ROLL_IMU(deg),PITCH_IMU(deg),YAW_IMU(deg),ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),CH1_PWM,CH2_PWM,CH3_PWM,CH4_PWM,CH5_PWM,CH6_PWM,CH7_PWM,CH8_PWM,ail1_PWM,ail2_PWM,ele_PWM,thro_PWM,rudd_PWM,Gyro_X_6050,Gyro_Y_6050,Gyro_Z_6050,invAccX_6050,AccY_6050,AccZ_6050,airspeed_A,dp,dq,dr,indi_pitch_q_des_log,indi_pitch_q_filt_log,indi_pitch_dq_des_log,indi_pitch_dq_used_log,indi_pitch_delta_e_cmd_deg_log,indi_pitch_delta_e_est_deg_log,indi_pitch_pwm_cmd_log,MT6701_raw(deg),MT6701_relative(deg),MT6701_valid");
+      dataFile.println("TimeStamp(us),q0,q1,q2,q3,ROLL_IMU(deg),PITCH_IMU(deg),YAW_IMU(deg),ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),RC_CH1,RC_CH2,RC_CH3,RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ail1_PWM,ail2_PWM,ele_PWM,thro_PWM,rudd_PWM,Gyro_X_6050,Gyro_Y_6050,Gyro_Z_6050,invAccX_6050,AccY_6050,AccZ_6050,airspeed_A,dp,dq,dr,indi_pitch_q_des_log,indi_pitch_q_filt_log,indi_pitch_dq_des_log,indi_pitch_dq_used_log,indi_pitch_delta_e_cmd_deg_log,indi_pitch_delta_e_est_deg_log,indi_pitch_pwm_cmd_log,MT6701_raw(deg),MT6701_relative(deg),MT6701_valid");
       dataFile.flush();
     }
     else
     {
       dataFile.println(String(
           "TimeStamp(us),ROLL_IMU(deg),ROLL_Eq(deg),PITCH_IMU(deg),YAW_IMU(deg),"
-          "ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),CH1_PWM,CH2_PWM,CH3_PWM,"
-          "CH4_PWM,CH5_PWM,CH6_PWM,CH7_PWM,CH8_PWM,ail1_PWM,ail2_PWM,ele_PWM,"
+          "ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),RC_CH1,RC_CH2,RC_CH3,"
+          "RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ail1_PWM,ail2_PWM,ele_PWM,"
           "thro_PWM,rudd_PWM,B_ail1_control_us,B_ail2_control_us,B_thro_control_us,B_rudd_control_us,C_ail1_control_us,"
           "C_ail2_control_us,C_thro_control_us,C_rudd_control_us,D_ail1_control_us,D_ail2_control_us,D_thro_control_us,D_rudd_control_us,"
           "E_ail1_control_us,E_ail2_control_us,E_thro_control_us,E_rudd_control_us,F_ail1_control_us,F_ail2_control_us,F_thro_control_us,"
@@ -176,14 +176,14 @@ void loggerSINGLE()
       String(roll_des) + "," +
       String(pitch_des_local) + "," +
       String(yaw_des) + "," +
-      String(channel_1_pwm) + "," +
-      String(channel_2_pwm) + "," +
-      String(channel_3_pwm) + "," +
-      String(channel_4_pwm) + "," +
-      String(channel_5_pwm) + "," +
-      String(channel_6_pwm) + "," +
-      String(channel_7_pwm) + "," +
-      String(channel_8_pwm) + "," +
+      String(radio_channel1_normalized, 6) + "," +
+      String(radio_channel2_normalized, 6) + "," +
+      String(radio_channel3_normalized, 6) + "," +
+      String(radio_channel4_normalized, 6) + "," +
+      String(radio_channel5_normalized, 6) + "," +
+      String(radio_channel6_normalized, 6) + "," +
+      String(radio_channel7_normalized, 6) + "," +
+      String(radio_channel8_normalized, 6) + "," +
       String(ail1_PWM - pwm_channel1_trim) + "," +
       String(ail2_PWM - pwm_channel2_trim) + "," +
       String(ele_PWM - pwm_channel3_trim) + "," +
@@ -269,10 +269,10 @@ void loggerTEAM()
       String(current_time) + "," + String(roll_IMU) + "," + String(roll_eq) +
       "," + String(pitch_IMU) + "," + String(yaw_IMU) + "," + String(roll_des) +
       "," + String(pitch_des_local_log) + "," + String(yaw_des) + "," +
-      String(channel_1_pwm) + "," + String(channel_2_pwm) + "," +
-      String(channel_3_pwm) + "," + String(channel_4_pwm) + "," +
-      String(channel_5_pwm) + "," + String(channel_6_pwm) + "," +
-      String(channel_7_pwm) + "," + String(channel_8_pwm) + "," +
+      String(radio_channel1_normalized, 6) + "," + String(radio_channel2_normalized, 6) + "," +
+      String(radio_channel3_normalized, 6) + "," + String(radio_channel4_normalized, 6) + "," +
+      String(radio_channel5_normalized, 6) + "," + String(radio_channel6_normalized, 6) + "," +
+      String(radio_channel7_normalized, 6) + "," + String(radio_channel8_normalized, 6) + "," +
       String(ail1_PWM - pwm_channel1_trim) + "," +
       String(ail2_PWM - pwm_channel2_trim) + "," +
       String(ele_PWM - pwm_channel3_trim) + "," + String(thro_PWM) + "," +
@@ -302,7 +302,7 @@ void loggerTEAM()
       String(E_ele_PWM) + "," +
       String(F_ele_PWM) + "," +
       String(G_ele_PWM) + "," +
-      "," + String(roll_IMU_EXT) + "," + String(pitch_IMU_EXT) + "," +
+      String(roll_IMU_EXT) + "," + String(pitch_IMU_EXT) + "," +
       String(yaw_IMU_EXT) + "," + String(-AccX_6050) + "," + String(AccY_6050) +
       "," + String(AccZ_6050) + "," + String(-GyroX_6050) + "," +
       String(GyroY_6050) + "," + String(GyroZ_6050) + "," + String(Gyro_X_EXT) +

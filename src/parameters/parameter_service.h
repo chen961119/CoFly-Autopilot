@@ -15,3 +15,6 @@ bool parameterRebootRequired();
 // Validate/apply the full IMU group in RAM; use ordinary delayed persistence.
 // All calibration fields must reside in the same medium. True means accepted.
 bool saveImuCalibrationParameters(const float *offsets);
+// Parse/validate all CH1-4 MIN/MAX/TRIM/REV values; persist one SD snapshot
+// before applying to RAM. Failure leaves the live radio parameters unchanged.
+bool saveRadioCalibrationParameters(const char *const *values);

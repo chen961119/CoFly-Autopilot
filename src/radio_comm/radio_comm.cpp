@@ -15,12 +15,31 @@ const int ch6Pin = 22; // 通道 6：辅助功能
 const int PPM_Pin = 23;
 
 static unsigned long rising_edge_start_1, rising_edge_start_2, rising_edge_start_3, rising_edge_start_4, rising_edge_start_5, rising_edge_start_6;
-static unsigned long channel_1_raw, channel_2_raw, channel_3_raw, channel_4_raw, channel_5_raw, channel_6_raw;
-static int channel_1_pwm_prev, channel_2_pwm_prev, channel_3_pwm_prev,
-    channel_4_pwm_prev;
+static volatile unsigned long channel_1_raw, channel_2_raw, channel_3_raw, channel_4_raw, channel_5_raw, channel_6_raw;
+static int radio_channel1_raw_prev, radio_channel2_raw_prev, radio_channel3_raw_prev,
+    radio_channel4_raw_prev;
 
 static int ppm_counter = 0;
 static unsigned long time_ms = 0;
+static volatile uint32_t radioReceivedAt[4];
+static volatile bool radioReceived[4];
+
+static void markRadioReceived(unsigned channel) {
+  radioReceivedAt[channel] = micros();
+  radioReceived[channel] = true;
+}
+
+bool radioInputValid() {
+  const uint32_t now = micros();
+  for (unsigned i = 0; i < 4; ++i)
+    if (!radioReceived[i] || now - radioReceivedAt[i] > 250000u) return false;
+#if defined USE_SBUS_RX
+  if (sbusFailSafe || sbusLostFrame) return false;
+#endif
+  const int values[] = {radio_channel1_raw, radio_channel2_raw, radio_channel3_raw, radio_channel4_raw};
+  for (int value : values) if (value < 800 || value > 2200) return false;
+  return true;
+}
 
 
 #if defined USE_SBUS_RX
@@ -75,32 +94,68 @@ void radioSetup() {
   #endif
 }
 
+// Names retain the original PWM-equivalent values and existing filtering.
+int radio_channel1_raw, radio_channel2_raw, radio_channel3_raw, radio_channel4_raw;
+int radio_channel5_raw, radio_channel6_raw, radio_channel7_raw, radio_channel8_raw;
+float radio_channel1_normalized, radio_channel2_normalized, radio_channel3_normalized, radio_channel4_normalized;
+float radio_channel5_normalized, radio_channel6_normalized, radio_channel7_normalized, radio_channel8_normalized;
+RadioChannelParameters radioChannelParameters[8] = {
+    {1000, 2000, 1500, 1, 10}, {1000, 2000, 1500, 1, 10},
+    {1000, 2000, 1500, 1, 10}, {1000, 2000, 1500, 1, 10},
+    {1000, 2000, 1500, 1, 10}, {1000, 2000, 1500, 1, 10},
+    {1000, 2000, 1500, 1, 10}, {1000, 2000, 1500, 1, 10}};
+
+static float normalizeRadioChannel(int raw, const RadioChannelParameters &p) {
+  const float delta = raw - p.trim;
+  float value = 0;
+  if (delta > p.deadzone) {
+    const float span = p.maximum - p.trim - p.deadzone;
+    if (span > 0) value = (delta - p.deadzone) / span;
+  } else if (delta < -p.deadzone) {
+    const float span = p.trim - p.minimum - p.deadzone;
+    if (span > 0) value = (delta + p.deadzone) / span;
+  }
+  return constrain(value * p.reverse, -1.0f, 1.0f);
+}
+
+void updateRadioNormalized() {
+  radio_channel1_normalized = normalizeRadioChannel(radio_channel1_raw, radioChannelParameters[0]);
+  radio_channel2_normalized = normalizeRadioChannel(radio_channel2_raw, radioChannelParameters[1]);
+  radio_channel3_normalized = normalizeRadioChannel(radio_channel3_raw, radioChannelParameters[2]);
+  radio_channel4_normalized = normalizeRadioChannel(radio_channel4_raw, radioChannelParameters[3]);
+  radio_channel5_normalized = normalizeRadioChannel(radio_channel5_raw, radioChannelParameters[4]);
+  radio_channel6_normalized = normalizeRadioChannel(radio_channel6_raw, radioChannelParameters[5]);
+  radio_channel7_normalized = normalizeRadioChannel(radio_channel7_raw, radioChannelParameters[6]);
+  radio_channel8_normalized = normalizeRadioChannel(radio_channel8_raw, radioChannelParameters[7]);
+}
+
 // 按接收机类型读取各遥控通道并进行低通；更新的值供下一控制周期使用。
 void getCommands() {
   // 读取当前接收机通道；PWM/PPM 由中断更新，SBUS 由库解析。
   // 对关键通道做一阶低通后，供下一次控制周期使用。
 
 #if defined USE_PPM_RX || defined USE_PWM_RX
-  channel_1_pwm = getRadioPWM(1);
-  channel_2_pwm = getRadioPWM(2);
-  channel_3_pwm = getRadioPWM(3);
-  channel_4_pwm = getRadioPWM(4);
-  channel_5_pwm = getRadioPWM(5);
-  channel_6_pwm = getRadioPWM(6);
+  radio_channel1_raw = getRadioPWM(1);
+  radio_channel2_raw = getRadioPWM(2);
+  radio_channel3_raw = getRadioPWM(3);
+  radio_channel4_raw = getRadioPWM(4);
+  radio_channel5_raw = getRadioPWM(5);
+  radio_channel6_raw = getRadioPWM(6);
 
 #elif defined USE_SBUS_RX
   if (sbus.read(&sbusChannels[0], &sbusFailSafe, &sbusLostFrame)) {
     // 以下比例换算对应 Taranis-Plus 与 X4R-SB 的 SBUS 输出范围。
     float scale = 0.615;
     float bias = 895.0;
-    channel_1_pwm = sbusChannels[0] * scale + bias;
-    channel_2_pwm = sbusChannels[1] * scale + bias;
-    channel_3_pwm = sbusChannels[2] * scale + bias;
-    channel_4_pwm = sbusChannels[3] * scale + bias;
-    channel_5_pwm = sbusChannels[4] * scale + bias;
-    channel_6_pwm = sbusChannels[5] * scale + bias;
-    channel_7_pwm = sbusChannels[6] * scale + bias;
-    channel_8_pwm = sbusChannels[7] * scale + bias;
+    radio_channel1_raw = sbusChannels[0] * scale + bias;
+    radio_channel2_raw = sbusChannels[1] * scale + bias;
+    radio_channel3_raw = sbusChannels[2] * scale + bias;
+    radio_channel4_raw = sbusChannels[3] * scale + bias;
+    radio_channel5_raw = sbusChannels[4] * scale + bias;
+    radio_channel6_raw = sbusChannels[5] * scale + bias;
+    radio_channel7_raw = sbusChannels[6] * scale + bias;
+    radio_channel8_raw = sbusChannels[7] * scale + bias;
+    for (unsigned i = 0; i < 4; ++i) markRadioReceived(i);
   }
 
 #elif defined USE_DSM_RX
@@ -110,25 +165,26 @@ void getCommands() {
     uint16_t values[num_DSM_channels];
     DSM.getChannelValues(values, num_DSM_channels);
 
-    channel_1_pwm = values[0];
-    channel_2_pwm = values[1];
-    channel_3_pwm = values[2];
-    channel_4_pwm = values[3];
-    channel_5_pwm = values[4];
-    channel_6_pwm = values[5];
+    radio_channel1_raw = values[0];
+    radio_channel2_raw = values[1];
+    radio_channel3_raw = values[2];
+    radio_channel4_raw = values[3];
+    radio_channel5_raw = values[4];
+    radio_channel6_raw = values[5];
+    for (unsigned i = 0; i < 4; ++i) markRadioReceived(i);
   }
 #endif
 
   // 对关键遥控通道做一阶低通，并保存本次值。
   float b = 0.7; // 系数越小平滑越强，响应越慢。
-  channel_1_pwm = (1.0 - b) * channel_1_pwm_prev + b * channel_1_pwm;
-  channel_2_pwm = (1.0 - b) * channel_2_pwm_prev + b * channel_2_pwm;
-  channel_3_pwm = (1.0 - b) * channel_3_pwm_prev + b * channel_3_pwm;
-  channel_4_pwm = (1.0 - b) * channel_4_pwm_prev + b * channel_4_pwm;
-  channel_1_pwm_prev = channel_1_pwm;
-  channel_2_pwm_prev = channel_2_pwm;
-  channel_3_pwm_prev = channel_3_pwm;
-  channel_4_pwm_prev = channel_4_pwm;
+  radio_channel1_raw = (1.0 - b) * radio_channel1_raw_prev + b * radio_channel1_raw;
+  radio_channel2_raw = (1.0 - b) * radio_channel2_raw_prev + b * radio_channel2_raw;
+  radio_channel3_raw = (1.0 - b) * radio_channel3_raw_prev + b * radio_channel3_raw;
+  radio_channel4_raw = (1.0 - b) * radio_channel4_raw_prev + b * radio_channel4_raw;
+  radio_channel1_raw_prev = radio_channel1_raw;
+  radio_channel2_raw_prev = radio_channel2_raw;
+  radio_channel3_raw_prev = radio_channel3_raw;
+  radio_channel4_raw_prev = radio_channel4_raw;
 }
 
 // 读取 PWM/PPM 中断缓存的指定通道脉宽；通道号为 1～6，返回值单位为 μs。
@@ -188,18 +244,22 @@ void getPPM() {
   
     if (ppm_counter == 1) { // 第 1 通道。
       channel_1_raw = dt_ppm;
+      markRadioReceived(0);
     }
   
     if (ppm_counter == 2) { // 第 2 通道。
       channel_2_raw = dt_ppm;
+      markRadioReceived(1);
     }
   
     if (ppm_counter == 3) { // 第 3 通道。
       channel_3_raw = dt_ppm;
+      markRadioReceived(2);
     }
   
     if (ppm_counter == 4) { // 第 4 通道。
       channel_4_raw = dt_ppm;
+      markRadioReceived(3);
     }
   
     if (ppm_counter == 5) { // 第 5 通道。
@@ -222,6 +282,7 @@ void getCh1() {
   }
   else if(trigger == 0) {
     channel_1_raw = micros() - rising_edge_start_1;
+    markRadioReceived(0);
   }
 }
 
@@ -233,6 +294,7 @@ void getCh2() {
   }
   else if(trigger == 0) {
     channel_2_raw = micros() - rising_edge_start_2;
+    markRadioReceived(1);
   }
 }
 
@@ -244,6 +306,7 @@ void getCh3() {
   }
   else if(trigger == 0) {
     channel_3_raw = micros() - rising_edge_start_3;
+    markRadioReceived(2);
   }
 }
 
@@ -255,6 +318,7 @@ void getCh4() {
   }
   else if(trigger == 0) {
     channel_4_raw = micros() - rising_edge_start_4;
+    markRadioReceived(3);
   }
 }
 

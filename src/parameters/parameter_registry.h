@@ -72,7 +72,7 @@ inline bool validParameterValue(const FlightParameter &p, double value) {
       return false;
   }
   const size_t length = strlen(p.name);
-  if (length >= 4 && !strcmp(p.name + length - 4, "_rev") && value != -1 && value != 1)
+  if (length >= 4 && (!strcmp(p.name + length - 4, "_rev") || !strcmp(p.name + length - 4, "_REV")) && value != -1 && value != 1)
     return false;
   return value >= p.minimum && value <= p.maximum;
 }

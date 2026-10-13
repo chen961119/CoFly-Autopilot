@@ -26,17 +26,17 @@ void printRadioData() {
   if (current_time - print_counter > 10000) {
     print_counter = micros();
     USBSerial.print(F(" CH1:"));
-    USBSerial.print(channel_1_pwm);
+    USBSerial.print(radio_channel1_raw);
     USBSerial.print(F(" CH2:"));
-    USBSerial.print(channel_2_pwm);
+    USBSerial.print(radio_channel2_raw);
     USBSerial.print(F(" CH3:"));
-    USBSerial.print(channel_3_pwm);
+    USBSerial.print(radio_channel3_raw);
     USBSerial.print(F(" CH4:"));
-    USBSerial.print(channel_4_pwm);
+    USBSerial.print(radio_channel4_raw);
     USBSerial.print(F(" CH5:"));
-    USBSerial.print(channel_5_pwm);
+    USBSerial.print(radio_channel5_raw);
     USBSerial.print(F(" CH6:"));
-    USBSerial.println(channel_6_pwm);
+    USBSerial.println(radio_channel6_raw);
   }
 }
 

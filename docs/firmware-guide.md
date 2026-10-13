@@ -46,7 +46,7 @@
 
 ## USB 地面站
 
-应用提供通讯连接、室内/室外配色与字体、参数、传感器、遥控器和飞行数据页。新增地面站协议与参数协议共用 USB Serial；校准、传感器设置及模式映射暂为明确返回 `NOT_IMPLEMENTED` 的接口。使用与实现范围见 [地面站说明](../tools/ground_station/README.md)。
+应用提供通讯连接、室内/室外配色与字体、参数、传感器、遥控器和飞行数据页。新增地面站协议与参数协议共用 USB Serial；传感器校准与设置暂为明确返回 `NOT_IMPLEMENTED` 的接口，模式由代码直接判断遥控通道。使用与实现范围见 [地面站说明](../tools/ground_station/README.md)。
 
 电脑端软件位于 `tools/ground_station/`，提供 75 项参数读取/就地修改（最多支持 512 项）、EEPROM/SD 按项保存、重启生效提示、列排序及支持十六进制显示的串口助手。参数类型显示为 `float` / `int`；双击当前值编辑，Enter 保存，Esc 取消。双击 `tools/ground_station/dist/CoFlyGroundStation.exe` 可启动；源码启动、协议、SD 恢复见 [参数软件使用说明](../tools/ground_station/README.md)。飞控开机在 SD 初始化后自动加载参数，立即生效参数修改成功后下次控制周期使用新值；身份和数量重启生效。
 
@@ -199,3 +199,5 @@ pio device monitor
 SD 飞行日志可使用 [Python 飞行数据浏览器](../tools/flight_data_browser/README.md) 读取，进行多机对比、子图分析、区段 FFT 和 CSV 导出。
 
 功能、接口、性能和安全需求见 [需求说明](requirements.md)。提交控制代码前至少应执行一次完整 PlatformIO 构建；涉及真实硬件的变更还应完成拆桨地面测试和相应飞行试验记录。
+
+日志遥控输入列为 `RC_CH1`～`RC_CH8`，记录控制使用的 `radio_channelN_normalized`，统一范围 [-1,1]、保留六位小数；不再保存遥控原始 PWM。油门最低/失联值为 -1。单机和多机日志采用相同遥控列名，执行器 PWM 列沿用各自物理/控制单位。

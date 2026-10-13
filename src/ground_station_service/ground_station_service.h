@@ -8,5 +8,3 @@ enum class GroundStationResult { NotImplemented };
 // V1 contracts only. Implement asynchronous jobs/progress in the next version.
 GroundStationResult requestGroundCalibration(const char *sensor);
 GroundStationResult requestGroundSensorSetting(const char *sensor, const char *setting);
-GroundStationResult requestGroundRadioCalibration();
-GroundStationResult requestGroundFlightModes(const char *low, const char *middle, const char *high);

@@ -224,7 +224,7 @@ def _smooth_mask(mask, time, close_seconds, min_seconds):
 
 
 def _in_air(columns, data, time):
-    candidates = ["airspeed_A", "A_thro_PWM", "thro_PWM", "CH3_PWM",
+    candidates = ["airspeed_A", "A_thro_PWM", "thro_PWM", "RC_CH3", "CH3_NORMALIZED", "CH3_PWM",
                   *[f"{node}thro_PWM" for node in "BCDEFG"]]
     for name in candidates:
         if name not in columns:
@@ -235,6 +235,9 @@ def _in_air(columns, data, time):
             continue
         if name == "airspeed_A":
             threshold, gap, minimum = max(8, 0.25 * np.quantile(good, 0.99)), 2, 1
+        elif name in ("RC_CH3", "CH3_NORMALIZED"):
+            threshold = max(-0.7, min(-0.2, np.min(good) + 0.25 * np.ptp(good)))
+            gap, minimum = 3, 2
         else:
             threshold = max(1150, min(1400, np.min(good) + 0.25 * np.ptp(good)))
             gap, minimum = 3, 2
@@ -253,10 +256,16 @@ def _in_air(columns, data, time):
 
 
 def _modes(columns, data, time):
-    if "CH5_PWM" not in columns:
+    if "RC_CH5" in columns:
+        name, low, high = "RC_CH5", -0.2, 0.2
+    elif "CH5_NORMALIZED" in columns:
+        name, low, high = "CH5_NORMALIZED", -0.2, 0.2
+    elif "CH5_PWM" in columns:
+        name, low, high = "CH5_PWM", 1400, 1600
+    else:
         return ()
-    values = data[:, columns.index("CH5_PWM")]
-    codes = np.where(~np.isfinite(values), 0, np.where(values > 1600, 1, np.where(values < 1400, 3, 2)))
+    values = data[:, columns.index(name)]
+    codes = np.where(~np.isfinite(values), 0, np.where(values > high, 1, np.where(values < low, 3, 2)))
     boundaries = np.r_[0, np.flatnonzero(np.diff(codes)) + 1, len(time)]
     names = {0: "Unknown", 1: "Manual", 2: "Stab1", 3: "Stab2"}
     return tuple(Segment(float(time[a]), float(time[b - 1]), names[int(codes[a])])

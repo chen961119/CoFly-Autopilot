@@ -7,8 +7,8 @@
 // 仅声明日志、执行器、通信等模块需要读取的控制状态；控制器内部量留在 control_modes.cpp。
 // PWM 单位为微秒，遥控通道值也按 PWM 微秒数表示。
 extern float central_pitch;
-extern int channel_1_pwm, channel_2_pwm, channel_3_pwm, channel_4_pwm;
-extern int channel_5_pwm, channel_6_pwm, channel_7_pwm, channel_8_pwm;
+// Receiver raw and normalized inputs are owned by the radio module.
+#include "radio_comm/radio_comm.h"
 extern float ailBrake_PWM;
 extern float D_ele_command_PWM_FF, E_ele_command_PWM_FF;
 extern float F_ele_command_PWM_FF, G_ele_command_PWM_FF;

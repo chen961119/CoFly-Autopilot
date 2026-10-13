@@ -13,6 +13,8 @@
 自动检测结果在任务终端显示 `TeensyDebug: COM…` 和 `Ground station / USB console: COM…`。同一根 USB 线在调试固件下枚举两个 CDC 串口：`Serial`（接口 0）用于地面站、参数和普通输出，`SerialUSB1`（接口 2）专供 GDB。地面站选择终端提示的 Ground station 端口，不能打开 GDB 端口。端口根据 USB 接口号识别，不以 COM 编号大小区分；仅连接一块 Teensy。
 
 双串口调试固件的 VID/PID 为 `16C0:048B`；普通 `teensy41` 固件仍使用单串口 `16C0:0483`。只在 `teensy41_debug` 环境启用双串口。必须重新上传本版调试固件，旧单串口固件不符合新的自动识别规则。
+
+Windows 有时不提供某个串口的 `LOCATION` 接口信息。准备脚本会通过 USB 注册表中的 `MI_00` / `MI_02` 与 `PortName` 补充识别，不依赖 COM 编号顺序。
 路径由工作区、脚本位置和用户环境推导，不固定盘符和 COM 编号。
 
 调试固件先等待 GDB 打开USB 串口，然后初始化 TeensyDebug 并调用 `halt_cpu()`；未连接调试器时不会继续启动。

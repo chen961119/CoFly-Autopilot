@@ -428,7 +428,7 @@ class Browser:
                 segment = max(log.in_air, key=lambda s: s.stop - s.start)
                 self.axes[0].set_xlim(max(0, segment.start - 2), min(log.time[-1], segment.stop + 2))
             else:
-                self.status.set("所选文件没有识别出飞行区段；估算依据为空速/绝对油门 PWM。")
+                self.status.set("所选文件没有识别出飞行区段；估算依据为空速、油门 PWM 或归一化油门。")
 
     def play(self):
         if self.play_job:
