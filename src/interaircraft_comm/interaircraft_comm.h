@@ -2,17 +2,17 @@
 
 #include <Arduino.h>
 #include <type_traits>
+#include "control/control_types.h"
 
 // 每个对象管理一条命令链；A 使用 left/right，从机只使用所在侧对象。
 class AircraftCommandLink {
 public:
-  AircraftCommandLink();
-  // 对象绑定一个下游输出并独立限频；链路编号：A=1，B/C=2，D/E=3，F/G=4。
-  void configure(Stream *output, Stream *input, unsigned int ownAircraftId = 1);
-  // 输入为控制偏移（μs）和角度（度）；在这里统一转换为协议类型。
-  bool setCommandLink(unsigned int index, int aileron1, int aileron2, int throttle, int rudder,
-                      float pitch, int elevatorManual, int elevatorFeedForward, bool light,
-                      bool integralEnabled, bool manualMode);
+  AircraftCommandLink() = default;
+  // 对象绑定一个下游输出并独立限频；链路层级：A=1，B/C=2，D/E=3，F/G=4。
+  void configure(Stream *output, Stream *input, unsigned int ownAircraftLevel = 1);
+  // 输入为 PWM 缩放前的逻辑控制输出；角度单位为度。
+  bool setCommandLink(unsigned int index, const SlaveCommand &command);
+  const SlaveCommand &getCommandLink();
   void sendPreparedChildCommands();
   void receiveCommandData();
   void forwardReceivedChildCommands();
@@ -24,34 +24,37 @@ private:
   static constexpr size_t CHECKSUM_SIZE = 1;
   static constexpr uint32_t SEND_INTERVAL_US = 10000; // 100 Hz，每条链独立限频。
 
+  static constexpr float CONTROL_OUTPUT_SCALE = 4096.0f; // int16 定点，分辨率 1/4096，范围约 ±8。
+
   // 仅包含线上字段，按声明顺序紧密排列；各机使用相同定义和小端编码。
   // 增删或修改字段时，同步更新 setCommandLink、getCommandLink 和 printReceivedData。
 #pragma pack(push, 1)
   struct CommandPayload {
-    uint8_t intIsValid = 0;
-    uint8_t forceManual = 0;
-    int16_t servoCommands[CHILD_COUNT * 4] = {};
+    uint8_t controlMode = MANUAL_MODE;
+    // 每槽位依次为副翼1、副翼2、油门、方向舵、升降舵，int16 定点逻辑控制量（真实值 ×4096）。
+    // 原构造函数的低油门默认值移到载荷初始化，不在构造函数中处理协议。
+    int16_t controlOutputs[CHILD_COUNT * 5] = {
+        0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0};
     int16_t pitchAngles[CHILD_COUNT] = {}; // 单位 0.1 度。
-    int16_t elePwmCommands[CHILD_COUNT] = {};
-    int16_t eleFfPwmCommands[CHILD_COUNT] = {};
-    uint8_t lightSignals[CHILD_COUNT] = {0, 0, 1};
   };
 #pragma pack(pop)
   static_assert(std::is_trivially_copyable<CommandPayload>::value,
                 "Command payload must support byte copying");
   static constexpr size_t FRAME_SIZE = HEADER_SIZE + sizeof(CommandPayload) + CHECKSUM_SIZE;
   CommandPayload commandPayload{};
+  // 解码结果与链路对象同寿命，getCommandLink() 返回其稳定引用。
+  SlaveCommand parsedCommand{MANUAL_MODE, {}, {0, 0, 0, -0.5f, 0}};
+  static_assert(sizeof(int16_t) == 2 && sizeof(CommandPayload) == 37, "Command wire layout changed");
 
   bool dataReceived = false;
   Stream *transmitPort = nullptr;
   Stream *receivePort = nullptr;
-  unsigned int localAircraftId = 1; // 链路编号，提取从机命令时减 2 转为数组下标。
+  unsigned int localAircraftLevel = 1; // 链路层级：A=1，B/C=2，D/E=3，F/G=4；减 2 得到链内槽位。
   uint8_t receiveBuffer[FRAME_SIZE] = {};
   size_t receivePosition = 0;
   uint32_t lastTransmitTimeUs = 0;
   uint32_t receivedFrameCount = 0;
 
-  void getCommandLink();
   void printReceivedData(int enabled);
 };
 
@@ -91,10 +94,10 @@ private:
     int16_t rollRates[CHILD_COUNT] = {};      // 0.1 度/秒。
     int16_t rollAngles[CHILD_COUNT] = {};     // 0.1 度。
     int16_t pitchAngles[CHILD_COUNT] = {};    // 0.1 度。
-    int16_t elevatorPwm[CHILD_COUNT] = {};    // 实际升降舵 PWM，μs。
+    int16_t yawAngles[CHILD_COUNT] = {};      // 0.1 度。
   };
 #pragma pack(pop)
-  static_assert(sizeof(bool) == 1, "Sensor side flag requires one byte");
+  static_assert(sizeof(bool) == 1 && sizeof(SensorPayload) == 31, "Sensor wire layout changed");
   static_assert(std::is_trivially_copyable<SensorPayload>::value,
                 "Sensor payload must support byte copying");
   static constexpr size_t FRAME_SIZE = HEADER_SIZE + sizeof(SensorPayload) + CHECKSUM_SIZE;
@@ -124,15 +127,11 @@ void receiveSensorData();
 void forwardReceivedChildSensors();
 bool isSensorDataFresh(bool left);
 
-// 从相邻机体接收的姿态、舵机及期望状态，供控制器和日志读取。
-extern float Local_pitch_des;
-extern int Local_ail1_control_us, Local_ail2_control_us, Local_thro_control_us,
-    Local_rudd_control_us, Local_ele_control_us, Local_ele_ff_control_us;
-
-extern float phiB_raw, phiC_raw, phiD_raw, phiE_raw, phiF_raw, phiG_raw;
-extern float thetaB_raw, thetaC_raw, thetaD_raw, thetaE_raw, thetaF_raw, thetaG_raw;
-extern int B_ele_PWM, C_ele_PWM, D_ele_PWM, E_ele_PWM, F_ele_PWM, G_ele_PWM;
-extern float GYRO_X_B, GYRO_X_C, GYRO_X_D, GYRO_X_E, GYRO_X_F, GYRO_X_G;
+// 从相邻机体接收的三轴姿态，供控制器、显示和日志读取。
+// 各机姿态角，单位 deg，顺序滚转/俯仰/偏航。
+extern float att_B[3], att_C[3], att_D[3], att_E[3], att_F[3], att_G[3];
+// 三轴顺序 X/Y/Z，单位 deg/s；当前协议只更新 [0]，Y/Z 未传输且保持 0。
+extern float ang_vel_B[3], ang_vel_C[3], ang_vel_D[3], ang_vel_E[3], ang_vel_F[3], ang_vel_G[3];
 
 // Local downstream joint, derived from the two IMU rolls; never MT6701.
 bool localWingRelativeAngle(float &angle);

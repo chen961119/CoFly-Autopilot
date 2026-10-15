@@ -2,24 +2,26 @@
 //#include "config/flight_config.h"
 
 namespace ControlParameters {
+int32_t pitch_controller = 1; // 保留原默认 INDI 选择，增稳两种模式均按此参数选择。
 float Trim_pitch_angle = 3.0;
 float k_Clp = 0.05;
 float i_limit = 45.0;        // 积分项限幅，防止长时间误差导致指令过大。
 float maxRoll = 80.0;        // 最大滚转期望；角度模式为 °，角速度模式为 °/s。
 float maxPitch = 60.0;       // 最大俯仰期望；单位随控制模式变化。
 float maxYaw = 160.0;        // 最大偏航角速度期望，单位 °/s。
+float V_cruise = 13.0f;      // 巡航空速（m/s）。
 float Kp_roll_angle = 0.25;  // 滚转角比例增益。
 float Ki_roll_angle = 0.0;   // 滚转角积分增益。
-float Kd_roll_angle = 0.0;   // 滚转角微分增益；controlANGLE2() 不使用该参数。
+float Kd_roll_angle = 0.0;   // 滚转角微分增益；串级滚转 PID 不使用该参数。
 float B_loop_roll = 1.0;     // 滚转外环阻尼系数，范围 0～1。
 float Kp_pitch_angle = 0.12; // 俯仰角比例增益。
 float Ki_pitch_angle = 0.0;  // 俯仰角积分增益。
-float Kd_pitch_angle = 0.00; // 俯仰角微分增益；controlANGLE2() 不使用该参数。
+float Kd_pitch_angle = 0.00; // 俯仰角微分增益；串级俯仰 PID 不使用该参数。
 float B_loop_pitch = 1.0;    // 俯仰外环阻尼系数，范围 0～1。
 float Kp_Flap = 0.2;         // 襟翼角度比例增益。
 float B_loop_FLAP = 0.0;
 float indi_pitch_q_gain = 25.0f;           // q误差转dq_des的比例
-float indi_pitch_effectiveness = -113.65f; // 升降舵舵效: dq / delta_e, 单位 deg/s^2 per deg
+float indi_pitch_effectiveness = -113.65f; // 升降舵舵效: ang_acc[1] / delta_e, 单位 deg/s^2 per deg
 float indi_pitch_pwm_to_deg_k = 0.090909f; // delta_e = k * pwm + b, 1500PWM中位, 1720PWM下偏20deg
 float indi_pitch_pwm_to_deg_b = -136.3636f;
 float indi_pitch_servo_delay_s = 0.03f; // 舵机纯延迟

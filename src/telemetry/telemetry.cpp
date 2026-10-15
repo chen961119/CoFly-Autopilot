@@ -1,6 +1,6 @@
+#include "control/control_output.h"
 #include "telemetry/telemetry.h"
 #include "config/serial_config.h"
-#include "control/control_state.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
 
@@ -31,15 +31,15 @@ void telemetry() // 主机数传
     return;
   lasttelemetryTime = checker3;
 
-  configuration_tele[0] = phiB_raw - roll_IMU; //
-  configuration_tele[1] = phiC_raw - roll_IMU; //
-  configuration_tele[2] = phiD_raw - phiB_raw;
-  configuration_tele[3] = phiE_raw - phiC_raw;
-  configuration_tele[4] = phiF_raw - phiD_raw;
-  configuration_tele[5] = phiG_raw - phiE_raw;
+  configuration_tele[0] = att_B[0] - att[0]; //
+  configuration_tele[1] = att_C[0] - att[0]; //
+  configuration_tele[2] = att_D[0] - att_B[0];
+  configuration_tele[3] = att_E[0] - att_C[0];
+  configuration_tele[4] = att_F[0] - att_D[0];
+  configuration_tele[5] = att_G[0] - att_E[0];
 
-  attitude_tele[0] = roll_eq;
-  attitude_tele[1] = pitch_IMU;
+  attitude_tele[0] = rollControlOutput.equivalentRoll;
+  attitude_tele[1] = att[1];
 
   //  float anglerand = random(-200000, 200001) / 1000.0;  // 范围 -200.000 ~
   //  +200.000

@@ -14,7 +14,7 @@
 | 奇偶构型 | `aircraftCount() % 2` | 从编译期数量计算 |
 | IMU 路径 | `INTIMU` | 使用本机 IMU |
 | 接收机 | `USE_SBUS_RX` | 使用 SBUS 接收机 |
-| 俯仰控制 | `TESTINDI` | 增稳状态下启用俯仰 INDI |
+| 俯仰控制 | SD 参数 `pitch_controller` | 0 PID、1 INDI，默认 1，两种增稳均适用 |
 | 机型配置 | `expensive` | 启用贵飞机专用限幅和启动逻辑 |
 
 同一数量及硬件/算法配置下，各节点共用同一个固件，通过 USB 设置身份并重启。数量使用编译宏，不在参数页出现；单机将 `COFLY_AIRCRAFT_COUNT` 设为 1 后重新构建，设置 `aircraft_id=1`。已保存增益保留，切换后应确认调参。存储声明与校验见 [统一参数与持久存储](parameter-storage.md)。
@@ -48,17 +48,17 @@
 
 应用提供通讯连接、室内/室外配色与字体、参数、传感器、遥控器和飞行数据页。新增地面站协议与参数协议共用 USB Serial；传感器校准与设置暂为明确返回 `NOT_IMPLEMENTED` 的接口，模式由代码直接判断遥控通道。使用与实现范围见 [地面站说明](../tools/ground_station/README.md)。
 
-电脑端软件位于 `tools/ground_station/`，提供 75 项参数读取/就地修改（最多支持 512 项）、EEPROM/SD 按项保存、重启生效提示、列排序及支持十六进制显示的串口助手。参数类型显示为 `float` / `int`；双击当前值编辑，Enter 保存，Esc 取消。双击 `tools/ground_station/dist/CoFlyGroundStation.exe` 可启动；源码启动、协议、SD 恢复见 [参数软件使用说明](../tools/ground_station/README.md)。飞控开机在 SD 初始化后自动加载参数，立即生效参数修改成功后下次控制周期使用新值；身份和数量重启生效。
+电脑端软件位于 `tools/ground_station/`，提供参数读取/就地修改（最多支持 512 项）、EEPROM/SD 按项保存、重启生效提示、列排序及支持十六进制显示的串口助手。参数类型显示为 `float` / `int`；双击当前值编辑，Enter 保存，Esc 取消。双击 `tools/ground_station/dist/CoFlyGroundStation.exe` 可启动；源码启动、协议、SD 恢复见 [参数软件使用说明](../tools/ground_station/README.md)。飞控开机在 SD 初始化后自动加载参数，立即生效参数修改成功后下次控制周期使用新值；身份重启生效，总数量由编译宏决定。
 
 ## PWM 中位与安装微调
 
 `src/config/flight_config.h` 中统一定义 `PWM_CENTER_US = 1500`。遥控滚转、俯仰、偏航归一化以及通道 7 构型系数也以 1500 为零点；同一个遥控 PWM 数值产生的期望量会随中位修改而变化。
 
-安装 trim 仅保留本机 `pwm_channel1_trim`～`pwm_channel5_trim`，编译默认值全部为 0 μs。各飞机通过 USB 参数表校准，在自己的 SD 卡中保存并于开机恢复；不再按机体宏选择 trim。机械中位为 `1500 + trim`，trim 不随 rev 反向。当前油门 PWM 转换以 `PWM_CENTER_US` 为基准，最终输出还受本机 rev、trim、锁定和限幅影响；遥控油门归一化见 `control_modes.cpp::getDesState()`。
+安装 trim 仅保留本机 `pwm_channel1_trim`～`pwm_channel5_trim`，编译默认值全部为 0 μs。各飞机通过 USB 参数表校准，在自己的 SD 卡中保存并于开机恢复；不再按机体宏选择 trim。机械中位为 `1500 + trim`，trim 不随 rev 反向。当前油门 PWM 转换以 `PWM_CENTER_US` 为基准，最终输出还受本机 rev、trim、锁定和限幅影响；遥控油门归一化见 `control/control_modes.cpp::prepareControlMode()`。
 
 解锁后的有效控制输出在 `applyAndTransmitActuatorCommands()` 中按各路 `PWM_SERVO1_MIN_US` / `PWM_SERVO1_MAX_US` 至 `PWM_SERVO5_MIN_US` / `PWM_SERVO5_MAX_US` 独立限幅，默认各路均为 1000～2000 μs；锁定输出不受此软件限幅影响。Servo 驱动范围由 `PWM_SERVO_ATTACH_MIN_US` / `PWM_SERVO_ATTACH_MAX_US` 独立设置，当前为 1000～2000 μs。俯仰 INDI 还具有独立的可调物理 PWM 限幅。INDI 的绝对 PWM 到舵角标定继续使用原拟合系数，其中立初始化使用 `PWM_CENTER_US + pwm_channel3_trim`。
 
-所有飞机的升降舵到副翼补偿统一使用本地俯仰控制偏移除以 15；INDI 使用实测物理 PWM，因此需扣除本机机械中位并还原控制方向。机械 trim 不参与控制补偿，零控制量时补偿为零。日志中本机舵面 PWM 扣除本机 trim 后以 1500 为基准，B～G 控制指令列以零偏移为基准；子机回传的升降舵 PWM 保留物理值。
+所有飞机的升降舵到副翼补偿统一使用本地俯仰控制偏移除以 15；INDI 使用实测物理 PWM，因此需扣除本机机械中位并还原控制方向。机械 trim 不参与控制补偿，零控制量时补偿为零。日志中的五路执行器输出仅记录 `ActuatorOutput[0..4]`，包含本机 trim、锁定处理和最终限幅；子机状态回传滚转、俯仰、偏航，不记录子机物理升降舵 PWM。
 
 迁移对比使用旧版 `scaleCommands()`、当前 `convertControlCommandsToPWM()` 和执行器实现，检查 A 主机与 F 从机分支各 42 组相同归一化指令，包括中立、刹车、控制模式和饱和情况：中立指令一致，测试中的 PWM 指令最大差异为 1 μs，来自中位变化后的整数截断。
 
@@ -67,23 +67,25 @@
 主循环按以下顺序执行：
 
 ```cpp
-controlMixer();
-convertControlCommandsToPWM();
+runControlCycle(); // 更新全局 commands
+convertControlCommandsToPWM(commands);
 prepareActuatorCommands();
 applyAndTransmitActuatorCommands();
 ```
 
-`control_modes.cpp` 输出归一化的 `*_scaled` 和未反向的升降舵前馈偏移。`convertControlCommandsToPWM()` 位于 `actuator_output.cpp`，更新私有的 `*_control_us`：它们以 1500 为逻辑零点，尚未加机械 trim 或应用反向，不能当作最终 PWM。
+`runControlCycle()` 按主从身份选择并列流程，更新全局 `ControlCycleOutput commands`，仅保存本机和从机槽位的 `ActuatorCommand` 作动器贡献，待发送命令独立保存在 `slaveCommands[]`。`convertControlCommandsToPWM(commands)` 位于 `actuator_output.cpp`，直接按 `1500 + 本机 trim + 本机 rev × 1000 × 归一化指令` 生成本机物理 PWM，写入 `ActuatorOutput[5]`。
 
-`prepareActuatorCommands()` 按 `1500 + 本机安装trim + 本机rev × (控制偏移 + 本地补偿)` 生成本机最终的 `A*_PWM`。A 主机准备本机输出，发往 B～G 的旧名 `*_PWM` 缓存实际是有符号控制偏移，不含中位、rev、trim；从机叠加本地副翼补偿和阻尼后才转换成物理 PWM。手动升降舵和升降舵前馈也由接收机应用本机 rev/trim。
+`prepareActuatorCommands(commands)` 直接打包从机逻辑控制输出，不计算控制律或交联。发送直接读取独立全局 `slaveCommands[]`，不建立 Slave 输出缓存或记录对应逻辑指令列。从机融合两路逻辑贡献后才转换成物理 PWM。
 
-机间命令帧仍为 50 字节，但字段含义已改变，七架飞机须同步更新固件；旧固件不能混用。各机的 `pwm_channel1_trim`、`pwm_channel2_trim`、`pwm_channel3_trim` 保存本机安装偏置，需在对应机体上调整并保存参数。
+当前命令帧为 40 字节，传输控制模式与 int16 定点逻辑输出，与旧协议不兼容，所有节点需同步更新固件。各机的 `pwm_channel1_trim`、`pwm_channel2_trim`、`pwm_channel3_trim` 保存本机安装偏置，需在对应机体上调整并保存参数。命令接收和转发沿用原缓存逻辑，不增加命令超时策略。
 
-A 机在 `aircraftId() == 1` 分支中准备本机 `Local_*_control_us` 和子机缓存，B～G 从上级命令获取本机偏移；分支后所有飞机共同计算副翼补偿与最终物理 PWM。A 机没有升降舵上级前馈，其 `Local_ele_ff_control_us` 每周期设为零。
+A 机在主分配中完成本机交联和子机指令生成；B～G 在从分配中完成本机交联，再融合上级贡献。接收命令由通信对象持有 `SlaveCommand`，控制流程直接读取，不再使用 Local 中间标量。
 
-油门机间字段传递有符号控制偏移；各机在本地应用 `PWM_CENTER_US`、油门 rev/trim 和最终输出保护。参数 `usb_throttle_debug` 保留为油门调试开关，诊断函数输出接收的偏移和上级帧状态。
+油门机间字段传递 int16 定点逻辑控制输出；各机在本地应用 `PWM_CENTER_US`、油门 rev/trim 和最终输出保护。参数 `usb_throttle_debug` 保留为油门调试开关，诊断函数输出接收的逻辑输出和上级帧状态。
 
-本地升降舵计算、从机手动覆盖、前馈、副翼补偿和滚转阻尼均在 prepare 阶段完成。INDI 使用实测的物理 PWM 标定输出，不重复应用 rev/trim。`ele_PWM` 表示最终本地升降舵输出，通信回传直接使用该值，不再重复叠加前馈。
+本地升降舵计算、副翼补偿和阻尼在控制/mixer 阶段完成，手动与前馈贡献在融合前明确归属。INDI 物理 PWM 标定输出在 mixer 中适配回逻辑方向，最终转换只恢复一次 rev/trim。`ActuatorOutput[2]` 表示最终本地升降舵 PWM；输出数组按副翼1、副翼2、升降舵、油门、方向舵排列，日志读取实际写出的值。
+
+`pitch_controller` 为本机 SD 整数参数，0 选择 PID、1 选择 INDI，默认 1，下一周期生效，适用于有积分和无积分两种增稳。手动不运行闭环；控制流程保留原有三种模式与通信行为，未增加失效切换或输出覆盖策略，具体边界见 [控制架构](control-architecture.md)。
 
 ## 执行器锁定与限幅
 
@@ -151,7 +153,7 @@ pio device monitor
   -> INDI 与构型控制
   -> 当前构型的混控（动态分配调用已注释）
   -> PWM 输出与级联转发
-  -> SD 日志、failsafe 和循环限频
+  -> SD 日志、遥控归一化和循环限频
 ```
 
 当前主要控制模式为：
@@ -178,8 +180,8 @@ pio device monitor
 
 ## 通信协议概览
 
-- `55 60`：50 字节级联控制帧，包含模式标志、舵机指令、俯仰目标、升降舵命令、前馈和灯光状态。
-- `55 71`：34 字节状态帧，包含左右 bool 标志、相对角、滚转角速度、姿态角和升降舵 PWM；与旧 33 字节协议不兼容，各节点须同步更新。
+- `55 60`：40 字节级联控制帧，包含当前模式、五路逻辑控制输出和俯仰目标。
+- `55 71`：34 字节状态帧，包含左右 bool 标志、相对角、滚转角速度及滚转/俯仰/偏航三轴姿态；与旧 33 字节协议不兼容，各节点须同步更新。
 - Modbus RTU：通过 `Serial7` 请求五通道应变数据，使用 CRC16/Modbus。
 - `AA 55`：通过 `Serial8` 接收二进制气动数据包。
 
@@ -201,3 +203,14 @@ SD 飞行日志可使用 [Python 飞行数据浏览器](../tools/flight_data_bro
 功能、接口、性能和安全需求见 [需求说明](requirements.md)。提交控制代码前至少应执行一次完整 PlatformIO 构建；涉及真实硬件的变更还应完成拆桨地面测试和相应飞行试验记录。
 
 日志遥控输入列为 `RC_CH1`～`RC_CH8`，记录控制使用的 `radio_channelN_normalized`，统一范围 [-1,1]、保留六位小数；不再保存遥控原始 PWM。油门最低/失联值为 -1。单机和多机日志采用相同遥控列名，执行器 PWM 列沿用各自物理/控制单位。
+
+
+## 统一惯性测量接口
+
+`sensors/sensor_processing.h` 提供 `ang_vel[3]` 和 `ang_vel_filtered[3]`（deg/s，后者为传感器层统一滤波结果）、`ang_acc[3]`（deg/s²）和 `acc[3]`（g），数组按 X/Y/Z 排列。`sensors/filters.h` 提供 `att[3]`（deg，滚转/俯仰/偏航）和 `quat[4]`，按 W/X/Y/Z 排列，沿用现有姿态算法约定。内置 IMU 的 X 轴符号在传感器层统一到原控制和日志方向，外置 IMU 保持其安装轴映射。
+
+主循环调用 `updateInertialSensors()`，按外置优先、否则当前 BMI088 路径进行采样和姿态估计，发布统一测量后计算角加速度。控制、日志、诊断、地面站和机间通信使用统一数组，具体型号的采样变量仅在 `sensors` 内部使用。
+
+机间角速度为 `ang_vel_B[3]` 至 `ang_vel_G[3]`；现有协议仅传输滚转角速度，接收端只更新 `[0]`，`[1]`/`[2]` 保持 0，不能视为有效测量。协议包布局保持不变。SD 日志列名使用 `ang_vel[i]`、`ang_acc[i]`、`acc[i]` 和 `quat[i]`；编队日志合并了原内置/外置重复列，仅记录选定数据源。
+
+五路应变测量统一通过 `strain_value[5]`（`int32_t` 数组）读取，索引 0～4 对应传感器通道 1～5；保持原报文解析和数值单位。SD 日志中的姿态和应变列分别使用 `att[i](deg)`、`strain_value[i]`。

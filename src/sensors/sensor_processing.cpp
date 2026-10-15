@@ -4,6 +4,7 @@
 #include "config/aircraft_config.h"
 #include "config/serial_config.h"
 #include "sensors/sensor_processing.h"
+#include "sensors/imu_internal.h"
 #include "config/flight_config.h"
 #include "system/flight_clock.h"
 #include "math/math_utils.h"
@@ -24,19 +25,9 @@ float temp;
 float pressure;
 #endif
 
-#if defined USE_MPU6050_I2C && defined USE_MPU9250_SPI
-#include <MPU6050.h>
-#include <MPU9250.h>
-MPU6050 mpu6050;
-MPU9250 mpu9250(SPI, 10);
-#elif defined USE_MPU9250_SPI
-#include <MPU9250.h>
-MPU9250 mpu9250(SPI, 10);
-#elif defined USE_MPU6050_I2C
+#if defined USE_MPU6050_I2C
 #include <MPU6050.h>
 MPU6050 mpu6050;
-#else
-#error No MPU defined...
 #endif
 
 //========================================================================================================================//
@@ -53,54 +44,34 @@ MPU6050 mpu6050;
 #define ACCEL_FS_SEL_8_6050 MPU6050_ACCEL_FS_8
 #define ACCEL_FS_SEL_16_6050 MPU6050_ACCEL_FS_16
 #endif
-#if defined USE_MPU9250_SPI
-#define GYRO_FS_SEL_250_9250 mpu9250.GYRO_RANGE_250DPS
-#define GYRO_FS_SEL_500_9250 mpu9250.GYRO_RANGE_500DPS
-#define GYRO_FS_SEL_1000_9250 mpu9250.GYRO_RANGE_1000DPS
-#define GYRO_FS_SEL_2000_9250 mpu9250.GYRO_RANGE_2000DPS
-#define ACCEL_FS_SEL_2_9250 mpu9250.ACCEL_RANGE_2G
-#define ACCEL_FS_SEL_4_9250 mpu9250.ACCEL_RANGE_4G
-#define ACCEL_FS_SEL_8_9250 mpu9250.ACCEL_RANGE_8G
-#define ACCEL_FS_SEL_16_9250 mpu9250.ACCEL_RANGE_16G
-#endif
 
 #if defined GYRO_250DPS
 #define GYRO_SCALE_6050 GYRO_FS_SEL_250_6050
-#define GYRO_SCALE_9250 GYRO_FS_SEL_250_9250
 #define GYRO_SCALE_FACTOR 131.0
 #elif defined GYRO_500DPS
 #define GYRO_SCALE_6050 GYRO_FS_SEL_500_6050
-#define GYRO_SCALE_9250 GYRO_FS_SEL_500_9250
 #define GYRO_SCALE_FACTOR 65.5
 #elif defined GYRO_1000DPS
 #define GYRO_SCALE_6050 GYRO_FS_SEL_1000_6050
-#define GYRO_SCALE_9250 GYRO_FS_SEL_1000_9250
 #define GYRO_SCALE_FACTOR 32.8
 #elif defined GYRO_2000DPS
 #define GYRO_SCALE_6050 GYRO_FS_SEL_2000_6050
-#define GYRO_SCALE_9250 GYRO_FS_SEL_2000_9250
 #define GYRO_SCALE_FACTOR 16.4
 #endif
 
 #if defined ACCEL_2G
 #define ACCEL_SCALE_6050 ACCEL_FS_SEL_2_6050
-#define ACCEL_SCALE_9250 ACCEL_FS_SEL_2_9250
 #define ACCEL_SCALE_FACTOR 16384.0
 #elif defined ACCEL_4G
 #define ACCEL_SCALE_6050 ACCEL_FS_SEL_4_6050
-#define ACCEL_SCALE_9250 ACCEL_FS_SEL_4_9250
 #define ACCEL_SCALE_FACTOR 8192.0
 #elif defined ACCEL_8G
 #define ACCEL_SCALE_6050 ACCEL_FS_SEL_8_6050
-#define ACCEL_SCALE_9250 ACCEL_FS_SEL_8_9250
 #define ACCEL_SCALE_FACTOR 4096.0
 #elif defined ACCEL_16G
 #define ACCEL_SCALE_6050 ACCEL_FS_SEL_16_6050
-#define ACCEL_SCALE_9250 ACCEL_FS_SEL_16_9250
 #define ACCEL_SCALE_FACTOR 2048.0
 #endif
-
-
 
 
 // 以 115200 波特率启动外置 IMU 所用的 ExternalImuSerial。
@@ -114,8 +85,7 @@ void calibrateAttitude() {
   // 舵机输出前预热 IMU 和姿态滤波器；每次迭代按 2000 Hz 节拍运行。
   for (int i = 0; i <= 10000; i++) {
     updateFlightClock();
-    getBMI088data();
-    Madgwick();
+    updateInertialSensors();
     loopRate(2000);
   }
 }
@@ -127,16 +97,11 @@ CalibrationAccGyroData calAccGyroData;
 namespace { CalibrationAccGyroData appliedImuCalibration; }
 int32_t imuCalibrationValidParameter = 0, imuCalibrationModelParameter = 1;
 int32_t imuCalibrationChecksumParameter = 0;
-int32_t Strain_value1 = 0;
-int32_t Strain_value2 = 0;
-int32_t Strain_value3 = 0;
-int32_t Strain_value4 = 0;
-int32_t Strain_value5 = 0;
+int32_t strain_value[5] = {};
 float AccX_6050, AccY_6050, AccZ_6050;
 float GyroX_6050, GyroY_6050, GyroZ_6050;
 float Gyro_X_EXT, Gyro_Y_EXT, Gyro_Z_EXT;
 float Acc_X_EXT, Acc_Y_EXT, Acc_Z_EXT;
-float roll_IMU_EXT, pitch_IMU_EXT, yaw_IMU_EXT;
 float airspeed_A;
 
 namespace {
@@ -189,22 +154,22 @@ void getIMUdata_EXT() {
       if (sum == buf[10]) {
 
         if (buf[1] == 0x59) { // 四元数数据
-          float q0 = ((int16_t)(buf[3] << 8) | buf[2]) / 32768.0f;
-          float q1 = ((int16_t)(buf[5] << 8) | buf[4]) / 32768.0f;
-          float q2 = ((int16_t)(buf[7] << 8) | buf[6]) / 32768.0f;
-          float q3 = ((int16_t)(buf[9] << 8) | buf[8]) / 32768.0f;
-          // USBSerial.print("Q:"); USBSerial.print(q0,3); USBSerial.print(",");
-          // USBSerial.print(q1,3); USBSerial.print(","); USBSerial.print(q2,3);
-          // USBSerial.print(","); USBSerial.println(q3,3);
-          roll_IMU_EXT = -atan2(q0 * q1 + q2 * q3, 0.5f - q1 * q1 - q2 * q2) *
+          quat[0] = ((int16_t)(buf[3] << 8) | buf[2]) / 32768.0f;
+          quat[1] = ((int16_t)(buf[5] << 8) | buf[4]) / 32768.0f;
+          quat[2] = ((int16_t)(buf[7] << 8) | buf[6]) / 32768.0f;
+          quat[3] = ((int16_t)(buf[9] << 8) | buf[8]) / 32768.0f;
+          // USBSerial.print("Q:"); USBSerial.print(quat[0],3); USBSerial.print(",");
+          // USBSerial.print(quat[1],3); USBSerial.print(","); USBSerial.print(quat[2],3);
+          // USBSerial.print(","); USBSerial.println(quat[3],3);
+          att[0] = -atan2(quat[0] * quat[1] + quat[2] * quat[3], 0.5f - quat[1] * quat[1] - quat[2] * quat[2]) *
                          57.29577951; // 弧度转角度。
-          pitch_IMU_EXT = asin(constrain(-2.0f * (q1 * q3 - q0 * q2), -0.999999,
+          att[1] = asin(constrain(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]), -0.999999,
                                          0.999999)) *
                           57.29577951; // 弧度转角度。
-          yaw_IMU_EXT = atan2(q1 * q2 + q0 * q3, 0.5f - q2 * q2 - q3 * q3) *
+          att[2] = atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) *
                         57.29577951; // 弧度转角度。
           // USBSerial.print("R:");
-          // USBSerial.println(roll_IMU_EXT);
+          // USBSerial.println(att[0]);
         } else if (buf[1] == 0x52) { // 角速度数据
           Gyro_X_EXT =
               -1 * (((int16_t)(buf[3] << 8) | buf[2]) / 32768.0f * 2000.0f);
@@ -322,11 +287,11 @@ void Strain_read_all() {
   // 解析
   if (len >= 25 && buf[1] == 0x03) {
 
-    Strain_value1 = parseChannel(buf, 0);
-    Strain_value2 = parseChannel(buf, 1);
-    Strain_value3 = parseChannel(buf, 2);
-    Strain_value4 = parseChannel(buf, 3);
-    Strain_value5 = parseChannel(buf, 4);
+    strain_value[0] = parseChannel(buf, 0);
+    strain_value[1] = parseChannel(buf, 1);
+    strain_value[2] = parseChannel(buf, 2);
+    strain_value[3] = parseChannel(buf, 3);
+    strain_value[4] = parseChannel(buf, 4);
   }
 }
 
@@ -526,7 +491,6 @@ void writeReg(TwoWire &bus, uint8_t addr, uint8_t reg, uint8_t val) {
 }
 
 
-
 float relativeAngle_raw, relativeAngle_ready, relativeAngle_offset;
 
 
@@ -546,17 +510,6 @@ MS4525read_Task airspeedSensor(&Wire1);
 float B_accel_6050 =
     0.6; // MPU6050 加速度一阶低通系数；越小，平滑越强、延迟越大。
 float B_gyro_6050 = 0.47;  // MPU6050 陀螺仪低通系数。
-float B_accel_9250 = 0.74; // MPU9250 加速度低通系数。
-float B_gyro_9250 = 0.67;  // MPU9250 陀螺仪低通系数。
-float B_mag_9250 = 1.0;    // MPU9250 磁力计低通系数；1 表示直接采用本次读数。
-
-// MPU9250 磁力计的零偏与各轴比例校准值。
-float MagErrorX_9250 = 17.33;
-float MagErrorY_9250 = 58.29;
-float MagErrorZ_9250 = 29.16;
-float MagScaleX_9250 = 0.98;
-float MagScaleY_9250 = 1.05;
-float MagScaleZ_9250 = 0.97;
 
 
 // 内置 IMU 的静态校准常量；在线校准结果另存于 calAccGyroData。
@@ -569,27 +522,11 @@ float GyroErrorX_6050 = -13.83;
 float GyroErrorY_6050 = -9.41;
 float GyroErrorZ_6050 = 1.48;
 
-// MPU9250
-float AccErrorX_9250 = -0.11;
-float AccErrorY_9250 = 0.01;
-float AccErrorZ_9250 = 0.03;
-float GyroErrorX_9250 = 5.41;
-float GyroErrorY_9250 = -3.37;
-float GyroErrorZ_9250 = -2.51;
-
-
-
 
 // 内置 IMU 当前值与一阶低通的上一采样值。
-float AccX_9250, AccY_9250, AccZ_9250;
 float AccX_prev_6050, AccY_prev_6050, AccZ_prev_6050;
-float AccX_prev_9250, AccY_prev_9250, AccZ_prev_9250;
-float GyroX_9250, GyroY_9250, GyroZ_9250;
 float GyroX_prev_6050, GyroY_prev_6050, GyroZ_prev_6050;
-float GyroX_prev_9250, GyroY_prev_9250, GyroZ_prev_9250;
 
-float MagX_9250, MagY_9250, MagZ_9250;
-float MagX_prev_9250, MagY_prev_9250, MagZ_prev_9250;
 
 // 转角零偏由统一参数服务恢复。
 void loadRotateSensorOffset() {
@@ -602,7 +539,7 @@ void calibrateAirspeedSensor() { airspeedSensor.calib(); }
 // 按编译配置初始化内置 IMU 的总线、电源状态、量程及采样参数。
 void IMUinit() {
 #if defined INTIMU
-// 根据编译配置初始化内置 IMU；BMI088 通过 SPI，MPU9250 通过自身驱动初始化。
+// 根据编译配置初始化内置 IMU；BMI088 通过 SPI。
 #if defined USE_MPU6050_I2C
   Wire.begin();
   // Wire.setClock(1000000);  // 历史配置：1 MHz 超过器件手册常用的 400 kHz。
@@ -652,51 +589,25 @@ void IMUinit() {
   mpu6050.setFullScaleAccelRange(ACCEL_SCALE_6050);
 #endif
 
-#if defined USE_MPU9250_SPI
-  int status = mpu9250.begin();
-
-  if (status < 0) {
-    USBSerial.println("MPU9250 initialization unsuccessful");
-    USBSerial.println("Check MPU9250 wiring or try cycling power");
-    USBSerial.print("Status: ");
-    USBSerial.println(status);
-    while (1) {
-    }
-  }
-
-  // 配置 MPU9250 的量程、磁力计校准值与采样分频。
-  mpu9250.setGyroRange(GYRO_SCALE_9250);
-  mpu9250.setAccelRange(ACCEL_SCALE_9250);
-  mpu9250.setMagCalX(MagErrorX_9250, MagScaleX_9250);
-  mpu9250.setMagCalY(MagErrorY_9250, MagScaleY_9250);
-  mpu9250.setMagCalZ(MagErrorZ_9250, MagScaleZ_9250);
-  mpu9250.setSrd(
-      0); // 陀螺仪和加速度计约 1 kHz，磁力计约 100 Hz。
-#endif
 
 #endif
 }
 
 
-// 读取 MPU6050/MPU9250 原始惯性数据，做单位换算、零偏校正和一阶低通。
+// 读取 MPU6050 原始惯性数据，做单位换算、零偏校正和一阶低通。
 // 这是旧内置 IMU 路径，是否调用由当前硬件配置决定。
 void getIMUdata() {
   // 读取内置 IMU 原始值，换算单位、扣除零偏，再做一阶低通。
-  // 加速度单位为 g，角速度为 °/s，磁场强度为 μT。
+  // 加速度单位为 g，角速度为 °/s。
   int16_t AcX_6050, AcY_6050, AcZ_6050, GyX_6050, GyY_6050, GyZ_6050;
-  int16_t AcX_9250, AcY_9250, AcZ_9250, GyX_9250, GyY_9250, GyZ_9250, MgX_9250,
-      MgY_9250, MgZ_9250;
 
 #if defined USE_MPU6050_I2C
   mpu6050.getMotion6(&AcX_6050, &AcY_6050, &AcZ_6050, &GyX_6050, &GyY_6050,
                      &GyZ_6050);
 #endif
-#if defined USE_MPU9250_SPI
-  mpu9250.getMotion9(&AcX_9250, &AcY_9250, &AcZ_9250, &GyX_9250, &GyY_9250,
-                     &GyZ_9250, &MgX_9250, &MgY_9250, &MgZ_9250);
-#endif
 
   // 加速度：按量程系数换算为 g，随后扣除标定零偏。
+#if defined USE_MPU6050_I2C
   AccX_6050 = AcX_6050 / ACCEL_SCALE_FACTOR;
   AccY_6050 = AcY_6050 / ACCEL_SCALE_FACTOR;
   AccZ_6050 = AcZ_6050 / ACCEL_SCALE_FACTOR;
@@ -712,22 +623,9 @@ void getIMUdata() {
   AccY_prev_6050 = AccY_6050;
   AccZ_prev_6050 = AccZ_6050;
 
-  AccX_9250 = AcX_9250 / ACCEL_SCALE_FACTOR;
-  AccY_9250 = AcY_9250 / ACCEL_SCALE_FACTOR;
-  AccZ_9250 = AcZ_9250 / ACCEL_SCALE_FACTOR;
-  // MPU9250 加速度零偏校正。
-  AccX_9250 = AccX_9250 - appliedImuCalibration.AccErrorX_9250;
-  AccY_9250 = AccY_9250 - appliedImuCalibration.AccErrorY_9250;
-  AccZ_9250 = AccZ_9250 - appliedImuCalibration.AccErrorZ_9250;
-  // MPU9250 加速度一阶低通。
-  AccX_9250 = (1.0 - B_accel_9250) * AccX_prev_9250 + B_accel_9250 * AccX_9250;
-  AccY_9250 = (1.0 - B_accel_9250) * AccY_prev_9250 + B_accel_9250 * AccY_9250;
-  AccZ_9250 = (1.0 - B_accel_9250) * AccZ_prev_9250 + B_accel_9250 * AccZ_9250;
-  AccX_prev_9250 = AccX_9250;
-  AccY_prev_9250 = AccY_9250;
-  AccZ_prev_9250 = AccZ_9250;
-
+#endif
   // 角速度：按量程系数换算为 °/s，随后扣除标定零偏。
+#if defined USE_MPU6050_I2C
   GyroX_6050 = GyX_6050 / GYRO_SCALE_FACTOR;
   GyroY_6050 = GyY_6050 / GYRO_SCALE_FACTOR;
   GyroZ_6050 = GyZ_6050 / GYRO_SCALE_FACTOR;
@@ -743,36 +641,7 @@ void getIMUdata() {
   GyroY_prev_6050 = GyroY_6050;
   GyroZ_prev_6050 = GyroZ_6050;
 
-  GyroX_9250 = GyX_9250 / GYRO_SCALE_FACTOR;
-  GyroY_9250 = GyY_9250 / GYRO_SCALE_FACTOR;
-  GyroZ_9250 = GyZ_9250 / GYRO_SCALE_FACTOR;
-  // MPU9250 陀螺仪零偏校正。
-  GyroX_9250 = GyroX_9250 - appliedImuCalibration.GyroErrorX_9250;
-  GyroY_9250 = GyroY_9250 - appliedImuCalibration.GyroErrorY_9250;
-  GyroZ_9250 = GyroZ_9250 - appliedImuCalibration.GyroErrorZ_9250;
-  // MPU9250 角速度一阶低通。
-  GyroX_9250 = (1.0 - B_gyro_9250) * GyroX_prev_9250 + B_gyro_9250 * GyroX_9250;
-  GyroY_9250 = (1.0 - B_gyro_9250) * GyroY_prev_9250 + B_gyro_9250 * GyroY_9250;
-  GyroZ_9250 = (1.0 - B_gyro_9250) * GyroZ_prev_9250 + B_gyro_9250 * GyroZ_9250;
-  GyroX_prev_9250 = GyroX_9250;
-  GyroY_prev_9250 = GyroY_9250;
-  GyroZ_prev_9250 = GyroZ_9250;
-
-  // 磁力计：先换算为 μT，再校正零偏和比例。
-  MagX_9250 = MgX_9250 / 6.0;
-  MagY_9250 = MgY_9250 / 6.0;
-  MagZ_9250 = MgZ_9250 / 6.0;
-  // MPU9250 磁力计标定。
-  MagX_9250 = (MagX_9250 - MagErrorX_9250) * MagScaleX_9250;
-  MagY_9250 = (MagY_9250 - MagErrorY_9250) * MagScaleY_9250;
-  MagZ_9250 = (MagZ_9250 - MagErrorZ_9250) * MagScaleZ_9250;
-  // MPU9250 磁场一阶低通。
-  MagX_9250 = (1.0 - B_mag_9250) * MagX_prev_9250 + B_mag_9250 * MagX_9250;
-  MagY_9250 = (1.0 - B_mag_9250) * MagY_prev_9250 + B_mag_9250 * MagY_9250;
-  MagZ_9250 = (1.0 - B_mag_9250) * MagZ_prev_9250 + B_mag_9250 * MagZ_9250;
-  MagX_prev_9250 = MagX_9250;
-  MagY_prev_9250 = MagY_9250;
-  MagZ_prev_9250 = MagZ_9250;
+#endif
 }
 
 
@@ -862,7 +731,7 @@ void calculate_IMU_error() {
 
   const CalibrationAccGyroData measured = calAccGyroData;
   calAccGyroData = old;
-  float offsets[12];
+  float offsets[ParameterKey::ImuOffsetCount];
   static_assert(sizeof(measured) == sizeof(offsets), "Calibration field layout changed");
   memcpy(offsets, &measured, sizeof(offsets));
   if (!validImuOffsets(measured) || !saveImuCalibrationParameters(offsets)) {
@@ -875,60 +744,7 @@ void calculate_IMU_error() {
 }
 
 
-// 运行 MPU9250 磁力计交互式标定并打印零偏和比例结果。
 // 函数结尾停机，不会返回飞行主循环。
-void calibrateMagnetometer() {
-#if defined USE_MPU9250_SPI
-  float success;
-  USBSerial.println("Beginning magnetometer calibration in");
-  USBSerial.println("3...");
-  delay(1000);
-  USBSerial.println("2...");
-  delay(1000);
-  USBSerial.println("1...");
-  delay(1000);
-  USBSerial.println("Rotate the IMU about all axes until complete.");
-  USBSerial.println(" ");
-  success = mpu9250.calibrateMag();
-  if (success) {
-    USBSerial.println("Calibration Successful!");
-    USBSerial.println("Please comment out the calibrateMagnetometer() function "
-                   "and copy these values into the code:");
-    USBSerial.print("float MagErrorX_9250 = ");
-    USBSerial.print(mpu9250.getMagBiasX_uT());
-    USBSerial.println(";");
-    USBSerial.print("float MagErrorY_9250 = ");
-    USBSerial.print(mpu9250.getMagBiasY_uT());
-    USBSerial.println(";");
-    USBSerial.print("float MagErrorZ_9250 = ");
-    USBSerial.print(mpu9250.getMagBiasZ_uT());
-    USBSerial.println(";");
-    USBSerial.print("float MagScaleX_9250 = ");
-    USBSerial.print(mpu9250.getMagScaleFactorX());
-    USBSerial.println(";");
-    USBSerial.print("float MagScaleY_9250 = ");
-    USBSerial.print(mpu9250.getMagScaleFactorY());
-    USBSerial.println(";");
-    USBSerial.print("float MagScaleZ_9250 = ");
-    USBSerial.print(mpu9250.getMagScaleFactorZ());
-    USBSerial.println(";");
-    USBSerial.println(" ");
-
-    USBSerial.println("If you are having trouble with your attitude estimate at a "
-                   "new flying location, repeat this process as needed.");
-  } else {
-    USBSerial.println(
-        "Calibration Unsuccessful. Please reset the board and try again.");
-  }
-
-  while (1)
-    ; // 标定结束后停在这里，避免直接进入飞行主循环。
-#endif
-  USBSerial.println("Error: MPU9250 not selected. Cannot calibrate non-existent "
-                 "magnetometer.");
-  while (1)
-    ; // 未启用 MPU9250 时阻止继续运行。
-}
 
 
 // 每隔至少 20 ms 从空速驱动刷新一次 airspeed_A。
@@ -941,7 +757,6 @@ void getairspeed() {
     // USBSerial.println(airspeed_A);
   }
 }
-
 
 
 // 启用气压计时读取温度、气压和高度，并打印测量值。
@@ -1023,13 +838,9 @@ void ResetRotateSensor() {
 }
 
 
-
-
-
-
 // 验证已恢复的惯性传感器校准参数。
 void loadImuCalibration() {
-  float offsets[12]; memcpy(offsets,&calAccGyroData,sizeof(offsets));
+  float offsets[ParameterKey::ImuOffsetCount]; memcpy(offsets,&calAccGyroData,sizeof(offsets));
   imuCalibrationReady = imuCalibrationValidParameter == 1 &&
       imuCalibrationModelParameter == 1 && validImuOffsets(calAccGyroData) &&
       imuCalibrationChecksumParameter == imuCalibrationFingerprint(offsets,imuCalibrationModelParameter);
@@ -1042,7 +853,7 @@ void loadImuCalibration() {
 // 内置 IMU 启用时读取首帧 BMI088，并据此初始化姿态四元数。
 void initializeInitialAttitude() {
   // 上电时用首帧加速度估计初始姿态四元数。
-#if defined INTIMU
+#if defined INTIMU && !defined EXTIMU
   getBMI088data();
   float phi, theta, psi;
 #if defined USE_MPU6050_I2C
@@ -1052,25 +863,19 @@ void initializeInitialAttitude() {
   psi = 0;                                                // 无磁力计时偏航角初始化为 0。
 #endif
 
-#if defined USE_MPU9250_SPI
-  phi = atan2(AccY_9250, AccZ_9250); // 滚转角，绕 x 轴。
-  theta = atan2(-AccX_9250, sqrt(AccY_9250 * AccY_9250 +
-                                 AccZ_9250 * AccZ_9250)); // 俯仰角，绕 y 轴。
-  psi = atan2(-MagX_9250, MagY_9250);                     // 偏航角由磁力计初始化。
-#endif
 
   const Eigen::Quaternionf initialAttitude = eulerToQuaternion(phi, theta, psi);
-  q0 = initialAttitude.w();
-  q1 = initialAttitude.x();
-  q2 = initialAttitude.y();
-  q3 = initialAttitude.z();
+  quat[0] = initialAttitude.w();
+  quat[1] = initialAttitude.x();
+  quat[2] = initialAttitude.y();
+  quat[3] = initialAttitude.z();
 #endif
 }
 
 namespace {
 // 角加速度低通滤波器（三轴）
 static PX4LowPassFilter2p gyroDerivFiltX, gyroDerivFiltY,
-    gyroDerivFiltZ; // getAngularACC() 求 dp/dq/dr 前的角速度滤波
+    gyroDerivFiltZ; // getAngularACC() 求 ang_acc[0]/ang_acc[1]/ang_acc[2] 前的角速度滤波
 
 static PX4LowPassFilter2p angularAccFiltX, angularAccFiltY, angularAccFiltZ;
 
@@ -1084,7 +889,10 @@ unsigned long prev_time_gyro_deriv = 0;
 
 } // namespace
 
-float dp, dq, dr;
+float ang_vel[3] = {};
+float ang_vel_filtered[3] = {};
+float ang_acc[3] = {};
+float acc[3] = {};
 
 // 为角速度差分前后两级滤波器设置 500 Hz 采样参数。
 void initializeAngularAccelerationFilters() {
@@ -1096,7 +904,7 @@ void initializeAngularAccelerationFilters() {
   gyroDerivFiltZ.set_cutoff_frequency(500, 100);
 }
 
-// 由内置陀螺仪角速度计算 dp、dq、dr，单位为 °/s²；异常采样间隔时清零输出。
+// 由选定 IMU 的 ang_vel 估计 ang_acc，单位为 °/s²；异常采样间隔时清零输出。
 void getAngularACC() {
   // 先平滑角速度再差分，最后滤波并限幅，避免差分放大传感器噪声。
   unsigned long now = micros();
@@ -1106,35 +914,57 @@ void getAngularACC() {
 
   if (dt_deriv <= 0.0f || dt_deriv > 0.01f) {
     // 首次调用或采样中断后重建历史值，跳过本次角加速度计算。
-    gyroX_filt_prev = gyroDerivFiltX.apply(-GyroX_6050);
-    gyroY_filt_prev = gyroDerivFiltY.apply(GyroY_6050);
-    gyroZ_filt_prev = gyroDerivFiltZ.apply(GyroZ_6050);
-    dp = 0.0f;
-    dq = 0.0f;
-    dr = 0.0f;
+    gyroX_filt_prev = gyroDerivFiltX.apply(ang_vel[0]);
+    gyroY_filt_prev = gyroDerivFiltY.apply(ang_vel[1]);
+    gyroZ_filt_prev = gyroDerivFiltZ.apply(ang_vel[2]);
+    ang_acc[0] = 0.0f;
+    ang_acc[1] = 0.0f;
+    ang_acc[2] = 0.0f;
     return;
   }
 
-  float gyroX_now = gyroDerivFiltX.apply(-GyroX_6050);
-  float gyroY_now = gyroDerivFiltY.apply(GyroY_6050);
-  float gyroZ_now = gyroDerivFiltZ.apply(GyroZ_6050);
+  float gyroX_now = gyroDerivFiltX.apply(ang_vel[0]);
+  float gyroY_now = gyroDerivFiltY.apply(ang_vel[1]);
+  float gyroZ_now = gyroDerivFiltZ.apply(ang_vel[2]);
 
   float dp_raw = (gyroX_now - gyroX_filt_prev) / dt_deriv;
   float dq_raw = (gyroY_now - gyroY_filt_prev) / dt_deriv;
   float dr_raw = (gyroZ_now - gyroZ_filt_prev) / dt_deriv;
 
-  dp = angularAccFiltX.apply(dp_raw);
-  dq = angularAccFiltY.apply(dq_raw);
-  dr = angularAccFiltZ.apply(dr_raw);
+  ang_acc[0] = angularAccFiltX.apply(dp_raw);
+  ang_acc[1] = angularAccFiltY.apply(dq_raw);
+  ang_acc[2] = angularAccFiltZ.apply(dr_raw);
 
   gyroX_filt_prev = gyroX_now;
   gyroY_filt_prev = gyroY_now;
   gyroZ_filt_prev = gyroZ_now;
 
   const float deriv_limit = 3000.0f;
-  dp = constrain(dp, -deriv_limit, deriv_limit);
-  dq = constrain(dq, -deriv_limit, deriv_limit);
-  dr = constrain(dr, -deriv_limit, deriv_limit);
+  ang_acc[0] = constrain(ang_acc[0], -deriv_limit, deriv_limit);
+  ang_acc[1] = constrain(ang_acc[1], -deriv_limit, deriv_limit);
+  ang_acc[2] = constrain(ang_acc[2], -deriv_limit, deriv_limit);
 }
 
 
+// 数据源优先级与原控制一致：外置 IMU 优先，否则使用选定内置 IMU。
+void updateSensorMeasurements() {
+#if defined EXTIMU
+  ang_vel[0] = Gyro_X_EXT; ang_vel[1] = Gyro_Y_EXT; ang_vel[2] = Gyro_Z_EXT;
+  acc[0] = Acc_X_EXT; acc[1] = Acc_Y_EXT; acc[2] = Acc_Z_EXT;
+#elif defined INTIMU
+  ang_vel[0] = -GyroX_6050; ang_vel[1] = GyroY_6050; ang_vel[2] = GyroZ_6050;
+  acc[0] = -AccX_6050; acc[1] = AccY_6050; acc[2] = AccZ_6050;
+#endif
+  updateAngularVelocityFilters();
+}
+
+void updateInertialSensors() {
+#if defined EXTIMU
+  getIMUdata_EXT();
+#elif defined INTIMU
+  getBMI088data();
+#endif
+  Madgwick();
+  updateSensorMeasurements();
+  getAngularACC();
+}

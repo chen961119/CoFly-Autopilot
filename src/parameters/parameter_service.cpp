@@ -303,7 +303,11 @@ void initializeParameterService(bool sdReady) {
   // A complete calibration is stored in one snapshot. Moving the whole group
   // between SD and EEPROM is supported; splitting it across media is not.
   const auto calibrationStorage = table[parameterIndex(ParameterKey::ImuCalibrationValid)].storage;
-  for (uint16_t key = ParameterKey::ImuOffsetFirst; key <= ParameterKey::ImuGroupLast; ++key) {
+  // Offset keys and metadata keys form separate ranges; validate every member.
+  for (unsigned member = 0; member < ParameterKey::ImuOffsetCount + 3; ++member) {
+    const uint16_t key = member < ParameterKey::ImuOffsetCount
+        ? ParameterKey::ImuOffsetFirst + member
+        : ParameterKey::ImuCalibrationValid + member - ParameterKey::ImuOffsetCount;
     const size_t index = parameterIndex(key);
     if (index == count || table[index].storage != calibrationStorage) {
       USBSerial.printf("[PARAM] IMU calibration parameters must share one storage medium\n");

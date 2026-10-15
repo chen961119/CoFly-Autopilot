@@ -19,7 +19,7 @@ struct FC_Binary_Packet {
 #pragma pack(pop)
 
 typedef struct {
-  // 各 IMU 的加速度与陀螺仪零偏，按原有 EEPROM 布局存储。
+  // 内置 IMU 的加速度与陀螺仪零偏，由统一参数服务按名称存储。
   float AccErrorX_6050;
   float AccErrorY_6050;
   float AccErrorZ_6050;
@@ -27,14 +27,6 @@ typedef struct {
   float GyroErrorX_6050;
   float GyroErrorY_6050;
   float GyroErrorZ_6050;
-
-  float AccErrorX_9250;
-  float AccErrorY_9250;
-  float AccErrorZ_9250;
-
-  float GyroErrorX_9250;
-  float GyroErrorY_9250;
-  float GyroErrorZ_9250;
 } CalibrationAccGyroData;
 
 extern FC_Binary_Packet airdata;
@@ -43,13 +35,8 @@ extern int32_t imuCalibrationValidParameter, imuCalibrationModelParameter;
 extern int32_t imuCalibrationChecksumParameter;
 extern float relativeAngle_offset;
 extern SPISettings bmiSettings;
-extern int32_t Strain_value1, Strain_value2, Strain_value3, Strain_value4,
-    Strain_value5;
-extern float AccX_6050, AccY_6050, AccZ_6050;
-extern float GyroX_6050, GyroY_6050, GyroZ_6050;
-extern float Gyro_X_EXT, Gyro_Y_EXT, Gyro_Z_EXT;
-extern float Acc_X_EXT, Acc_Y_EXT, Acc_Z_EXT;
-extern float roll_IMU_EXT, pitch_IMU_EXT, yaw_IMU_EXT;
+// 五路应变原始测量值，顺序与传感器报文通道 1～5 一致。
+extern int32_t strain_value[5];
 
 constexpr int CS_ACC = 10;
 constexpr int CS_GYR = 37;
@@ -66,12 +53,19 @@ void getairdata();
 void getIMUdata_EXT();
 void writeRegSPI(int cs, uint8_t reg, uint8_t val);
 
-extern float AccX_9250, AccY_9250, AccZ_9250;
-extern float GyroX_9250, GyroY_9250, GyroZ_9250;
-extern float MagX_9250, MagY_9250, MagZ_9250;
 extern float relativeAngle_raw, relativeAngle_ready;
 extern float airspeed_A;
-extern float dp, dq, dr;
+// 统一测量接口：三轴顺序 X/Y/Z；角速度 deg/s、角加速度 deg/s²、加速度 g。
+// X 轴方向与原控制/日志使用方向一致；型号选择、安装轴映射在传感器层完成。
+extern float ang_vel[3];
+// 传感器层每次发布测量时统一滤波，三轴顺序 X/Y/Z，单位 deg/s。
+extern float ang_vel_filtered[3];
+extern float ang_acc[3];
+extern float acc[3];
+// 每周期在 IMU 采样/姿态更新后发布原始和滤波角速度，随后计算 ang_acc。
+void updateSensorMeasurements();
+// 完成本周期的 IMU 采样、姿态估计、测量发布和角加速度估计。
+void updateInertialSensors();
 
 void beginExternalImuLink();
 void beginStrainSensorLink();
@@ -81,7 +75,6 @@ void initializeInitialAttitude();
 void IMUinit();
 void getIMUdata();
 void calculate_IMU_error();
-void calibrateMagnetometer();
 void getairspeed();
 // 角加速度估计器的专用滤波初始化；由 initializeControlFilters() 调用。
 void initializeAngularAccelerationFilters();

@@ -1,13 +1,14 @@
 #pragma once
 #include <stdint.h>
 #include <string.h>
+#include "parameters/parameter_keys.h"
 
 // Fingerprint of the complete calibration group, independent of storage medium.
 inline int32_t imuCalibrationFingerprint(const float *offsets, int32_t model) {
   uint32_t hash = 2166136261u;
-  for (unsigned i = 0; i < 13; ++i) {
+  for (unsigned i = 0; i <= ParameterKey::ImuOffsetCount; ++i) {
     uint32_t bits;
-    if (i < 12)
+    if (i < ParameterKey::ImuOffsetCount)
       memcpy(&bits, offsets + i, 4);
     else
       memcpy(&bits, &model, 4);

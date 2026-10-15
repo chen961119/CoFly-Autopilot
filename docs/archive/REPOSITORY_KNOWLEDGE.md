@@ -112,7 +112,7 @@ pio device monitor
 ### 姿态与控制
 
 - 当前本机传感器采样函数是 `getBMI088data()`，SPI 配置为 10 MHz、Mode 3。
-- `Madgwick(dt)` 输出 `roll_IMU/pitch_IMU/yaw_IMU`。
+- `Madgwick(dt)` 输出 `att[3]`（滚转/俯仰/偏航）。
 - `controlANGLE2()` 是串级角度/角速度控制主路径；`controlRATE()` 和 `controlANGLE()` 仍保留。
 - `PITCH_INDI_control()` 使用滤波角速度、角加速度和舵效模型生成俯仰 PWM。
 - `increase_Clp()` 根据空速计算等效滚转气动补偿。
@@ -178,9 +178,9 @@ pio device monitor
 
 ## 8. 依赖
 
-`platformio.ini` 声明 ArduinoEigen、TinyGPSPlus、ICM42688 和 Bolder Flight Systems BMI088。仓库本地 `lib/` 还提供 MS4525、Adafruit GFX/SSD1306/BusIO、SBUS、DSMRX、MPU6050、MPU9250、I2Cdev、TFMPlus 等。PlatformIO 会同时扫描本地库和 `lib_deps`。
+`platformio.ini` 声明 ArduinoEigen、TinyGPSPlus、ICM42688 和 Bolder Flight Systems BMI088。仓库本地 `lib/` 还提供 MS4525、Adafruit GFX/SSD1306/BusIO、SBUS、DSMRX、MPU6050、I2Cdev、TFMPlus 等。PlatformIO 会同时扫描本地库和 `lib_deps`。
 
-当前编译实际依赖图包含 ArduinoEigen、MS4525、Adafruit GFX/SSD1306、DSMRX、EEPROM、MPU6050/MPU9250、PWMServo、SBUS、SD、Servo、SPI 和 Wire；TinyGPSPlus、ICM42688 等虽已声明但当前主路径未使用。
+当前编译实际依赖图包含 ArduinoEigen、MS4525、Adafruit GFX/SSD1306、DSMRX、EEPROM、MPU6050、PWMServo、SBUS、SD、Servo、SPI 和 Wire；TinyGPSPlus、ICM42688 等虽已声明但当前主路径未使用。
 
 ## 9. 已识别风险与维护约束
 

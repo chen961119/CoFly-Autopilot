@@ -3,7 +3,6 @@
 // 原始实现来自 Nicholas Rehm 的 dRehmFlight 项目，后续按本项目硬件接线调整。
 #include <Arduino.h>
 #include "radio_comm/radio_comm.h"
-#include "control/control_state.h"
 #include <SBUS.h>  // SBUS 接收机驱动。
 // 以下引脚用于 PWM 接收机；SBUS 实际使用 SbusSerial，DSM 使用 DsmSerial。
 const int ch1Pin = 15; // 通道 1：滚转

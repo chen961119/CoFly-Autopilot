@@ -5,12 +5,14 @@
 // 控制器可调参数；运行状态和积分/滤波历史不放在此处。
 // 默认值在 control_parameters.cpp，注册元数据在 parameter_registry.cpp。
 namespace ControlParameters {
+extern int32_t pitch_controller; // 0 PID，1 INDI；各机独立设置。
 extern float Trim_pitch_angle;
 extern float k_Clp;
 extern float i_limit;
 extern float maxRoll;
 extern float maxPitch;
 extern float maxYaw;
+extern float V_cruise; // 偏航协调转弯计算使用的巡航空速，m/s。
 extern float Kp_roll_angle;
 extern float Ki_roll_angle;
 extern float Kd_roll_angle;

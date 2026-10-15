@@ -28,7 +28,7 @@ static_assert(validActuatorPwmLimits(PWM_SERVO4_MIN_US, PWM_SERVO4_MAX_US), "Inv
 static_assert(validActuatorPwmLimits(PWM_SERVO5_MIN_US, PWM_SERVO5_MAX_US), "Invalid channel 5 PWM limits");
 
 // Identity is an EEPROM boot parameter; count is COFLY_AIRCRAFT_COUNT in aircraft_config.h.
-#define TESTINDI
+// 俯仰算法由 SD 参数 pitch_controller 选择：0 PID，1 INDI。
 
 // MT6701 is measurement/logging only. Wing control uses adjacent IMU rolls.
 // #define expensive
@@ -44,7 +44,6 @@ static_assert(validActuatorPwmLimits(PWM_SERVO5_MIN_US, PWM_SERVO5_MAX_US), "Inv
 
 // IMU 选择宏同时决定机间状态发送使用的数据源。
 #define USE_MPU6050_I2C
-// #define USE_MPU9250_SPI
 
 enum FlightMode {
   MANUAL_MODE,

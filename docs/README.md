@@ -7,6 +7,7 @@ CoFly Autopilot 的英文全称为 **Collaborative Distributed Autopilot**，中
 | 文档 | 内容 |
 | --- | --- |
 | [当前架构](architecture.md) | 系统边界、模块职责、主循环与兼容性 |
+| [控制架构](control-architecture.md) | 七层主从并列流程、目标/指令接口、PID/INDI 参数及模式 |
 | [固件指南](firmware-guide.md) | 编译配置、PWM、传感器、硬件接线及级联协议 |
 | [软件需求](requirements.md) | 功能与安全目标、唯一需求编号和验收矩阵 |
 | [参数软件](../tools/ground_station/README.md) | USB 参数配置、协议、SD 恢复与测试 |

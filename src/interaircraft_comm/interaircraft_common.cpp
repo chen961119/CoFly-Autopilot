@@ -1,7 +1,6 @@
 #include "config/aircraft_config.h"
 #include "config/flight_config.h"
 #include "config/serial_config.h"
-#include "control/control_state.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
 
@@ -17,16 +16,16 @@ void initializeCommandLinks() {
   if (aircraftIsSingle() || !aircraftConfigurationValid())
     return;
   Stream *parentInput = aircraftId() == 1 ? nullptr : &ParentSerial;
-  const unsigned int localAircraftId = aircraftId() == 1 ? 1 :
+  const unsigned int localAircraftLevel = aircraftId() == 1 ? 1 :
       static_cast<unsigned int>((aircraftId() - 2) / 2 + 2);
   if (aircraftId() == 1 || aircraftIsLeft()) {
     static AircraftCommandLink left;
-    left.configure(&LeftChildSerial, parentInput, localAircraftId);
+    left.configure(&LeftChildSerial, parentInput, localAircraftLevel);
     CommandLinks::left = &left;
   }
   if (aircraftId() == 1 || aircraftIsRight()) {
     static AircraftCommandLink right;
-    right.configure(&RightChildSerial, parentInput, localAircraftId);
+    right.configure(&RightChildSerial, parentInput, localAircraftLevel);
     CommandLinks::right = &right;
   }
 }
@@ -109,19 +108,19 @@ bool localWingRelativeAngle(float &angle) {
     return false;
   }
   if ((aircraftId() == 1)) {
-    angle = phiB_raw - roll_IMU;
+    angle = att_B[0] - att[0];
     return isSensorDataFresh(true);
   } else if ((aircraftId() == 2)) {
-    angle = phiD_raw - roll_IMU;
+    angle = att_D[0] - att[0];
     return isSensorDataFresh(true);
   } else if ((aircraftId() == 4)) {
-    angle = phiF_raw - roll_IMU;
+    angle = att_F[0] - att[0];
     return isSensorDataFresh(true);
   } else if ((aircraftId() == 3)) {
-    angle = phiE_raw - roll_IMU;
+    angle = att_E[0] - att[0];
     return isSensorDataFresh(false);
   } else if ((aircraftId() == 5)) {
-    angle = phiG_raw - roll_IMU;
+    angle = att_G[0] - att[0];
     return isSensorDataFresh(false);
   } else {
     angle = 0;

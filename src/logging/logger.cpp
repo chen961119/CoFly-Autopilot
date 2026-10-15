@@ -1,7 +1,10 @@
+#include "radio_comm/radio_comm.h"
+#include "control/control_output.h"
 #include "config/aircraft_config.h"
 #include "logging/logger.h"
+#include "actuators/actuator_output.h"
 #include "config/serial_config.h"
-#include "control/control_state.h"
+#include "control/command_generation.h"
 #include "control/control_allocation.h"
 #include "system/flight_clock.h"
 #include "interaircraft_comm/interaircraft_comm.h"
@@ -123,30 +126,28 @@ namespace
       return;
     if (aircraftIsSingle())
     {
-      dataFile.println("TimeStamp(us),q0,q1,q2,q3,ROLL_IMU(deg),PITCH_IMU(deg),YAW_IMU(deg),ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),RC_CH1,RC_CH2,RC_CH3,RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ail1_PWM,ail2_PWM,ele_PWM,thro_PWM,rudd_PWM,Gyro_X_6050,Gyro_Y_6050,Gyro_Z_6050,invAccX_6050,AccY_6050,AccZ_6050,airspeed_A,dp,dq,dr,indi_pitch_q_des_log,indi_pitch_q_filt_log,indi_pitch_dq_des_log,indi_pitch_dq_used_log,indi_pitch_delta_e_cmd_deg_log,indi_pitch_delta_e_est_deg_log,indi_pitch_pwm_cmd_log,MT6701_raw(deg),MT6701_relative(deg),MT6701_valid");
+      dataFile.println("TimeStamp(us),quat[0],quat[1],quat[2],quat[3],att[0](deg),att[1](deg),att[2](deg),ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),RC_CH1,RC_CH2,RC_CH3,RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ActuatorOutput[0],ActuatorOutput[1],ActuatorOutput[2],ActuatorOutput[3],ActuatorOutput[4],ang_vel[0],ang_vel[1],ang_vel[2],acc[0],acc[1],acc[2],airspeed_A,ang_acc[0],ang_acc[1],ang_acc[2],indi_pitch_q_des_log,indi_pitch_q_filt_log,indi_pitch_dq_des_log,indi_pitch_dq_used_log,indi_pitch_delta_e_cmd_deg_log,indi_pitch_delta_e_est_deg_log,MT6701_raw(deg),MT6701_relative(deg),MT6701_valid");
       dataFile.flush();
     }
     else
     {
       dataFile.println(String(
-          "TimeStamp(us),ROLL_IMU(deg),ROLL_Eq(deg),PITCH_IMU(deg),YAW_IMU(deg),"
+          "TimeStamp(us),att[0](deg),ROLL_Eq(deg),att[1](deg),att[2](deg),"
           "ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),RC_CH1,RC_CH2,RC_CH3,"
-          "RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ail1_PWM,ail2_PWM,ele_PWM,"
-          "thro_PWM,rudd_PWM,B_ail1_control_us,B_ail2_control_us,B_thro_control_us,B_rudd_control_us,C_ail1_control_us,"
-          "C_ail2_control_us,C_thro_control_us,C_rudd_control_us,D_ail1_control_us,D_ail2_control_us,D_thro_control_us,D_rudd_control_us,"
-          "E_ail1_control_us,E_ail2_control_us,E_thro_control_us,E_rudd_control_us,F_ail1_control_us,F_ail2_control_us,F_thro_control_us,"
-          "F_rudd_control_us,G_ail1_control_us,G_ail2_control_us,G_thro_control_us,G_rudd_control_us,Pab(deg),Pac(deg),Pbd("
+          "RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ActuatorOutput[0],ActuatorOutput[1],ActuatorOutput[2],"
+          "ActuatorOutput[3],ActuatorOutput[4],"
+          ""
+          ""
+          "Pab(deg),Pac(deg),Pbd("
           "deg),Pce(deg),Pdf(deg),Peg(deg),Phiab_Mea(deg),Phiab_des(deg),"
           "phiac(deg),phibd(deg),phice(deg),phidf(deg),phieg(deg),Apitchsp,"
-          "Bpitchsp,Cpitchsp,Dpitchsp,Epitchsp,Fpitchsp,Gpitchsp,Bpitch_raw,Cpitch_"
-          "raw,Dpitch_raw,Epitch_raw,Fpitch_raw,Gpitch_raw,B_ele_pwm,C_ele_pwm,D_ele_"
-          "pwm,E_ele_pwm,F_ele_pwm,G_ele_pwm,roll_IMU_EXT,pitch_IMU_"
-          "EXT,yaw_IMU_EXT,invAccX_6050,AccY_6050,AccZ_6050,Gyro_X_6050,Gyro_Y_"
-          "6050,Gyro_Z_6050,Gyro_X_EXT,Gyro_Y_EXT,Gyro_Z_EXT,phiab_PID,phiac_PID,"
+          "Bpitchsp,Cpitchsp,Dpitchsp,Epitchsp,Fpitchsp,Gpitchsp,"
+          "att_B[1],att_C[1],att_D[1],att_E[1],att_F[1],att_G[1],acc[0],acc[1],acc[2],"
+          "ang_vel[0],ang_vel[1],ang_vel[2],phiab_PID,phiac_PID,"
           "phibd_PID,phice_PID,phidf_PID,phieg_PID,roll_PID,pitch_PID,airspeed_A,"
-          "Strain_value1,Strain_value2,Strain_value3,Strain_value4,Strain_value5,"
-          "AOA,AOS,TAS,dp,dq,dr,INDI_q_des,INDI_q_filt,INDI_dq_des,INDI_dq_used,"
-          "INDI_delta_e_cmd_deg,INDI_delta_e_est_deg,INDI_pwm_cmd,"
+          "strain_value[0],strain_value[1],strain_value[2],strain_value[3],strain_value[4],"
+          "AOA,AOS,TAS,ang_acc[0],ang_acc[1],ang_acc[2],INDI_q_des,INDI_q_filt,INDI_dq_des,INDI_dq_used,"
+          "INDI_delta_e_cmd_deg,INDI_delta_e_est_deg,"
           "MT6701_raw(deg),MT6701_relative(deg),MT6701_valid"));
       dataFile.flush();
     }
@@ -166,16 +167,16 @@ void loggerSINGLE()
   writeLoggerHeader();
   dataString =
       String(current_time) + "," +
-      String(q0) + "," +
-      String(q1) + "," +
-      String(q2) + "," +
-      String(q3) + "," +
-      String(roll_IMU) + "," +
-      String(pitch_IMU) + "," +
-      String(yaw_IMU) + "," +
-      String(roll_des) + "," +
-      String(pitch_des_local) + "," +
-      String(yaw_des) + "," +
+      String(quat[0]) + "," +
+      String(quat[1]) + "," +
+      String(quat[2]) + "," +
+      String(quat[3]) + "," +
+      String(att[0]) + "," +
+      String(att[1]) + "," +
+      String(att[2]) + "," +
+      String(targetRollDegrees()) + "," +
+      String(targetPitchDegrees()) + "," +
+      String(targetYawDegrees()) + "," +
       String(radio_channel1_normalized, 6) + "," +
       String(radio_channel2_normalized, 6) + "," +
       String(radio_channel3_normalized, 6) + "," +
@@ -184,28 +185,27 @@ void loggerSINGLE()
       String(radio_channel6_normalized, 6) + "," +
       String(radio_channel7_normalized, 6) + "," +
       String(radio_channel8_normalized, 6) + "," +
-      String(ail1_PWM - pwm_channel1_trim) + "," +
-      String(ail2_PWM - pwm_channel2_trim) + "," +
-      String(ele_PWM - pwm_channel3_trim) + "," +
-      String(thro_PWM) + "," +
-      String(rudd_PWM) + "," +
-      String(-GyroX_6050) + "," +
-      String(GyroY_6050) + "," +
-      String(GyroZ_6050) + "," +
-      String(-AccX_6050) + "," +
-      String(AccY_6050) + "," +
-      String(AccZ_6050) + "," +
+      String(ActuatorOutput[0]) + "," +
+      String(ActuatorOutput[1]) + "," +
+      String(ActuatorOutput[2]) + "," +
+      String(ActuatorOutput[3]) + "," +
+      String(ActuatorOutput[4]) + "," +
+      String(ang_vel[0]) + "," +
+      String(ang_vel[1]) + "," +
+      String(ang_vel[2]) + "," +
+      String(acc[0]) + "," +
+      String(acc[1]) + "," +
+      String(acc[2]) + "," +
       String(airspeed_A) + "," +
-      String(dp) + "," +
-      String(dq) + "," +
-      String(dr) + "," +
-      String(indi_pitch_q_des_log) + "," +
-      String(indi_pitch_q_filt_log) + "," +
-      String(indi_pitch_dq_des_log) + "," +
-      String(indi_pitch_dq_used_log) + "," +
-      String(indi_pitch_delta_e_cmd_deg_log) + "," +
-      String(indi_pitch_delta_e_est_deg_log) + "," +
-      String(indi_pitch_pwm_cmd_log) + "," +
+      String(ang_acc[0]) + "," +
+      String(ang_acc[1]) + "," +
+      String(ang_acc[2]) + "," +
+      String(pitchIndiControlOutput.diagnostics.desiredRate) + "," +
+      String(pitchIndiControlOutput.diagnostics.filteredRate) + "," +
+      String(pitchIndiControlOutput.diagnostics.desiredAcceleration) + "," +
+      String(pitchIndiControlOutput.diagnostics.usedAcceleration) + "," +
+      String(pitchIndiControlOutput.diagnostics.commandedDeflection) + "," +
+      String(pitchIndiControlOutput.diagnostics.estimatedDeflection) + "," +
       String(relativeAngle_raw) + "," +
       String(relativeAngle_ready) + "," +
       String(rotateSensorValid() ? 1 : 0);
@@ -230,97 +230,49 @@ void loggerTEAM()
     return;
   lastLogTime = checker;
 
-  float pitch_des_local_log;
-  if ((aircraftId() == 1))
-  {
-
-    if ((aircraftCount() % 2 == 0))
-    {
-      pitch_des_local_log = pitch_des_local + central_pitch;
-    }
-    else if ((aircraftCount() % 2 != 0))
-    {
-      pitch_des_local_log = pitch_des_local;
-    }
-  }
-  else
-  {
-    pitch_des_local_log = pitch_des_local;
-  }
-  A_pitch_sp = pitch_des_local_log;
+  const float pitchTargetLog = targetPitchDegrees();
   // dataFile = SD.open(filename_sd, FILE_WRITE);
   // 光打开不close 拔电就没了，但是每次都打开又close很浪费时间。
   // 将本次采样的传感器与控制状态拼接为日志记录。
-  float Phiab_Mea_logger;
-  float Phiac_Mea_logger;
-  float Phibd_Mea_logger;
-  float Phice_Mea_logger;
-  float Phidf_Mea_logger;
-  float Phieg_Mea_logger;
-
-  Phiab_Mea_logger = phiB_raw - roll_IMU; //
-  Phiac_Mea_logger = phiC_raw - roll_IMU; //
-  Phibd_Mea_logger = phiD_raw - phiB_raw;
-  Phice_Mea_logger = phiE_raw - phiC_raw;
-  Phidf_Mea_logger = phiF_raw - phiD_raw;
-  Phieg_Mea_logger = phiG_raw - phiE_raw;
-
   dataString =
-      String(current_time) + "," + String(roll_IMU) + "," + String(roll_eq) +
-      "," + String(pitch_IMU) + "," + String(yaw_IMU) + "," + String(roll_des) +
-      "," + String(pitch_des_local_log) + "," + String(yaw_des) + "," +
+      String(current_time) + "," + String(att[0]) + "," + String(rollControlOutput.equivalentRoll) +
+      "," + String(att[1]) + "," + String(att[2]) + "," + String(targetRollDegrees()) +
+      "," + String(pitchTargetLog) + "," + String(targetYawDegrees()) + "," +
       String(radio_channel1_normalized, 6) + "," + String(radio_channel2_normalized, 6) + "," +
       String(radio_channel3_normalized, 6) + "," + String(radio_channel4_normalized, 6) + "," +
       String(radio_channel5_normalized, 6) + "," + String(radio_channel6_normalized, 6) + "," +
       String(radio_channel7_normalized, 6) + "," + String(radio_channel8_normalized, 6) + "," +
-      String(ail1_PWM - pwm_channel1_trim) + "," +
-      String(ail2_PWM - pwm_channel2_trim) + "," +
-      String(ele_PWM - pwm_channel3_trim) + "," + String(thro_PWM) + "," +
-      String(rudd_PWM) + "," + String(B_ail1_PWM) + "," + String(B_ail2_PWM) +
-      "," + String(B_thro_PWM) + "," + String(B_rudd_PWM) + "," +
-      String(C_ail1_PWM) + "," + String(C_ail2_PWM) + "," + String(C_thro_PWM) +
-      "," + String(C_rudd_PWM) + "," + String(D_ail1_PWM) + "," +
-      String(D_ail2_PWM) + "," + String(D_thro_PWM) + "," + String(D_rudd_PWM) +
-      "," + String(E_ail1_PWM) + "," + String(E_ail2_PWM) + "," +
-      String(E_thro_PWM) + "," + String(E_rudd_PWM) + "," + String(F_ail1_PWM) +
-      "," + String(F_ail2_PWM) + "," + String(F_thro_PWM) + "," +
-      String(F_rudd_PWM) + "," + String(G_ail1_PWM) + "," + String(G_ail2_PWM) +
-      "," + String(G_thro_PWM) + "," + String(G_rudd_PWM) + "," + String(Pab) +
-      "," + String(Pac) + "," + String(Pbd) + "," + String(Pce) + "," +
-      String(Pdf) + "," + String(Peg) + "," + String(Phiab_Mea_logger) + "," +
-      String(Phiab_des) + "," + String(Phiac_Mea_logger) + "," +
-      String(Phibd_Mea_logger) + "," + String(Phice_Mea_logger) + "," +
-      String(Phidf_Mea_logger) + "," + String(Phieg_Mea_logger) + "," +
-      String(A_pitch_sp) + "," + String(B_pitch_sp) + "," + String(C_pitch_sp) +
-      "," + String(D_pitch_sp) + "," + String(E_pitch_sp) + "," +
-      String(F_pitch_sp) + "," + String(G_pitch_sp) + "," + String(thetaB_raw) +
-      "," + String(thetaC_raw) + "," + String(thetaD_raw) + "," +
-      String(thetaE_raw) + "," + String(thetaF_raw) + "," + String(thetaG_raw) +
-      "," + String(B_ele_PWM) + "," +
-      String(C_ele_PWM) + "," +
-      String(D_ele_PWM) + "," +
-      String(E_ele_PWM) + "," +
-      String(F_ele_PWM) + "," +
-      String(G_ele_PWM) + "," +
-      String(roll_IMU_EXT) + "," + String(pitch_IMU_EXT) + "," +
-      String(yaw_IMU_EXT) + "," + String(-AccX_6050) + "," + String(AccY_6050) +
-      "," + String(AccZ_6050) + "," + String(-GyroX_6050) + "," +
-      String(GyroY_6050) + "," + String(GyroZ_6050) + "," + String(Gyro_X_EXT) +
-      "," + String(Gyro_Y_EXT) + "," + String(Gyro_Z_EXT) + "," +
-      String(Phiab_PID) + "," + String(Phiac_PID) + "," + String(Phibd_PID) +
-      "," + String(Phice_PID) + "," + String(Phidf_PID) + "," +
-      String(Phieg_PID) + "," + String(roll_PID) + "," + String(pitch_PID) +
-      "," + String(airspeed_A) + "," + String(Strain_value1) + "," +
-      String(Strain_value2) + "," + String(Strain_value3) + "," +
-      String(Strain_value4) + "," + String(Strain_value5) + "," +
+      String(ActuatorOutput[0]) + "," +
+      String(ActuatorOutput[1]) + "," +
+      String(ActuatorOutput[2]) + "," + String(ActuatorOutput[3]) + "," +
+      String(ActuatorOutput[4]) + "," + String(configurationControlOutput.rates[0]) +
+      "," + String(configurationControlOutput.rates[1]) + "," + String(configurationControlOutput.rates[2]) + "," + String(configurationControlOutput.rates[3]) + "," +
+      String(configurationControlOutput.rates[4]) + "," + String(configurationControlOutput.rates[5]) + "," + String(configurationControlOutput.angles[0]) + "," +
+      String(targets.configuration[0]) + "," + String(configurationControlOutput.angles[1]) + "," +
+      String(configurationControlOutput.angles[2]) + "," + String(configurationControlOutput.angles[3]) + "," +
+      String(configurationControlOutput.angles[4]) + "," + String(configurationControlOutput.angles[5]) + "," +
+      String(pitchTargetLog) + "," + String(slaveTargets[0].pitch) + "," + String(slaveTargets[1].pitch) +
+      "," + String(slaveTargets[2].pitch) + "," + String(slaveTargets[3].pitch) + "," +
+      String(slaveTargets[4].pitch) + "," + String(slaveTargets[5].pitch) + "," + String(att_B[1]) +
+      "," + String(att_C[1]) + "," + String(att_D[1]) + "," +
+      String(att_E[1]) + "," + String(att_F[1]) + "," + String(att_G[1]) +
+      "," +
+      String(acc[0]) + "," + String(acc[1]) +
+      "," + String(acc[2]) + "," + String(ang_vel[0]) + "," +
+      String(ang_vel[1]) + "," + String(ang_vel[2]) + "," +
+      String(configurationControlOutput.commands[0]) + "," + String(configurationControlOutput.commands[1]) + "," + String(configurationControlOutput.commands[2]) +
+      "," + String(configurationControlOutput.commands[3]) + "," + String(configurationControlOutput.commands[4]) + "," +
+      String(configurationControlOutput.commands[5]) + "," + String(rollControlOutput.command) + "," + String(pitchPidControlOutput.command) +
+      "," + String(airspeed_A) + "," + String(strain_value[0]) + "," +
+      String(strain_value[1]) + "," + String(strain_value[2]) + "," +
+      String(strain_value[3]) + "," + String(strain_value[4]) + "," +
       String(airdata.aoa) + "," + String(airdata.aos) + "," +
-      String(airdata.tas) + "," + String(dp) + "," + String(dq) + "," +
-      String(dr) + "," + String(indi_pitch_q_des_log) + "," +
-      String(indi_pitch_q_filt_log) + "," + String(indi_pitch_dq_des_log) +
-      "," + String(indi_pitch_dq_used_log) + "," +
-      String(indi_pitch_delta_e_cmd_deg_log) + "," +
-      String(indi_pitch_delta_e_est_deg_log) + "," +
-      String(indi_pitch_pwm_cmd_log) + "," +
+      String(airdata.tas) + "," + String(ang_acc[0]) + "," + String(ang_acc[1]) + "," +
+      String(ang_acc[2]) + "," + String(pitchIndiControlOutput.diagnostics.desiredRate) + "," +
+      String(pitchIndiControlOutput.diagnostics.filteredRate) + "," + String(pitchIndiControlOutput.diagnostics.desiredAcceleration) +
+      "," + String(pitchIndiControlOutput.diagnostics.usedAcceleration) + "," +
+      String(pitchIndiControlOutput.diagnostics.commandedDeflection) + "," +
+      String(pitchIndiControlOutput.diagnostics.estimatedDeflection) + "," +
       String(relativeAngle_raw) + "," + String(relativeAngle_ready) + "," +
       String(rotateSensorValid() ? 1 : 0);
   dataFile.println(dataString);

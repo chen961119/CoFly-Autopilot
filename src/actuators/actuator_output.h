@@ -1,13 +1,13 @@
 #pragma once
+#include "control/control_types.h"
 
-// 舵机与电调上电时的锁定位置；调用顺序由 setup() 决定。
-// void prepareActuatorPower();
+// 最终写给舵机的物理 PWM，单位 μs：副翼1/副翼2/升降舵/油门/方向舵。
+extern float ActuatorOutput[5];
+
 void attachActuators();
 void commandSafeActuatorPositions();
-
-// 将归一化控制指令转换为 *_control_us 逻辑 PWM（μs），尚未应用 rev/trim。
-void convertControlCommandsToPWM();
-// 主机生成本机和子机 PWM；从机叠加本地补偿并选择最终升降舵 PWM。
+// 本机最终逻辑指令转物理 PWM。
+void convertControlCommandsToPWM(const ControlCycleOutput &cycle);
+// 仅打包已有子机指令，不运行控制器、mixer 或交联。
 void prepareActuatorCommands();
-// 直接输出已准备的 PWM，并发送或转发命令。
 void applyAndTransmitActuatorCommands();

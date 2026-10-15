@@ -5,9 +5,10 @@
 #include "actuators/actuator_output.h"
 #include "control/control_allocation.h"
 #include "control/control_modes.h"
-#include "control/control_state.h"
+#include "control/control_pipeline.h"
 #include "sensors/filters.h"
 #include "diagnostics/firmware_debug.h"
+#include "diagnostics/debug_print.h"
 #include "system/flight_clock.h"
 #include "interface/human_interface.h"
 #include "interaircraft_comm/interaircraft_comm.h"
@@ -20,7 +21,7 @@
 
 // 按通信、人机界面、传感器、执行器和控制器的依赖顺序完成上电初始化。
 void setup() {
-  
+
   // 建立串口链路，再初始化传感器、执行器和控制器。
   beginHumanInterfaceLinks();
   initializeFirmwareDebug();
@@ -48,12 +49,11 @@ void setup() {
 
   delay(5);
   radioSetup();
-  initializeRadioFailsafeChannels();
   IMUinit();
 
   delay(5);
   commandSafeActuatorPositions();
-  
+
   delay(5);
   // initializeControlAllocation();
   calibrateAirspeedSensor();
@@ -67,43 +67,39 @@ void loop() {
 
   updateFlightClock();
 
-  getBMI088data();
-  Madgwick();
-  getAngularACC();
-  getIMUdata_EXT();
-  increase_Clp();
+  updateInertialSensors();
   getairspeed();
   getRotateSensor1();
   ProcessButtonState();
   displayAttitude();
   Strain_read_all();
   getairdata();
-  if (!aircraftIsSingle()) receiveSensorData();
+
   // telemetry(); //数传。 传输等效姿态角，相对转角，相对扭转角 10hz
 
   if (!aircraftConfigurationValid() || parameterRebootRequired()) {
     setFlightLocked(true);
     commandSafeActuatorPositions();
+    printActuatorOutput(actuatorOutputDebugSetting());
     pollParameterService();
     loopRate(500);
     return;
   }
 
-  getDesState();
-  runSelectedControlMode();
   // getpinvBplusmini();
-  controlMixer();
-  
-  convertControlCommandsToPWM();
+  receiveSensorData();
+  runControlCycle();
+  convertControlCommandsToPWM(commands);
   prepareActuatorCommands();
   applyAndTransmitActuatorCommands();
+  printActuatorOutput(actuatorOutputDebugSetting());
 
   if (aircraftIsSingle()) loggerSINGLE();
   else loggerTEAM();
- 
+
   getCommands(); // 接收值供下一周期控制使用，避免周期中途改变控制输入。
-  failSafe();
+  updateRadioNormalized();
   pollParameterService();
-  
+
   loopRate(500);// 目标频率 500 Hz；若本周期已超时，loopRate 不会额外等待。
 }

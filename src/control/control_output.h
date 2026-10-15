@@ -1,0 +1,12 @@
+#pragma once
+#include "control/control_types.h"
+
+extern ManualControlOutput manualControlOutput;
+extern RollControlOutput rollControlOutput;
+extern PitchPidControlOutput pitchPidControlOutput;
+extern IndiPitchControlOutput pitchIndiControlOutput;
+extern RollDampingControlOutput rollDampingControlOutput;
+extern YawControlOutput yawControlOutput;
+extern ThrottleControlOutput throttleControlOutput;
+extern ConfigurationControlOutput configurationControlOutput;
+

@@ -17,7 +17,7 @@
 
 ## 参数声明
 
-在 `src/parameters/parameter_registry.cpp::flightParameterTable()` 一处注册。固件参数的声明、注册、编解码、存储与服务集中在 `src/parameters/`，文件职责见[参数模块说明](../src/parameters/README.md)。控制增益、滤波、限幅及执行器方向/trim 的变量和默认值集中在 `src/parameters/control_parameters.cpp`；身份、传感器和校准变量仍归各自模块所有。控制算法通过 `src/parameters/control_parameters.h` 直接读取同一份 RAM 参数，运行状态、积分和滤波历史留在 `control_modes.cpp`。
+在 `src/parameters/parameter_registry.cpp::flightParameterTable()` 一处注册。固件参数的声明、注册、编解码、存储与服务集中在 `src/parameters/`，文件职责见[参数模块说明](../src/parameters/README.md)。控制增益、滤波、限幅及执行器方向/trim 的变量和默认值集中在 `src/parameters/control_parameters.cpp`；身份、传感器和校准变量仍归各自模块所有。控制算法通过 `src/parameters/control_parameters.h` 直接读取同一份 RAM 参数，积分、指令滤波及 INDI 延迟队列由 `control/` 下各控制器对象持有，外部诊断结果由 `control/control_output.h/.cpp` 按控制器持有，模式由 `control/control_modes.cpp` 管理。
 
 ```cpp
 {1001, "aircraft_id", &aircraftIdParameter, 0, COFLY_AIRCRAFT_COUNT, "Aircraft", "Identity",
@@ -32,7 +32,7 @@
 
 记录采用参考提交 e419d682 的 `名称:类型=数值` 文本形式，每条以 LF 换行。名称不补零；结束符只用于 RAM 字符串缓冲，不写入介质。类型为 `float` 或 `int`。float32 使用可还原同一原始位模式的最短十进制，并展开科学计数法；int32 使用十进制整数。读取校验类型、有限值、范围、重复名称及记录数量。数值缓冲 64 字节，兼容记录缓冲 201 字节；这不是固定记录宽度。
 
-目前共 96 项：79 项在 SD（含立即生效的 `usb_commandlink_debug` 命令打印和 `usb_sensorlink_debug` 状态打印开关）；17 项在 EEPROM，包括飞机编号、12 个 IMU 零偏、校准有效标记、校准模型标记、整组指纹和 MT6701 测量零点。校准有效/模型/指纹三个字段只读，固件整组管理；手工改零偏会使校准失效。当前 BMI088 零偏仍绑定原 `*_6050` 字段名，保持既有测量轴映射。
+目前共 113 项：102 项在 SD（含立即生效的 `usb_commandlink_debug` 命令打印和 `usb_sensorlink_debug` 状态打印和 `usb_actuator_output_debug` 最终执行器打印开关）；11 项在 EEPROM，包括飞机编号、6 个 IMU 零偏、校准有效标记、校准模型标记、整组指纹和 MT6701 测量零点。校准有效/模型/指纹三个字段只读，固件整组管理；手工改零偏会使校准失效。当前 BMI088 零偏仍绑定原 `*_6050` 字段名，保持既有测量轴映射。
 
 所有标记 `ParameterEffect::Reboot` 的参数仅能在锁定状态下修改。接受不同值并更新 RAM 中的待启动设置后，统一参数服务立即锁存“待重启”状态：OLED 全屏显示英文 `REBOOT REQUIRED`，禁止解锁并保持执行器安全位置；改回原值也不会解除，只有重启清除。相同值或被拒绝的修改不触发；延迟保存失败不解除锁定。
 
@@ -70,7 +70,7 @@ SD 使用 `params.cfg` 与 `params_backup.cfg`，电脑导入/导出的 `.cfg` �
 
 ## 当前占用与容量
 
-当前 17 项 EEPROM、59 项 SD 参数。有效占用随数值文本长度变化，不能再用“每条 32 字节”计算：单份占用为头部 + 全部记录行 + 15 字节 CRC 尾部。
+当前 11 项 EEPROM、100 项 SD 参数。有效占用随数值文本长度变化，不能再用“每条 32 字节”计算：单份占用为头部 + 全部记录行 + 15 字节 CRC 尾部。
 
 | 介质 | 容量限制 |
 | --- | --- |
@@ -98,3 +98,5 @@ EEPROM 写入和 SD 写入都可能阻塞；身份/校准修改要求锁定。�
 V8 不读取之前 V7 二进制及带不同版本头的旧文本快照；升级后重新生成文件，设置编号、数量、零点并完成 IMU 校准。
 
 已完成的主机故障测试直接编译 EEPROM 实现，覆盖每次写入断电、失败重试、不同文本长度和主备恢复，共 686 个写入中断用例通过。参数服务测试编译真实实现，模拟时钟、SD 和 EEPROM，验证 2 秒合并、独立计时、恢复原值仍发起保存、失败重试、重启强制保存、整组校准延迟保存、计时器回绕和 USB 断开后保存。尚未验证实板 Flash 仿真层断电行为。
+
+移除旧惯性传感器支持后，校准指纹只覆盖六项零偏和模型标记。旧版校准指纹不再有效，更新固件后需重新进行 IMU 校准；其余参数名称和键值保持不变。

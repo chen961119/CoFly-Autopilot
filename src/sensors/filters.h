@@ -16,13 +16,16 @@ private:
   float _delay_element_1{0.0f}, _delay_element_2{0.0f};
 };
 
-extern PX4LowPassFilter2p gyroFiltX, gyroFiltY, gyroFiltZ;
 extern PX4LowPassFilter2p gyroFiltYIndi, gyroFiltXIndi, gyroFiltZIndi;
 // 欧拉角为度；四元数无量纲。
-extern float roll_IMU, pitch_IMU, yaw_IMU;
-extern float q0, q1, q2, q3;
+// 姿态角单位 deg，顺序为滚转/俯仰/偏航。
+extern float att[3];
+// Madgwick/外置 IMU 的姿态四元数，顺序 W/X/Y/Z，沿用现有姿态解算约定。
+extern float quat[4];
 
 void initializeControlFilters();
+// 仅在传感器测量发布后调用一次，更新 ang_vel_filtered。
+void updateAngularVelocityFilters();
 // 使用飞行时钟中的 dt（秒）更新姿态。
 void Madgwick();
 void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az,
