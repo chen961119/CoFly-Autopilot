@@ -166,7 +166,7 @@ void getIMUdata_EXT() {
           att[1] = asin(constrain(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]), -0.999999,
                                          0.999999)) *
                           57.29577951; // 弧度转角度。
-          att[2] = atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) *
+          att[2] = - atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) *
                         57.29577951; // 弧度转角度。
           // USBSerial.print("R:");
           // USBSerial.println(att[0]);
@@ -949,11 +949,19 @@ void getAngularACC() {
 // 数据源优先级与原控制一致：外置 IMU 优先，否则使用选定内置 IMU。
 void updateSensorMeasurements() {
 #if defined EXTIMU
-  ang_vel[0] = Gyro_X_EXT; ang_vel[1] = Gyro_Y_EXT; ang_vel[2] = Gyro_Z_EXT;
-  acc[0] = Acc_X_EXT; acc[1] = Acc_Y_EXT; acc[2] = Acc_Z_EXT;
+  ang_vel[0] = Gyro_X_EXT; 
+  ang_vel[1] = Gyro_Y_EXT; 
+  ang_vel[2] = Gyro_Z_EXT;
+  acc[0] = Acc_X_EXT; 
+  acc[1] = Acc_Y_EXT; 
+  acc[2] = Acc_Z_EXT;
 #elif defined INTIMU
-  ang_vel[0] = -GyroX_6050; ang_vel[1] = GyroY_6050; ang_vel[2] = GyroZ_6050;
-  acc[0] = -AccX_6050; acc[1] = AccY_6050; acc[2] = AccZ_6050;
+  ang_vel[0] = - GyroX_6050; 
+  ang_vel[1] = GyroY_6050; 
+  ang_vel[2] = - GyroZ_6050;
+  acc[0] = - AccX_6050; 
+  acc[1] = AccY_6050; 
+  acc[2] = AccZ_6050;
 #endif
   updateAngularVelocityFilters();
 }

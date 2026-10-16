@@ -186,6 +186,6 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az,
   att[1] =
       asin(constrain(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]), -0.999999, 0.999999)) *
       57.29577951; // 转为度。
-  att[2] = atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) *
+  att[2] = - atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) *
             57.29577951; // 转为度。
 }

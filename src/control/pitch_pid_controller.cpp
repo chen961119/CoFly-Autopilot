@@ -16,7 +16,6 @@ void PitchPidController::prepare(bool integralEnabled, bool changed) {
 void PitchPidController::update(float pitchTarget, bool enabled) {
   pitchPidControlOutput.command = 0;
   if (!enabled) return;
-  const float GyroY = ang_vel_filtered[1], GyroZ = ang_vel_filtered[2];
   float pitch_des_ol;
   error_pitch = pitchTarget - att[1];
   integral_pitch_ol = integral_pitch_prev_ol + error_pitch * dt;
@@ -32,11 +31,11 @@ void PitchPidController::update(float pitchTarget, bool enabled) {
   i_valid * Ki_pitch_angle *
   integral_pitch_ol;
   pitch_des_ol = 30.0 * pitch_des_ol;
-  pitch_des_ol = (pitch_des_ol + sin(att[0] / 57.3) * -GyroZ) /
+  pitch_des_ol = (pitch_des_ol + sin(att[0] / 57.3) * ang_vel_filtered[2]) /
   constrain(cos(att[0] / 57.3), 0.5, 1);
   pitch_des_ol = constrain(pitch_des_ol, -240.0, 240.0);
   pitch_des_ol = (1.0 - B_loop_pitch) * pitch_des_prev + B_loop_pitch * pitch_des_ol;
-  error_pitch = pitch_des_ol - GyroY;
+  error_pitch = pitch_des_ol - ang_vel_filtered[1];
   integral_pitch_il = integral_pitch_prev_il + error_pitch * dt;
   integral_pitch_il =
   constrain(integral_pitch_il, -i_limit,

@@ -48,7 +48,7 @@ static void mixLegacyMaster()
     {
     commands.slaves[0].aileron1 = 0.81*roll_PID+0.5*Phiab_PID;
     commands.slaves[0].aileron2 = 0.41*roll_PID-0.5*Phiab_PID;
-    commands.slaves[0].throttle = throttleCommand-0.8*yaw_PID;
+    commands.slaves[0].throttle = throttleCommand+0.8*yaw_PID;
     commands.slaves[0].rudder = yaw_PID;
     //2机、3机
 
@@ -56,7 +56,7 @@ static void mixLegacyMaster()
     commands.local.aileron1 = -0.41*roll_PID-0.5*Phiab_PID;
     commands.local.aileron2 = -0.81*roll_PID+0.5*Phiab_PID;
     commands.local.elevator = pitch_PID;
-    commands.local.throttle = throttleCommand+0.8*yaw_PID;
+    commands.local.throttle = throttleCommand-0.8*yaw_PID;
     commands.local.rudder = yaw_PID;
     }
     else if(mixerStrategy < 0.2f&&mixerStrategy > -0.2f)
@@ -65,7 +65,7 @@ static void mixLegacyMaster()
     //策略2
     commands.slaves[0].aileron1 = 0.5*0.81*roll_PID+0.5*Phiab_PID;
     commands.slaves[0].aileron2 = 0.5*0.41*roll_PID-0.5*Phiab_PID;
-    commands.slaves[0].throttle = throttleCommand-0.8*yaw_PID;
+    commands.slaves[0].throttle = throttleCommand+0.8*yaw_PID;
     commands.slaves[0].rudder = yaw_PID;
     //2机、3机
 
@@ -73,7 +73,7 @@ static void mixLegacyMaster()
     commands.local.aileron1 = 0.5*-0.41*roll_PID-0.5*Phiab_PID;
     commands.local.aileron2 = 0.5*-0.81*roll_PID+0.5*Phiab_PID;
     commands.local.elevator = pitch_PID;
-    commands.local.throttle = throttleCommand+0.8*yaw_PID;
+    commands.local.throttle = throttleCommand-0.8*yaw_PID;
     commands.local.rudder = yaw_PID;
 
     }
@@ -82,7 +82,7 @@ static void mixLegacyMaster()
     //策略3
     commands.slaves[0].aileron1 = 0.1*0.81*roll_PID+0.5*Phiab_PID;
     commands.slaves[0].aileron2 = 0.1*0.41*roll_PID-0.5*Phiab_PID;
-    commands.slaves[0].throttle = throttleCommand+keeppositive(-1.2*yaw_PID)+keeppositive(0.4*roll_PID);
+    commands.slaves[0].throttle = throttleCommand+keeppositive(+1.2*yaw_PID)+keeppositive(0.4*roll_PID);
     commands.slaves[0].rudder = yaw_PID;
     //2机、3机
 
@@ -90,7 +90,7 @@ static void mixLegacyMaster()
     commands.local.aileron1 = 0.1*-0.41*roll_PID-0.5*Phiab_PID;
     commands.local.aileron2 = 0.1*-0.81*roll_PID+0.5*Phiab_PID;
     commands.local.elevator = pitch_PID;
-    commands.local.throttle = throttleCommand+keeppositive(1.2*yaw_PID)+keeppositive(-0.4*roll_PID);
+    commands.local.throttle = throttleCommand+keeppositive(-1.2*yaw_PID)+keeppositive(-0.4*roll_PID);
     commands.local.rudder = yaw_PID;
 
 
@@ -130,7 +130,7 @@ static void mixLegacyMaster()
             1.016 * roll_PID + coeab * 1 * Phiab_PID - coeac * 0.68 * Phiac_PID;
         commands.slaves[0].aileron2 = 0.593 * roll_PID - coeab * 0.3392 * Phiab_PID -
                         coeac * 0.12 * Phiac_PID;
-        commands.slaves[0].throttle = throttleCommand - 0.8 * yaw_PID;
+        commands.slaves[0].throttle = throttleCommand + 0.8 * yaw_PID;
         commands.slaves[0].rudder = yaw_PID;
          // 2机、3机
 
@@ -146,7 +146,7 @@ static void mixLegacyMaster()
             -0.593 * roll_PID + coeab * 0.12 * Phiab_PID + coeac * 0.34 * Phiac_PID;
         commands.slaves[1].aileron2 =
             -1.016 * roll_PID + coeab * 0.68 * Phiab_PID - coeac * 1 * Phiac_PID;
-        commands.slaves[1].throttle = throttleCommand + 0.8 * yaw_PID;
+        commands.slaves[1].throttle = throttleCommand - 0.8 * yaw_PID;
         commands.slaves[1].rudder = yaw_PID;
          // 2机、3机
       }
@@ -160,7 +160,7 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
                         coeac * 0.08 * Phiac_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(-1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
+            throttleCommand + keeppositive(+1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
         commands.slaves[0].rudder = yaw_PID;
          // 2机、3机
         commands.slaves[0].elevator = 0.0;
@@ -178,7 +178,7 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
                         coeac * 0.864 * Phiac_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
+            throttleCommand + keeppositive(-1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
         commands.slaves[1].rudder = yaw_PID;
          // 2机、3机
         commands.slaves[1].elevator = 0.0;
@@ -192,7 +192,7 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
                         coeac * 0.08 * Phiac_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(-1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
+            throttleCommand + keeppositive(+1.2 * yaw_PID) + keeppositive(0.4 * roll_PID);
         commands.slaves[0].rudder = yaw_PID;
          // 2机、3机
         commands.slaves[0].elevator =
@@ -211,7 +211,7 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
                         coeac * 0.864 * Phiac_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
+            throttleCommand + keeppositive(-1.2 * yaw_PID) + keeppositive(-0.4 * roll_PID);
         commands.slaves[1].rudder = yaw_PID;
          // 2机、3机 增加了相对滚转到升降舵
         commands.slaves[1].elevator = (10.0 * 20.0 * roll_PID_lpf + 10.0 * roll_PID_dot_lpf) / 1000.0f;
@@ -261,7 +261,7 @@ static void mixLegacyMaster()
                         0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
         commands.slaves[2].aileron2 = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
                         0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
-        commands.slaves[2].throttle = throttleCommand - 1.2 * yaw_PID;
+        commands.slaves[2].throttle = throttleCommand + 1.2 * yaw_PID;
         commands.slaves[2].rudder = yaw_PID;
 
 
@@ -269,7 +269,7 @@ static void mixLegacyMaster()
                         0.19 * coeac * Phiac_PID - 1.0 * coebd * Phibd_PID;
         commands.slaves[0].aileron2 = 0.13 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
                         0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
-        commands.slaves[0].throttle = throttleCommand - 0.6 * yaw_PID;
+        commands.slaves[0].throttle = throttleCommand + 0.6 * yaw_PID;
         commands.slaves[0].rudder = yaw_PID;
 
 
@@ -278,7 +278,7 @@ static void mixLegacyMaster()
         commands.local.aileron2 = -0.28 * coeroll * roll_PID - 0.667 * coeab * Phiab_PID +
                         1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
         commands.local.elevator = pitch_PID;
-        commands.local.throttle = throttleCommand + 0.6 * yaw_PID;
+        commands.local.throttle = throttleCommand - 0.6 * yaw_PID;
         ;
         commands.local.rudder = yaw_PID;
 
@@ -286,7 +286,7 @@ static void mixLegacyMaster()
                         0.1 * coeac * Phiac_PID + 0.26 * coebd * Phibd_PID;
         commands.slaves[1].aileron2 = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
                         1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
-        commands.slaves[1].throttle = throttleCommand + 1.2 * yaw_PID;
+        commands.slaves[1].throttle = throttleCommand - 1.2 * yaw_PID;
         commands.slaves[1].rudder = yaw_PID;
 
       }
@@ -301,7 +301,7 @@ static void mixLegacyMaster()
         commands.slaves[2].aileron2 = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
                         0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
         commands.slaves[2].throttle =
-            throttleCommand + keeppositive(-1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
+            throttleCommand + keeppositive(+1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
         commands.slaves[2].rudder = yaw_PID;
 
 
@@ -310,7 +310,7 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
                         0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(-1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
+            throttleCommand + keeppositive(+1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
         commands.slaves[0].rudder = yaw_PID;
 
 
@@ -320,7 +320,7 @@ static void mixLegacyMaster()
                         1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
         commands.local.elevator = pitch_PID;
         commands.local.throttle =
-            throttleCommand + keeppositive(1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
+            throttleCommand + keeppositive(-1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
         commands.local.rudder = yaw_PID;
 
         commands.slaves[1].aileron1 = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
@@ -328,7 +328,7 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
                         1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
+            throttleCommand + keeppositive(-1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
         commands.slaves[1].rudder = yaw_PID;
 
       }
@@ -341,7 +341,7 @@ static void mixLegacyMaster()
         commands.slaves[2].aileron2 = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
                         0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
         commands.slaves[2].throttle =
-            throttleCommand + keeppositive(-1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
+            throttleCommand + keeppositive(+1.5 * yaw_PID) + keeppositive(0.5 * roll_PID);
         commands.slaves[2].rudder = yaw_PID;
 
 
@@ -350,7 +350,7 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
                         0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(-1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
+            throttleCommand + keeppositive(+1.0 * yaw_PID) + keeppositive(0.3 * roll_PID);
         commands.slaves[0].rudder = yaw_PID;
 
 
@@ -360,7 +360,7 @@ static void mixLegacyMaster()
                         1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
         commands.local.elevator = pitch_PID;
         commands.local.throttle =
-            throttleCommand + keeppositive(1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
+            throttleCommand + keeppositive(-1.0 * yaw_PID) + keeppositive(-0.3 * roll_PID);
         commands.local.rudder = yaw_PID;
 
         commands.slaves[1].aileron1 = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
@@ -368,7 +368,7 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
                         1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
+            throttleCommand + keeppositive(-1.5 * yaw_PID) + keeppositive(-0.5 * roll_PID);
         commands.slaves[1].rudder = yaw_PID;
 
       }
@@ -423,7 +423,7 @@ static void mixLegacyMaster()
       commands.slaves[2].aileron2 = 0.75 * coeroll * roll_PID + 0.44 * coeab * Phiab_PID -
                       0.42 * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID -
                       0.23 * coece * Phice_PID;
-      commands.slaves[2].throttle = throttleCommand - 1.0 * yaw_PID;
+      commands.slaves[2].throttle = throttleCommand + 1.0 * yaw_PID;
       commands.slaves[2].rudder = yaw_PID;
 
 
@@ -433,7 +433,7 @@ static void mixLegacyMaster()
       commands.slaves[0].aileron2 = 0.33 * coeroll * roll_PID - 0.76 * coeab * Phiab_PID +
                       0.31 * coeac * Phiac_PID - 0.6 * coebd * Phibd_PID +
                       0.08 * coece * Phice_PID;
-      commands.slaves[0].throttle = throttleCommand - 0.8 * yaw_PID;
+      commands.slaves[0].throttle = throttleCommand + 0.8 * yaw_PID;
       commands.slaves[0].rudder = yaw_PID;
 
 
@@ -453,7 +453,7 @@ static void mixLegacyMaster()
       commands.slaves[1].aileron2 = -0.417 * coeroll * roll_PID - 0.05 * coeab * Phiab_PID +
                       0.36 * coeac * Phiac_PID - 0.01 * coebd * Phibd_PID +
                       0.7 * coece * Phice_PID;
-      commands.slaves[1].throttle = throttleCommand + 0.8 * yaw_PID;
+      commands.slaves[1].throttle = throttleCommand - 0.8 * yaw_PID;
       commands.slaves[1].rudder = yaw_PID;
 
 
@@ -463,7 +463,7 @@ static void mixLegacyMaster()
       commands.slaves[3].aileron2 = -1.0 * coeroll * roll_PID + 0.72 * coeab * Phiab_PID -
                       1.0 * coeac * Phiac_PID + 0.38 * coebd * Phibd_PID -
                       1.0 * coece * Phice_PID;
-      commands.slaves[3].throttle = throttleCommand + 1.0 * yaw_PID;
+      commands.slaves[3].throttle = throttleCommand - 1.0 * yaw_PID;
       commands.slaves[3].rudder = yaw_PID;
 
 
@@ -475,14 +475,14 @@ static void mixLegacyMaster()
        coeac * Phiac_PID + 1.0 * coebd * Phibd_PID - 0.38 * coece * Phice_PID;
          commands.slaves[2].aileron2 = 0.75 * coeroll * roll_PID + 0.44 * coeab * Phiab_PID - 0.42
        * coeac * Phiac_PID + 0.06 * coebd * Phibd_PID - 0.23 * coece * Phice_PID;
-         commands.slaves[2].throttle = throttleCommand + keeppositive(-1.8 * yaw_PID) + keeppositive(0.7 *
+         commands.slaves[2].throttle = throttleCommand + keeppositive(+1.8 * yaw_PID) + keeppositive(0.7 *
        roll_PID); commands.slaves[2].rudder = yaw_PID;
 
          commands.slaves[0].aileron1 = 0.417 * coeroll * roll_PID - 0.36 * coeab * Phiab_PID + 0.05
        * coeac * Phiac_PID - 0.7 * coebd * Phibd_PID - 0.01 * coece * Phice_PID;
          commands.slaves[0].aileron2 = 0.33 * coeroll * roll_PID - 0.76 * coeab * Phiab_PID + 0.31
        * coeac * Phiac_PID - 0.6 * coebd * Phibd_PID + 0.08 * coece * Phice_PID;
-         commands.slaves[0].throttle = throttleCommand + keeppositive(-1.0 * yaw_PID) + keeppositive(0.4 *
+         commands.slaves[0].throttle = throttleCommand + keeppositive(+1.0 * yaw_PID) + keeppositive(0.4 *
        roll_PID); commands.slaves[0].rudder = yaw_PID;
 
          commands.local.aileron1 = 0.15 * coeroll * roll_PID - 0.88 * coeab * Phiab_PID + 0.66
@@ -497,14 +497,14 @@ static void mixLegacyMaster()
        * coeac * Phiac_PID - 0.08 * coebd * Phibd_PID + 0.6 * coece * Phice_PID;
          commands.slaves[1].aileron2 = -0.417 * coeroll * roll_PID - 0.05 * coeab * Phiab_PID +
        0.36 * coeac * Phiac_PID - 0.01 * coebd * Phibd_PID + 0.7 * coece *
-       Phice_PID; commands.slaves[1].throttle = throttleCommand + keeppositive(1.0 * yaw_PID) +
+       Phice_PID; commands.slaves[1].throttle = throttleCommand + keeppositive(-1.0 * yaw_PID) +
        keeppositive(-0.4 * roll_PID); commands.slaves[1].rudder = yaw_PID;
 
          commands.slaves[3].aileron1 = -0.75 * coeroll * roll_PID + 0.42 * coeab * Phiab_PID -
        coeac * 0.44 * Phiac_PID + 0.23 * coebd * Phibd_PID - 0.06 * coece *
        Phice_PID; commands.slaves[3].aileron2 = -1.0 * coeroll * roll_PID + 0.72 * coeab *
        Phiab_PID - 1.0 * coeac * Phiac_PID + 0.38 * coebd * Phibd_PID - 1.0 * coece
-       * Phice_PID; commands.slaves[3].throttle = throttleCommand + keeppositive(1.8 * yaw_PID) +
+       * Phice_PID; commands.slaves[3].throttle = throttleCommand + keeppositive(-1.8 * yaw_PID) +
        keeppositive(-0.7 * roll_PID); commands.slaves[3].rudder = yaw_PID;
        }
 
@@ -537,12 +537,12 @@ static void mixLegacyMaster()
          //printFullMatrix(de_config);
          commands.slaves[2].aileron1 = de_att(0) + de_config(0);
          commands.slaves[2].aileron2 = de_att(1) + de_config(1);
-         commands.slaves[2].throttle = throttleCommand + keeppositive(-1.4 * yaw_PID) + keeppositive(0.5 *
+         commands.slaves[2].throttle = throttleCommand + keeppositive(+1.4 * yaw_PID) + keeppositive(0.5 *
        roll_PID); commands.slaves[2].rudder = yaw_PID;
 
          commands.slaves[0].aileron1 = de_att(2) + de_config(2);
          commands.slaves[0].aileron2 = de_att(3) + de_config(3);
-         commands.slaves[0].throttle = throttleCommand + keeppositive(-0.8 * yaw_PID) + keeppositive(0.3 *
+         commands.slaves[0].throttle = throttleCommand + keeppositive(+0.8 * yaw_PID) + keeppositive(0.3 *
        roll_PID); commands.slaves[0].rudder = yaw_PID;
 
          commands.local.aileron1 = de_att(4) + de_config(4);
@@ -553,12 +553,12 @@ static void mixLegacyMaster()
 
          commands.slaves[1].aileron1 = de_att(6) + de_config(6);
          commands.slaves[1].aileron2 = de_att(7) + de_config(7);
-         commands.slaves[1].throttle = throttleCommand + keeppositive(0.8 * yaw_PID) + keeppositive(-0.3 *
+         commands.slaves[1].throttle = throttleCommand + keeppositive(-0.8 * yaw_PID) + keeppositive(-0.3 *
        roll_PID); commands.slaves[1].rudder = yaw_PID;
 
          commands.slaves[3].aileron1 = de_att(8) + de_config(8);
          commands.slaves[3].aileron2 = de_att(9) + de_config(9);
-         commands.slaves[3].throttle = throttleCommand + keeppositive(1.4 * yaw_PID) + keeppositive(-0.5 *
+         commands.slaves[3].throttle = throttleCommand + keeppositive(-1.4 * yaw_PID) + keeppositive(-0.5 *
        roll_PID); commands.slaves[3].rudder = yaw_PID;
        }
          */
@@ -634,7 +634,7 @@ static void mixLegacyMaster()
                       0.56 * coeac * Phiac_PID + 0.54 * coebd * Phibd_PID -
                       0.33 * coece * Phice_PID + 0.19 * coedf * Phidf_PID -
                       0.18 * coeeg * Phieg_PID;
-      commands.slaves[4].throttle = 0.85 * throttleCommand - 1.5 * yaw_PID;
+      commands.slaves[4].throttle = 0.85 * throttleCommand + 1.5 * yaw_PID;
       commands.slaves[4].rudder = yaw_PID;
 
 
@@ -646,7 +646,7 @@ static void mixLegacyMaster()
                       0.06 * coeac * Phiac_PID - 0.44 * coebd * Phibd_PID -
                       0.07 * coece * Phice_PID - 0.41 * coedf * Phidf_PID -
                       0.05 * coeeg * Phieg_PID;
-      commands.slaves[2].throttle = 0.92 * throttleCommand - 1.0 * yaw_PID;
+      commands.slaves[2].throttle = 0.92 * throttleCommand + 1.0 * yaw_PID;
       commands.slaves[2].rudder = yaw_PID;
 
 
@@ -658,7 +658,7 @@ static void mixLegacyMaster()
                       0.47 * coeac * Phiac_PID - 0.57 * coebd * Phibd_PID +
                       0.17 * coece * Phice_PID - 0.27 * coedf * Phidf_PID +
                       0.08 * coeeg * Phieg_PID;
-      commands.slaves[0].throttle = throttleCommand - 0.8 * yaw_PID;
+      commands.slaves[0].throttle = throttleCommand + 0.8 * yaw_PID;
       commands.slaves[0].rudder = yaw_PID;
 
 
@@ -682,7 +682,7 @@ static void mixLegacyMaster()
                       0.50 * coeac * Phiac_PID - 0.05 * coebd * Phibd_PID +
                       0.65 * coece * Phice_PID - 0.01 * coedf * Phidf_PID +
                       0.41 * coeeg * Phieg_PID;
-      commands.slaves[1].throttle = throttleCommand + 0.8 * yaw_PID;
+      commands.slaves[1].throttle = throttleCommand - 0.8 * yaw_PID;
       commands.slaves[1].rudder = yaw_PID;
 
 
@@ -694,7 +694,7 @@ static void mixLegacyMaster()
                       0.31 * coeac * Phiac_PID + 0.21 * coebd * Phibd_PID -
                       0.06 * coece * Phice_PID + 0.12 * coedf * Phidf_PID +
                       0.27 * coeeg * Phieg_PID;
-      commands.slaves[3].throttle = 0.92 * throttleCommand + 1.0 * yaw_PID;
+      commands.slaves[3].throttle = 0.92 * throttleCommand - 1.0 * yaw_PID;
       commands.slaves[3].rudder = yaw_PID;
 
 
@@ -706,7 +706,7 @@ static void mixLegacyMaster()
                       1.0 * coeac * Phiac_PID + 0.44 * coebd * Phibd_PID -
                       1.0 * coece * Phice_PID + 0.24 * coedf * Phidf_PID -
                       1.0 * coeeg * Phieg_PID;
-      commands.slaves[5].throttle = 0.85 * throttleCommand + 1.5 * yaw_PID;
+      commands.slaves[5].throttle = 0.85 * throttleCommand - 1.5 * yaw_PID;
       commands.slaves[5].rudder = yaw_PID;
 
     }

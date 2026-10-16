@@ -86,8 +86,7 @@ void PitchIndiController::update(float pitchTarget, bool enabled) {
   float pitch_error_deg = pitchTarget - att[1];
   float rate_des_deg_s = pitch_error_deg * 3.0f + pitch_des_local_rate;
   float q_des_deg_s = (rate_des_deg_s + sin(att[0] / 57.3) *
-      -gyroFiltZIndi.apply(ang_vel[2])) /
-  cos(att[0] / 57.3);
+      gyroFiltZIndi.apply(ang_vel[2])) /cos(att[0] / 57.3);
   q_des_deg_s = constrain(q_des_deg_s, -120, 120);
   float dq_des_deg_s2 = indi_pitch_q_gain * (q_des_deg_s - GyroY_filt);
   pitchIndiControlOutput.acceleration = dq_des_deg_s2;
