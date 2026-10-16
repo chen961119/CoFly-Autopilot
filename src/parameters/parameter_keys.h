@@ -17,6 +17,7 @@ constexpr uint16_t Mt6701Zero = 1201;
 constexpr uint16_t UsbCommandLinkDebug = 1301;
 constexpr uint16_t UsbSensorLinkDebug = 1302;
 constexpr uint16_t UsbActuatorOutputDebug = 1303;
+constexpr uint16_t UsbControlModeDebug = 1304;
 constexpr uint16_t ImuOffsetFirst = ImuAccErrorX6050;
 constexpr uint16_t ImuOffsetLast = ImuGyroErrorZ6050;
 constexpr unsigned ImuOffsetCount = 6;

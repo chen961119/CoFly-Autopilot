@@ -1,5 +1,6 @@
 #include "radio_comm/radio_comm.h"
 #include "control/control_output.h"
+#include "control/control_modes.h"
 #include "config/serial_config.h"
 #include "config/aircraft_config.h"
 #include "diagnostics/debug_print.h"
@@ -15,9 +16,36 @@ static unsigned long print_counter = 0;
 
 namespace {
 int32_t actuator_output_debug = 0;
+int32_t control_mode_debug = 0;
 }
 
 int32_t &actuatorOutputDebugSetting() { return actuator_output_debug; }
+int32_t &controlModeDebugSetting() { return control_mode_debug; }
+
+void printControlMode(int enabled) {
+  static uint32_t last = 0;
+  static uint32_t frame = 0;
+  if (enabled != 1 || !USBSerial) return;
+  const uint32_t now = micros();
+  if (static_cast<uint32_t>(now - last) < 100000UL) return;
+  char text[384];
+  const int length = snprintf(text, sizeof(text),
+      "\n=== ControlMode #%lu ===\n"
+      "currentMode=%d lastMode=%d pitchController=%d lastPitchController=%d\n"
+      "mixerStrategy=%.3f configurationCoeff=%.3f configurationAngle=%.1f\n"
+      "brake=%d changed=%d integralEnabled=%d\n"
+      "=============\n",
+      static_cast<unsigned long>(frame + 1), static_cast<int>(currentMode),
+      static_cast<int>(lastMode), static_cast<int>(pitchController),
+      static_cast<int>(lastPitchController), mixerStrategy, configurationCoeff,
+      configurationAngle, static_cast<int>(brake), static_cast<int>(changed),
+      static_cast<int>(integralEnabled));
+  if (length <= 0 || static_cast<size_t>(length) >= sizeof(text) ||
+      USBSerial.availableForWrite() < length) return;
+  USBSerial.write(reinterpret_cast<const uint8_t *>(text), length);
+  last = now;
+  ++frame;
+}
 
 void printActuatorOutput(int enabled) {
   static uint32_t last = 0;

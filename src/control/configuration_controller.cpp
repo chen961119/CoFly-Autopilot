@@ -58,7 +58,7 @@ void ConfigurationController::update(const float (&targets)[6]) {
   integral_Phiab_RATE_il =
   constrain(integral_Phiab_RATE_il, -i_limit,
       i_limit);
-  configurationControlOutput.commands[0] = coeffconfiguration * .01 *
+  configurationControlOutput.commands[0] = configurationCoeff * .01 *
   (Kff_FLAP_RATE * Phiab_des_ol + Kp_FLAP_RATE * error_Phiab_RATE +
       i_valid * Ki_FLAP_RATE *
       integral_Phiab_RATE_il);
@@ -67,7 +67,7 @@ void ConfigurationController::update(const float (&targets)[6]) {
   integral_Phiac_RATE_il =
   constrain(integral_Phiac_RATE_il, -i_limit,
       i_limit);
-  configurationControlOutput.commands[1] = coeffconfiguration * .01 *
+  configurationControlOutput.commands[1] = configurationCoeff * .01 *
   (Kff_FLAP_RATE * Phiac_des_ol + Kp_FLAP_RATE * error_Phiac_RATE +
       i_valid * Ki_FLAP_RATE *
       integral_Phiac_RATE_il);
@@ -76,7 +76,7 @@ void ConfigurationController::update(const float (&targets)[6]) {
   integral_Phibd_RATE_il =
   constrain(integral_Phibd_RATE_il, -i_limit,
       i_limit);
-  configurationControlOutput.commands[2] = coeffconfiguration * .01 *
+  configurationControlOutput.commands[2] = configurationCoeff * .01 *
   (Kff_FLAP_RATE * Phibd_des_ol + Kp_FLAP_RATE * error_Phibd_RATE +
       i_valid * Ki_FLAP_RATE *
       integral_Phibd_RATE_il);
@@ -85,7 +85,7 @@ void ConfigurationController::update(const float (&targets)[6]) {
   integral_Phice_RATE_il =
   constrain(integral_Phice_RATE_il, -i_limit,
       i_limit);
-  configurationControlOutput.commands[3] = coeffconfiguration * .01 *
+  configurationControlOutput.commands[3] = configurationCoeff * .01 *
   (Kff_FLAP_RATE * Phice_des_ol + Kp_FLAP_RATE * error_Phice_RATE +
       i_valid * Ki_FLAP_RATE *
       integral_Phice_RATE_il);
@@ -94,7 +94,7 @@ void ConfigurationController::update(const float (&targets)[6]) {
   integral_Phidf_RATE_il =
   constrain(integral_Phidf_RATE_il, -i_limit,
       i_limit);
-  configurationControlOutput.commands[4] = coeffconfiguration * .01 *
+  configurationControlOutput.commands[4] = configurationCoeff * .01 *
   (Kff_FLAP_RATE * Phidf_des_ol + Kp_FLAP_RATE * error_Phidf_RATE +
       i_valid * Ki_FLAP_RATE *
       integral_Phidf_RATE_il);
@@ -103,7 +103,7 @@ void ConfigurationController::update(const float (&targets)[6]) {
   integral_Phieg_RATE_il =
   constrain(integral_Phieg_RATE_il, -i_limit,
       i_limit);
-  configurationControlOutput.commands[5] = coeffconfiguration * .01 *
+  configurationControlOutput.commands[5] = configurationCoeff * .01 *
   (Kff_FLAP_RATE * Phieg_des_ol + Kp_FLAP_RATE * error_Phieg_RATE +
       i_valid * Ki_FLAP_RATE *
       integral_Phieg_RATE_il);

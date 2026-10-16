@@ -13,7 +13,8 @@ PitchController lastPitchController = PitchController::PID;
 SlaveCommand slaveCommand{MANUAL_MODE, {}, {0, 0, 0, -0.5f, 0}};
 
 float mixerStrategy = 0.0f;
-float coeffconfiguration = 1.0f;
+float configurationCoeff = 1.0f;
+float configurationAngle = 0.0f;
 bool brake = false;
 bool changed = false;
 bool integralEnabled = false;
@@ -28,7 +29,8 @@ void initializeInitialControlMode() {
   pitchController = PitchController::PID;
   lastPitchController = PitchController::PID;
   mixerStrategy = 0.0f;
-  coeffconfiguration = 1.0f;
+  configurationCoeff = 1.0f;
+  configurationAngle = 0.0f;
   brake = false;
   changed = false;
   integralEnabled = false;
@@ -42,10 +44,15 @@ void prepareControlMode() {
     currentMode = radio_channel5_normalized > 0.2f ? MANUAL_MODE :
         (radio_channel5_normalized < -0.2f ? STABILIZE_MODE : STABLIZE_MODE_NO_I);
     mixerStrategy = radio_channel6_normalized;
-    coeffconfiguration = 1.0f + radio_channel7_normalized;
+    configurationCoeff = 1.0f;
+    configurationAngle = radio_channel7_normalized > 0.2f ? 10.0f :
+        (radio_channel7_normalized < -0.2f ? -10.0f : 0.0f);
+    // 子机减父机的滚转差：上反时左侧为正、右侧为负，相邻飞机相差 10 度。
+    for (unsigned i = 0; i < 6; ++i)
+      targets.configuration[i] = i % 2 == 0 ? configurationAngle : -configurationAngle;
     brake = radio_channel8_normalized <= 0.2f;
 
-    // 构型目标由 targets.configuration 持有，保留控制器对它的直接修改。
+    // 主机每周期根据遥控输入更新运动目标和构型目标。
     targets.throttle = 0.5f * (constrain(radio_channel3_normalized, -1.0f, 1.0f) + 1.0f);
     targets.roll = constrain(radio_channel1_normalized, -1.0f, 1.0f);
     targets.pitch = constrain(radio_channel2_normalized, -1.0f, 1.0f);

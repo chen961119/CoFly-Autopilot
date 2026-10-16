@@ -81,6 +81,7 @@ void loop() {
     setFlightLocked(true);
     commandSafeActuatorPositions();
     printActuatorOutput(actuatorOutputDebugSetting());
+    printControlMode(controlModeDebugSetting());
     pollParameterService();
     loopRate(500);
     return;
@@ -93,6 +94,7 @@ void loop() {
   prepareActuatorCommands();
   applyAndTransmitActuatorCommands();
   printActuatorOutput(actuatorOutputDebugSetting());
+  printControlMode(controlModeDebugSetting());
 
   if (aircraftIsSingle()) loggerSINGLE();
   else loggerTEAM();

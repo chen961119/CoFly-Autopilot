@@ -47,9 +47,9 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 主机手动模式的 `targets.roll/pitch/yaw` 为 ±1，手动控制器直接使用这些字段除以 2；增稳模式为角度/角速度目标。`targets.throttle` 为 0～1。从机俯仰目标保持度制，分配与日志需要角度时通过 `targetRollDegrees()` / `targetPitchDegrees()` / `targetYawDegrees()` 从 `targets` 换算，不再维护独立的全局目标或 manual 字段。
 
-构型角目标统一使用 `targets.configuration[0～5]`，依次对应 AB、AC、BD、CE、DF、EG，初始值为零。指令生成每周期更新遥控轴目标，保留构型目标，供控制器直接修改并在后续周期继续使用。
+构型角目标统一使用 `targets.configuration[0～5]`，依次对应 AB、AC、BD、CE、DF、EG，初始值为零。主机 `prepareControlMode()` 每周期根据第 7 通道更新构型目标：归一化值 >0.2 时上反，左侧差值为 +10°、右侧为 -10°；<-0.2 时下反，符号相反；其余为零。每对相邻飞机的目标滚转差为 10°，外侧飞机相对 A 的目标角度逐级累加。
 
-构型控制输出系数 `coeffconfiguration` 由控制模式模块持有，初始值为 1；主机 `prepareControlMode()` 根据第 7 通道更新为 `1 + radio_channel7_normalized`，构型控制器直接读取该全局系数。
+构型控制输出系数 `configurationCoeff` 由控制模式模块持有，固定为 `1.0f`，构型控制器直接读取该全局系数。
 
 `control/control_output.h/.cpp` 按控制器持有全局 `manualControlOutput`、`rollControlOutput`、`pitchPidControlOutput`、`pitchIndiControlOutput`、`rollDampingControlOutput`、`yawControlOutput`、`throttleControlOutput`、`configurationControlOutput`；mixer、日志及遥测直接读取。分配结果仅由 `commands.local/slaves[]` 持有。模式模块持有全局 `lastMode`、`lastPitchController`；模式准备/接收阶段在覆盖当前值前保存旧值，控制入口仅判断切换。
 
