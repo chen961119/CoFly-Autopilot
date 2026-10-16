@@ -2,5 +2,5 @@
 #include "control/control_output.h"
 
 void ThrottleController::update(float throttleTarget) const {
-  throttleControlOutput.command = throttleTarget;
+  throttleControlOutput.throttleCommand = throttleTarget;
 }

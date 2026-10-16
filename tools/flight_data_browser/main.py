@@ -352,7 +352,7 @@ class Browser:
                 # Mode shading uses one explicit reference rather than conflicting
                 # overlays from independently normalized aircraft clocks.
                 ref = self.logs[sorted(references)[0]]
-                colors = {"Manual": "#ec8f81", "Stab1": "#81b8ec", "Stab2": "#8cca8c", "Unknown": "#aaaaaa"}
+                colors = {"Manual": "#ec8f81", "Stabilize": "#8cca8c", "Stab1": "#81b8ec", "Stab2": "#8cca8c", "Unknown": "#aaaaaa"}
                 for segment in ref.modes:
                     ax.axvspan(segment.start, segment.stop, ymin=0.94, ymax=1,
                                color=colors[segment.label], alpha=0.7)

@@ -46,9 +46,8 @@ static_assert(validActuatorPwmLimits(PWM_SERVO5_MIN_US, PWM_SERVO5_MAX_US), "Inv
 #define USE_MPU6050_I2C
 
 enum FlightMode {
-  MANUAL_MODE,
-  STABLIZE_MODE_NO_I,
-  STABILIZE_MODE,
+  MANUAL_MODE = 0,
+  STABILIZE_MODE = 1,
 };
 
 // 陀螺仪量程只能启用一项，单位 deg/s。

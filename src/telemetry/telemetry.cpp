@@ -38,7 +38,7 @@ void telemetry() // 主机数传
   configuration_tele[4] = att_F[0] - att_D[0];
   configuration_tele[5] = att_G[0] - att_E[0];
 
-  attitude_tele[0] = rollControlOutput.equivalentRoll;
+  attitude_tele[0] = rollControlOutput.equivalentRollAngleDeg;
   attitude_tele[1] = att[1];
 
   //  float anglerand = random(-200000, 200001) / 1000.0;  // 范围 -200.000 ~

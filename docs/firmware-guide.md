@@ -14,7 +14,7 @@
 | 奇偶构型 | `aircraftCount() % 2` | 从编译期数量计算 |
 | IMU 路径 | `INTIMU` | 使用本机 IMU |
 | 接收机 | `USE_SBUS_RX` | 使用 SBUS 接收机 |
-| 俯仰控制 | SD 参数 `pitch_controller` | 0 PID、1 INDI，默认 1，两种增稳均适用 |
+| 俯仰控制 | SD 参数 `pitch_controller` | 0 PID、1 INDI，默认 1，增稳模式适用 |
 | 机型配置 | `expensive` | 启用贵飞机专用限幅和启动逻辑 |
 
 同一数量及硬件/算法配置下，各节点共用同一个固件，通过 USB 设置身份并重启。数量使用编译宏，不在参数页出现；单机将 `COFLY_AIRCRAFT_COUNT` 设为 1 后重新构建，设置 `aircraft_id=1`。已保存增益保留，切换后应确认调参。存储声明与校验见 [统一参数与持久存储](parameter-storage.md)。
@@ -85,7 +85,7 @@ A 机在主分配中完成本机交联和子机指令生成；B～G 在从分配
 
 本地升降舵计算、副翼补偿和阻尼在控制/mixer 阶段完成，手动与前馈贡献在融合前明确归属。INDI 物理 PWM 标定输出在 mixer 中适配回逻辑方向，最终转换只恢复一次 rev/trim。`ActuatorOutput[2]` 表示最终本地升降舵 PWM；输出数组按副翼1、副翼2、升降舵、油门、方向舵排列，日志读取实际写出的值。
 
-`pitch_controller` 为本机 SD 整数参数，0 选择 PID、1 选择 INDI，默认 1，下一周期生效，适用于有积分和无积分两种增稳。手动不运行闭环；控制流程保留原有三种模式与通信行为，未增加失效切换或输出覆盖策略，具体边界见 [控制架构](control-architecture.md)。
+`pitch_controller` 为本机 SD 整数参数，0 选择 PID、1 选择 INDI，默认 1，下一周期生效，适用于增稳模式。手动不运行闭环；积分独立由本机 SD 整数参数 `integralControlEnabled` 控制（0 关闭、1 开启，默认 1），修改后下一周期生效。控制流程仅保留手动和增稳两种模式，通信编码为 0 手动、1 增稳，未增加失效切换或输出覆盖策略，具体边界见 [控制架构](control-architecture.md)。
 
 ## 执行器锁定与限幅
 
@@ -159,8 +159,9 @@ pio device monitor
 当前主要控制模式为：
 
 - `MANUAL_MODE`：执行手动命令，构型 PID 清零。
-- `STABLIZE_MODE_NO_I`：串级姿态增稳，不启用积分。
-- `STABILIZE_MODE`：串级姿态增稳并启用积分；当前配置还会启用俯仰 INDI。
+
+
+- `STABILIZE_MODE`：串级姿态增稳，积分由参数 `integralControlEnabled` 控制，俯仰算法由 `pitch_controller` 选择。CH5 大于 0 时为手动，其余位置为增稳。
 
 ## 主要硬件接口
 
@@ -202,7 +203,7 @@ SD 飞行日志可使用 [Python 飞行数据浏览器](../tools/flight_data_bro
 
 功能、接口、性能和安全需求见 [需求说明](requirements.md)。提交控制代码前至少应执行一次完整 PlatformIO 构建；涉及真实硬件的变更还应完成拆桨地面测试和相应飞行试验记录。
 
-日志遥控输入列为 `RC_CH1`～`RC_CH8`，记录控制使用的 `radio_channelN_normalized`，统一范围 [-1,1]、保留六位小数；不再保存遥控原始 PWM。油门最低/失联值为 -1。单机和多机日志采用相同遥控列名，执行器 PWM 列沿用各自物理/控制单位。
+所有飞机统一调用 `logFlightData()`，以 50 Hz 写入同一 CSV 格式。字段顺序为：时间（`current_time`，微秒；`dt`，秒）、本机传感器发布值与滤波值、八路归一化遥控指令、`ActuatorOutput[0..4]`、模式变量、`targets` 全部字段、各控制器输出（不记录 `pitchIndiControlOutput.diagnostics`）。列名直接使用代码中的完整变量/成员名和数组索引，不附加旧别名或单位后缀；浮点值保留六位小数，模式枚举和布尔值按整数记录。遥控输入列为 `radio_channel1_normalized`～`radio_channel8_normalized`，范围 [-1,1]；油门最低/失联值为 -1。不记录相邻机传感器状态，单机与编队不再分支选择表头。
 
 
 ## 统一惯性测量接口
@@ -211,6 +212,6 @@ SD 飞行日志可使用 [Python 飞行数据浏览器](../tools/flight_data_bro
 
 主循环调用 `updateInertialSensors()`，按外置优先、否则当前 BMI088 路径进行采样和姿态估计，发布统一测量后计算角加速度。控制、日志、诊断、地面站和机间通信使用统一数组，具体型号的采样变量仅在 `sensors` 内部使用。
 
-机间角速度为 `ang_vel_B[3]` 至 `ang_vel_G[3]`；现有协议仅传输滚转角速度，接收端只更新 `[0]`，`[1]`/`[2]` 保持 0，不能视为有效测量。协议包布局保持不变。SD 日志列名使用 `ang_vel[i]`、`ang_acc[i]`、`acc[i]` 和 `quat[i]`；编队日志合并了原内置/外置重复列，仅记录选定数据源。
+机间角速度为 `ang_vel_B[3]` 至 `ang_vel_G[3]`；现有协议仅传输滚转角速度，接收端只更新 `[0]`，`[1]`/`[2]` 保持 0，不能视为有效测量。协议包布局保持不变。SD 日志列名使用 `ang_vel[i]`、`ang_acc[i]`、`acc[i]` 和 `quat[i]`；所有飞机使用统一日志格式，仅记录本机选定数据源及统一滤波结果。
 
-五路应变测量统一通过 `strain_value[5]`（`int32_t` 数组）读取，索引 0～4 对应传感器通道 1～5；保持原报文解析和数值单位。SD 日志中的姿态和应变列分别使用 `att[i](deg)`、`strain_value[i]`。
+五路应变测量统一通过 `strain_value[5]`（`int32_t` 数组）读取，索引 0～4 对应传感器通道 1～5；保持原报文解析和数值单位。SD 日志中的姿态和应变列分别使用 `att[i]`、`strain_value[i]`。

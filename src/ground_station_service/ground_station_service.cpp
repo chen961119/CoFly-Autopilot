@@ -123,8 +123,7 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     return;
   }
   if (!strcmp(tokens[1], "DATA") && count == 3) {
-    const char *mode = currentMode == MANUAL_MODE ? "MANUAL" :
-      currentMode == STABLIZE_MODE_NO_I ? "STABILIZE_NO_I" : "STABILIZE";
+    const char *mode = currentFlightMode == MANUAL_MODE ? "MANUAL" : "STABILIZE";
     // Snapshot existing measurements only. No invented ground speed/altitude.
     float relativeRoll = 0;
     const bool relativeValid = localWingRelativeAngle(relativeRoll);

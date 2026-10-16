@@ -90,14 +90,13 @@ void loop() {
   // getpinvBplusmini();
   receiveSensorData();
   runControlCycle();
-  convertControlCommandsToPWM(commands);
+  convertControlCommandsToPWM();
   prepareActuatorCommands();
   applyAndTransmitActuatorCommands();
   printActuatorOutput(actuatorOutputDebugSetting());
   printControlMode(controlModeDebugSetting());
 
-  if (aircraftIsSingle()) loggerSINGLE();
-  else loggerTEAM();
+  logFlightData();
 
   getCommands(); // 接收值供下一周期控制使用，避免周期中途改变控制输入。
   updateRadioNormalized();

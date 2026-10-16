@@ -5,5 +5,5 @@ void initializeLogger();
 bool loggerSdReady();
 void flushLogger();
 unsigned int loggerFileNumber();
-void loggerSINGLE();
-void loggerTEAM();
+// 所有飞机共用固定 CSV 字段及顺序，按日志频率记录本机状态。
+void logFlightData();

@@ -31,9 +31,9 @@ B～G：原机间协议 → 从目标 → 从控制 → 从分配 → 从指令-
 
 `generateSlaveCommand()` 在主分配之后初始化本周期从机俯仰目标，再叠加当前滚转和构型输出对应的策略修正。它同时整理从机作动器贡献并组装发送命令，不使用上一周期的输出。
 
-滚转 PID、俯仰 PID、偏航 PID、构型控制、俯仰 INDI、手动直通和滚转阻尼分别封装为独立类（`src/control/*_controller.h/.cpp`）。积分、指令滤波和 INDI 延迟队列由对应对象保存，`controller_instances.cpp` 持有每块飞控的一套实例，旧 `control_state.h/.cpp` 已删除，模式状态统一由 `control_modes.h/.cpp` 持有；六路构型测量由 `configurationControlOutput` 发布，刹车偏移由 mixer 根据全局 `brake` 直接计算。主机运行整体滚转、偏航、构型及本机俯仰；从机只运行本机俯仰。入口按参数只运行选中的俯仰算法，INDI 模式不再计算未使用的俯仰 PID。PID 的输出沿用原归一化控制尺度，没有把原 PID 增益重解释为加速度增益；INDI 的运动目标明确为角加速度（deg/s²），其增量求解、限幅、滤波、PWM 标定和舵机估计均在 INDI 的 update 阶段运行。
+滚转 PID、俯仰 PID、偏航 PID、构型控制、俯仰 INDI、手动直通和滚转阻尼分别封装为独立类（`src/control/*_controller.h/.cpp`）。积分、指令滤波和 INDI 延迟队列由对应对象保存，`controller_instances.cpp` 持有每块飞控的一套实例，旧 `control_state.h/.cpp` 已删除，模式状态统一由 `control_modes.h/.cpp` 持有；六路构型测量由 `configurationControlOutput` 发布，刹车偏移由 mixer 根据全局 `brakeEnabled` 直接计算。主机运行整体滚转、偏航、构型及本机俯仰；从机只运行本机俯仰。入口按参数只运行选中的俯仰算法，INDI 模式不再计算未使用的俯仰 PID。PID 的输出沿用原归一化控制尺度，没有把原 PID 增益重解释为加速度增益；INDI 的运动目标明确为角加速度（deg/s²），其增量求解、限幅、滤波、PWM 标定和舵机估计均在 INDI 的 update 阶段运行。
 
-`prepareControlMode()` 在各机读取本地 `pitch_controller` 参数并更新全局 `pitchController`；仅主机读取遥控通道更新模式、策略、构型系数和刹车。积分门控、PID/INDI 切换重置和模式显示均在 `runMasterController()` / `runSlaveController()` 内按当前模式准备；INDI 使用当前全局俯仰目标重置。构型积分仍只门控，不因模式切换清零。
+`prepareControlMode()` 在各机读取本地 `pitch_controller` 参数并更新全局 `activePitchController`；仅主机读取遥控通道更新模式、策略、构型系数和刹车。积分门控、PID/INDI 切换重置和模式显示均在 `runMasterController()` / `runSlaveController()` 内按当前模式准备；INDI 使用当前全局俯仰目标重置。构型积分仍只门控，不因模式切换清零。
 
 ## 归一化与融合
 
@@ -51,7 +51,7 @@ INDI 原实现使用实测物理 PWM 标定；分配返回时扣除本机中位/
 
 ## 模式和俯仰参数
 
-支持原有的手动、有积分增稳、无积分增稳三种模式。两种增稳均由本机 SD 整数参数 `pitch_controller` 选择俯仰算法：0 为 PID，1 为 INDI，默认 1。各机独立配置，修改成功后下一控制周期使用，并通过现有参数保存机制持久化；不增加机间算法选择字段。
+仅支持手动和增稳两种模式（通信编码为 0 手动、1 增稳）。积分由本机 SD 整数参数 `integralControlEnabled` 独立控制：0 关闭并清除历史，1 开启，默认 1，修改后下一周期生效。增稳模式由本机 SD 整数参数 `pitch_controller` 选择俯仰算法：0 为 PID，1 为 INDI，默认 1。各机独立配置，修改成功后下一控制周期使用，并通过现有参数保存机制持久化；不增加机间算法选择字段。
 
 主机参考仍由遥控通道 5 选择模式。从机通过命令的 `mode` 准备当前控制模式。手动不运行闭环。
 
@@ -71,7 +71,7 @@ A～G 原始分配结果直接写入全局 `ControlCycleOutput commands`，主�
 
 控制周期结果统一保存在全局 `ControlCycleOutput commands`，`runControlCycle()` 每周期更新该对象。执行器转换消费纯作动器结果，机间打包读取独立的 `slaveCommands[]`。最终五路物理 PWM 由 `ActuatorOutput[5]` 保存，索引 0～4 为副翼1、副翼2、升降舵、油门、方向舵；上电安全输出、锁定和限幅路径均更新该数组。执行器日志仅记录这些最终值（含 trim），删除从机逻辑输出列及 INDI 中间 PWM 指令列。
 
-`ControlTargets` 仅包含控制目标字段，模式、混控策略和刹车开关不在目标结构体内。控制器直接读取可修改的全局 `targets`、`slaveTargets[]`；从机的上级贡献独立保存在 `slaveCommand` 中，接收时同时发布 `currentMode` 和本机俯仰参考。通信目录的收发、配置和转发函数本次未修改。
+`ControlTargets` 仅包含控制目标字段，模式、混控策略和刹车开关不在目标结构体内。控制器直接读取可修改的全局 `targets`、`slaveTargets[]`；从机的上级贡献独立保存在 `slaveCommand` 中，接收时同时发布 `currentFlightMode` 和本机俯仰参考。通信目录的收发、配置和转发函数本次未修改。
 
 `mixMasterCommands()`、`mixSlaveCommands()`、`fuseSlaveCommands()` 均无参数、无返回值，直接更新全局分配结果。主 mixer 将原始分配写入 `commands` 后原位更新本机最终结果；`generateSlaveCommand()` 先使用从机原始副翼值计算手动升降舵交联，再原位执行副翼缩放和刹车叠加，最后组装 `slaveCommands[]`。
 
@@ -81,9 +81,9 @@ A～G 原始分配结果直接写入全局 `ControlCycleOutput commands`，主�
 
 `mixLegacyMaster()` 直接更新 `commands.local/slaves[]`，没有原始分配数组参数或返回值。`commands` 每周期先清零，避免未使用槽位或切换策略后残留旧贡献。
 
-`control/control_output.h/.cpp` 分别持有全局 `rollControlOutput`、`pitchPidControlOutput` / `pitchIndiControlOutput`、`yawControlOutput`、`throttleControlOutput`、`configurationControlOutput`，不再使用汇总输出结构。俯仰 PID 和 INDI 分别持有独立结果，INDI 结果包含其日志诊断；滚转结果包含输出、滤波量和等效滚转；构型结果包含六路输出、误差、角度和角速度。每周期重置结果，各控制器对象仍保留积分和滤波历史。主从控制入口读取全局 `lastMode`、`lastPitchController` 检测切换，不再写入历史变量。主从机均在统一模式准备入口保存旧模式和旧俯仰算法，再分别读取遥控或接收命令，并计算切换状态。
+`control/control_output.h/.cpp` 分别持有全局 `rollControlOutput`、`pitchPidControlOutput` / `pitchIndiControlOutput`、`yawControlOutput`、`throttleControlOutput`、`configurationControlOutput`，不再使用汇总输出结构。俯仰 PID 和 INDI 分别持有独立结果，INDI 结果包含其日志诊断；滚转结果包含输出、滤波量和等效滚转；构型结果包含六路输出、误差、角度和角速度。每周期重置结果，各控制器对象仍保留积分和滤波历史。主从控制入口读取全局 `previousFlightMode`、`previousPitchController` 检测切换，不再写入历史变量。主从机均在统一模式准备入口保存旧模式和旧俯仰算法，再分别读取遥控或接收命令，并计算切换状态。
 
-滚转阻尼在主机 `runMasterController()` 和从机 `mixSlaveCommands()` 中调用 `controlControllers().rollDamping.update()` 计算，每周期执行一次，结果存入 `rollDampingControlOutput.command`，保留原整数微秒尺度。主从 mixer 直接读取该结果，旧阻尼标量与入口已删除。俯仰 PID 输出为 `pitchPidControlOutput.command`，INDI 运动结果与诊断为 `pitchIndiControlOutput`，不再有共同的俯仰输出包装结构。`pitchController` 由模式准备阶段更新，手动分配直接使用手动俯仰输出；主从控制器仅在增稳模式按选择运行 PID 或 INDI。
+滚转阻尼在主机 `runMasterController()` 和从机 `mixSlaveCommands()` 中调用 `controlControllers().rollDamping.update()` 计算，每周期执行一次，结果存入 `rollDampingControlOutput.dampingCommand`，使用浮点归一化指令（1 对应 1000 us 的逻辑控制偏移）。原 125 倍微秒换算合并为 0.125 倍归一化换算，不再进行整数截断；主从 mixer 直接叠加该结果，旧阻尼标量与入口已删除。俯仰 PID 输出为 `pitchPidControlOutput.pidOutput`，INDI 运动结果与诊断为 `pitchIndiControlOutput`，不再有共同的俯仰输出包装结构。`activePitchController` 由模式准备阶段更新，手动分配直接使用手动俯仰输出；主从控制器仅在增稳模式按选择运行 PID 或 INDI。
 
 从机分配每周期重建 `commands.local` 的本机贡献，再由无参 `fuseSlaveCommands()` 把 `slaveCommand.masterContribution` 的五路值各叠加一次。手动升降舵使用上级完整贡献，增稳升降舵使用本机闭环加上级前馈，保持原有尺度与交联公式。
 

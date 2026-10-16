@@ -1,4 +1,5 @@
 #include "control/pitch_indi_controller.h"
+#include "math/math_constants.h"
 #include "control/control_output.h"
 #include "parameters/control_parameters.h"
 #include "system/flight_clock.h"
@@ -25,13 +26,13 @@ void PitchIndiController::update(float pitchTarget, bool enabled) {
   if (fabsf(indi_pitch_pwm_to_deg_k) < 1.0e-6f ||
       fabsf(indi_pitch_effectiveness) < 1.0e-6f)
   {
-    pitchIndiControlOutput.diagnostics.desiredRate = 0.0f;
-    pitchIndiControlOutput.diagnostics.filteredRate = 0.0f;
-    pitchIndiControlOutput.diagnostics.desiredAcceleration = 0.0f;
-    pitchIndiControlOutput.diagnostics.usedAcceleration = ang_acc[1];
-    pitchIndiControlOutput.diagnostics.commandedDeflection = 0.0f;
-    pitchIndiControlOutput.diagnostics.estimatedDeflection = eleprev;
-    pitchIndiControlOutput.pwm = constrain((int)(PWM_CENTER_US + pwm_channel3_trim), (int)indi_pitch_pwm_min,
+    pitchIndiControlOutput.diagnostics.desiredRateDegPerSec = 0.0f;
+    pitchIndiControlOutput.diagnostics.filteredRateDegPerSec = 0.0f;
+    pitchIndiControlOutput.diagnostics.desiredAngularAccelerationDegPerSec2 = 0.0f;
+    pitchIndiControlOutput.diagnostics.measuredAngularAccelerationDegPerSec2 = ang_acc[1];
+    pitchIndiControlOutput.diagnostics.commandedElevatorDeflectionDeg = 0.0f;
+    pitchIndiControlOutput.diagnostics.estimatedElevatorDeflectionDeg = eleprev;
+    pitchIndiControlOutput.elevatorPwmUs = constrain((int)(PWM_CENTER_US + pwm_channel3_trim), (int)indi_pitch_pwm_min,
         (int)indi_pitch_pwm_max);
     return;
   }
@@ -73,7 +74,7 @@ void PitchIndiController::update(float pitchTarget, bool enabled) {
   else if (pitch_des_local_rate_lpf_fc > 0.0f && dt > 1.0e-6f)
   {
     float tau_pitch_des_rate =
-    1.0f / (6.28318530718f * pitch_des_local_rate_lpf_fc);
+    1.0f / ((2 * PI) * pitch_des_local_rate_lpf_fc);
     float alpha_pitch_des_rate = dt / (tau_pitch_des_rate + dt);
     pitch_des_local_rate = pitch_des_local_rate +
     alpha_pitch_des_rate * (pitch_des_local_rate_raw -
@@ -89,10 +90,10 @@ void PitchIndiController::update(float pitchTarget, bool enabled) {
       gyroFiltZIndi.apply(ang_vel[2])) /cos(att[0] / 57.3);
   q_des_deg_s = constrain(q_des_deg_s, -120, 120);
   float dq_des_deg_s2 = indi_pitch_q_gain * (q_des_deg_s - GyroY_filt);
-  pitchIndiControlOutput.acceleration = dq_des_deg_s2;
-  pitchIndiControlOutput.rate = q_des_deg_s;
-  pitchIndiControlOutput.measuredRate = GyroY_filt;
-  pitchIndiControlOutput.valid = true;
+  pitchIndiControlOutput.desiredAngularAccelerationDegPerSec2 = dq_des_deg_s2;
+  pitchIndiControlOutput.desiredRateDegPerSec = q_des_deg_s;
+  pitchIndiControlOutput.filteredRateDegPerSec = GyroY_filt;
+  pitchIndiControlOutput.isValid = true;
   // 原增量控制律，随后进行变化率/舵偏限幅及指令滤波。
   float delta_e_indi_deg =
   0.7f * (dq_des_deg_s2 - ang_acc[1]) / indi_pitch_effectiveness;
@@ -105,7 +106,7 @@ void PitchIndiController::update(float pitchTarget, bool enabled) {
       indi_pitch_defl_max);
   if (indi_pitch_cmd_lpf_fc_hz > 0.0f && dt > 1.0e-6f)
   {
-    float tau_cmd = 1.0f / (6.28318530718f * indi_pitch_cmd_lpf_fc_hz);
+    float tau_cmd = 1.0f / ((2 * PI) * indi_pitch_cmd_lpf_fc_hz);
     float alpha_cmd = dt / (tau_cmd + dt);
     delta_e_cmd_deg = delta_e_cmd_lpf_prev_deg +
     alpha_cmd * (delta_e_cmd_deg - delta_e_cmd_lpf_prev_deg);
@@ -145,11 +146,11 @@ void PitchIndiController::update(float pitchTarget, bool enabled) {
     delta_e_est_deg += alpha_servo * (delta_e_delayed_deg - delta_e_est_deg);
   }
   eleprev = delta_e_est_deg;
-  pitchIndiControlOutput.diagnostics.desiredRate = q_des_deg_s;
-  pitchIndiControlOutput.diagnostics.filteredRate = GyroY_filt;
-  pitchIndiControlOutput.diagnostics.desiredAcceleration = dq_des_deg_s2;
-  pitchIndiControlOutput.diagnostics.usedAcceleration = ang_acc[1];
-  pitchIndiControlOutput.diagnostics.commandedDeflection = delta_e_cmd_deg;
-  pitchIndiControlOutput.diagnostics.estimatedDeflection = delta_e_est_deg;
-  pitchIndiControlOutput.pwm = (int)(pwm_cmd + 0.5f);
+  pitchIndiControlOutput.diagnostics.desiredRateDegPerSec = q_des_deg_s;
+  pitchIndiControlOutput.diagnostics.filteredRateDegPerSec = GyroY_filt;
+  pitchIndiControlOutput.diagnostics.desiredAngularAccelerationDegPerSec2 = dq_des_deg_s2;
+  pitchIndiControlOutput.diagnostics.measuredAngularAccelerationDegPerSec2 = ang_acc[1];
+  pitchIndiControlOutput.diagnostics.commandedElevatorDeflectionDeg = delta_e_cmd_deg;
+  pitchIndiControlOutput.diagnostics.estimatedElevatorDeflectionDeg = delta_e_est_deg;
+  pitchIndiControlOutput.elevatorPwmUs = (int)(pwm_cmd + 0.5f);
 }

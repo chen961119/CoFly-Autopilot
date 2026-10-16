@@ -5,20 +5,20 @@
 #include "sensors/sensor_processing.h"
 using namespace ControlParameters;
 
-void PitchPidController::prepare(bool integralEnabled, bool changed) {
-  i_valid = integralEnabled ? 1.0f : 0.0f;
-  ModeChange = changed;
-  if (changed) {
+void PitchPidController::prepare(bool integralControlEnabled, bool controlModeChanged) {
+  i_valid = integralControlEnabled ? 1.0f : 0.0f;
+  ModeChange = controlModeChanged;
+  if (controlModeChanged || !integralControlEnabled) {
     integral_pitch_prev_ol = 0;
     integral_pitch_prev_il = 0;
   }
 }
 void PitchPidController::update(float pitchTarget, bool enabled) {
-  pitchPidControlOutput.command = 0;
+  pitchPidControlOutput.pidOutput = 0;
   if (!enabled) return;
   float pitch_des_ol;
   error_pitch = pitchTarget - att[1];
-  integral_pitch_ol = integral_pitch_prev_ol + error_pitch * dt;
+  integral_pitch_ol = i_valid > 0.0f ? integral_pitch_prev_ol + error_pitch * dt : 0.0f;
   integral_pitch_ol =
   constrain(integral_pitch_ol, -i_limit,
       i_limit);
@@ -36,7 +36,7 @@ void PitchPidController::update(float pitchTarget, bool enabled) {
   pitch_des_ol = constrain(pitch_des_ol, -240.0, 240.0);
   pitch_des_ol = (1.0 - B_loop_pitch) * pitch_des_prev + B_loop_pitch * pitch_des_ol;
   error_pitch = pitch_des_ol - ang_vel_filtered[1];
-  integral_pitch_il = integral_pitch_prev_il + error_pitch * dt;
+  integral_pitch_il = i_valid > 0.0f ? integral_pitch_prev_il + error_pitch * dt : 0.0f;
   integral_pitch_il =
   constrain(integral_pitch_il, -i_limit,
       i_limit);
@@ -56,5 +56,5 @@ void PitchPidController::update(float pitchTarget, bool enabled) {
   error_pitch_prev = error_pitch;
   previous_pitch_att = att[1];
   pitch_des_prev = pitch_des_ol;
-  pitchPidControlOutput.command = pitch_PID;
+  pitchPidControlOutput.pidOutput = pitch_PID;
 }

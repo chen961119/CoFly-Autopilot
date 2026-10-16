@@ -3,6 +3,7 @@
 #include "sensors/sensor_processing.h"
 #include "sensors/imu_internal.h"
 #include "math/math_utils.h"
+#include "math/math_constants.h"
 #include "system/flight_clock.h"
 
 namespace {

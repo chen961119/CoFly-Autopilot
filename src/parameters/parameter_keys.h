@@ -3,6 +3,7 @@
 
 // Internal lookup keys, never written to SD or EEPROM.
 namespace ParameterKey {
+constexpr uint16_t IntegralControlEnabled = 60;
 constexpr uint16_t AircraftId = 1001;
 constexpr uint16_t ImuAccErrorX6050 = 1101;
 constexpr uint16_t ImuAccErrorY6050 = 1102;

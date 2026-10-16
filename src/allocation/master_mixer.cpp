@@ -9,19 +9,19 @@
 static void mixLegacyMaster()
 {
 
-  const bool manual = currentMode == MANUAL_MODE;
-  const float roll_PID = manual ? manualControlOutput.roll : rollControlOutput.command;
-  const float pitch_PID = manual ? manualControlOutput.pitch : pitchPidControlOutput.command;
-  const float yaw_PID = manual ? manualControlOutput.yaw : yawControlOutput.command;
-  const float throttleCommand = manual ? manualControlOutput.throttle : throttleControlOutput.command;
-  const float roll_PID_lpf = rollControlOutput.filteredCommand;
-  const float roll_PID_dot_lpf = rollControlOutput.filteredDerivative;
-  const float Phiab_PID = configurationControlOutput.commands[0], Phiac_PID = configurationControlOutput.commands[1];
-  const float Phibd_PID = configurationControlOutput.commands[2], Phice_PID = configurationControlOutput.commands[3];
-  const float Phidf_PID = configurationControlOutput.commands[4], Phieg_PID = configurationControlOutput.commands[5];
-  const float error_Phiab = configurationControlOutput.errors[0], error_Phiac = configurationControlOutput.errors[1];
-  const float error_Phibd = configurationControlOutput.errors[2], error_Phice = configurationControlOutput.errors[3];
-  const float error_Phidf = configurationControlOutput.errors[4], error_Phieg = configurationControlOutput.errors[5];
+  const bool manual = currentFlightMode == MANUAL_MODE;
+  const float roll_PID = manual ? manualControlOutput.rollCommand : rollControlOutput.pidOutput;
+  const float pitch_PID = manual ? manualControlOutput.pitchCommand : pitchPidControlOutput.pidOutput;
+  const float yaw_PID = manual ? manualControlOutput.yawCommand : yawControlOutput.pidOutput;
+  const float throttleCommand = manual ? manualControlOutput.throttleCommand : throttleControlOutput.throttleCommand;
+  const float roll_PID_lpf = rollControlOutput.filteredPidOutput;
+  const float roll_PID_dot_lpf = rollControlOutput.filteredPidOutputDerivative;
+  const float Phiab_PID = configurationControlOutput.pidOutputs[0], Phiac_PID = configurationControlOutput.pidOutputs[1];
+  const float Phibd_PID = configurationControlOutput.pidOutputs[2], Phice_PID = configurationControlOutput.pidOutputs[3];
+  const float Phidf_PID = configurationControlOutput.pidOutputs[4], Phieg_PID = configurationControlOutput.pidOutputs[5];
+  const float error_Phiab = configurationControlOutput.angleErrorsDeg[0], error_Phiac = configurationControlOutput.angleErrorsDeg[1];
+  const float error_Phibd = configurationControlOutput.angleErrorsDeg[2], error_Phice = configurationControlOutput.angleErrorsDeg[3];
+  const float error_Phidf = configurationControlOutput.angleErrorsDeg[4], error_Phieg = configurationControlOutput.angleErrorsDeg[5];
   // 按单机或编队构型，将姿态控制量分配到各机舵面和油门。
   // 手动模式直接使用归一化遥控指令；舵机归一化中位为 0.5，油门范围为 0～1。
 
@@ -44,7 +44,7 @@ static void mixLegacyMaster()
     //策略1
 
     float coeroll=1.0;
-    if (mixerStrategy > 0.2f)
+    if (mixerStrategyCommand > 0.2f)
     {
     commands.slaves[0].aileron1 = 0.81*roll_PID+0.5*Phiab_PID;
     commands.slaves[0].aileron2 = 0.41*roll_PID-0.5*Phiab_PID;
@@ -59,7 +59,7 @@ static void mixLegacyMaster()
     commands.local.throttle = throttleCommand-0.8*yaw_PID;
     commands.local.rudder = yaw_PID;
     }
-    else if(mixerStrategy < 0.2f&&mixerStrategy > -0.2f)
+    else if(mixerStrategyCommand < 0.2f&&mixerStrategyCommand > -0.2f)
     {
 
     //策略2
@@ -124,7 +124,7 @@ static void mixLegacyMaster()
       coeac = 1.0;
 
       // 策略1
-      if (mixerStrategy > 0.2f)
+      if (mixerStrategyCommand > 0.2f)
       {
         commands.slaves[0].aileron1 =
             1.016 * roll_PID + coeab * 1 * Phiab_PID - coeac * 0.68 * Phiac_PID;
@@ -152,7 +152,7 @@ static void mixLegacyMaster()
       }
       // 策略2
 
-      else if (mixerStrategy < 0.2f && mixerStrategy > -0.2f)
+      else if (mixerStrategyCommand < 0.2f && mixerStrategyCommand > -0.2f)
       {
         coeroll = 0.2;
         commands.slaves[0].aileron1 = 1.016 * coeroll * roll_PID + coeab * 0.864 * Phiab_PID -
@@ -255,7 +255,7 @@ static void mixLegacyMaster()
       }
 
       // 策略1
-      if (mixerStrategy > 0.2f)
+      if (mixerStrategyCommand > 0.2f)
       {
         commands.slaves[2].aileron1 = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
                         0.53 * coeac * Phiac_PID + 1.0 * coebd * Phibd_PID;
@@ -293,7 +293,7 @@ static void mixLegacyMaster()
 
       // 策略2
 
-      else if (mixerStrategy < 0.2f && mixerStrategy > -0.2f)
+      else if (mixerStrategyCommand < 0.2f && mixerStrategyCommand > -0.2f)
       {
         coeroll = 0.3;
         commands.slaves[2].aileron1 = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
@@ -468,7 +468,7 @@ static void mixLegacyMaster()
 
 
       /*
-       else if (mixerStrategy < 0.2f && mixerStrategy > -0.2f) {
+       else if (mixerStrategyCommand < 0.2f && mixerStrategyCommand > -0.2f) {
          //策略2
          coeroll = 0.5;
          commands.slaves[2].aileron1 = 1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID - 0.72 *
@@ -718,14 +718,14 @@ void mixMasterCommands() {
   ActuatorCommand result;
 
   mixLegacyMaster();
-  const float brake = ::brake ? 0.1f : 0.0f;
-  result.aileron1 = commands.local.aileron1 * 0.4f + brake;
-  result.aileron2 = commands.local.aileron2 * 0.4f + brake;
+  const float brakeOffset = ::brakeEnabled ? 0.1f : 0.0f;
+  result.aileron1 = commands.local.aileron1 * 0.4f + brakeOffset;
+  result.aileron2 = commands.local.aileron2 * 0.4f + brakeOffset;
   result.throttle = commands.local.throttle;
   result.rudder = commands.local.rudder;
   result.elevator = allocatePitchCommand();
   // 主机交联属于主分配；输出转换层不再叠加。
-  const float compensation = result.elevator / 15.0f + rollDampingControlOutput.command / 1000.0f;
+  const float compensation = result.elevator / 15.0f + rollDampingControlOutput.dampingCommand;
   result.aileron1 += compensation;
   result.aileron2 += compensation;
 

@@ -4,23 +4,25 @@
 #include "control/controller_instances.h"
 #include "control/control_modes.h"
 #include "config/aircraft_config.h"
+#include "parameters/control_parameters.h"
 
 void runMasterController()
 {
   auto &controllers = controlControllers();
+  const bool integralEnabled = ControlParameters::integralControlEnabled != 0;
   controllers.rollDamping.update();
-  controllers.roll.prepare(integralEnabled, changed);
-  controllers.yaw.prepare(integralEnabled, changed);
+  controllers.roll.prepare(integralEnabled, controlModeChanged);
+  controllers.yaw.prepare(integralEnabled, controlModeChanged);
   controllers.configuration.prepare(integralEnabled);
-  controllers.pitchPid.prepare(integralEnabled, changed);
-  if (changed) controllers.pitchIndi.reset(targetPitchDegrees());
+  controllers.pitchPid.prepare(integralEnabled, controlModeChanged);
+  if (controlModeChanged) controllers.pitchIndi.reset(targetPitchDegrees());
 
-  const bool stabilized = isStabilizedMode(currentMode);
+  const bool stabilized = isStabilizedMode(currentFlightMode);
   controllers.roll.update(targets.roll, stabilized);
   controllers.yaw.update(targets.yaw, targets.roll, 0.0f, stabilized);
   controllers.throttle.update(targets.throttle);
-  controllers.pitchPid.update(targets.pitch, stabilized && pitchController == PitchController::PID);
-  controllers.pitchIndi.update(targets.pitch, stabilized && pitchController == PitchController::INDI);
+  controllers.pitchPid.update(targets.pitch, stabilized && activePitchController == PitchController::PID);
+  controllers.pitchIndi.update(targets.pitch, stabilized && activePitchController == PitchController::INDI);
   controllers.manual.update(targets);
   controllers.configuration.update(targets.configuration);
 }

@@ -1,7 +1,7 @@
 """Versioned USB ground station replies. Parameter framing is shared."""
 import math
 
-MODES = {"MANUAL": "手动", "STABILIZE_NO_I": "增稳（无积分）", "STABILIZE": "增稳"}
+MODES = {"MANUAL": "手动", "STABILIZE": "增稳"}
 NUMERIC = ("ms", "roll", "pitch", "yaw", "gx", "gy", "gz", "ax", "ay", "az",
            "airspeed", "angle", "angle_valid", "locked", "rc1", "rc2", "rc3", "rc4", "rc5", "rc6")
 

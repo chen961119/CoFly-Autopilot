@@ -1,15 +1,14 @@
 #include "parameters/control_parameters.h"
 #include "config/aircraft_config.h"
-#include "config/serial_config.h"
 #include "actuators/actuator_output.h"
 #include "control/control_modes.h"
 #include "control/command_generation.h"
-#include "diagnostics/debug_print.h"
 #include "config/flight_config.h"
 #include "system/flight_lock.h"
 #include "actuators/actuator_pwm_limits.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 #include <Servo.h>
+#include <control/control_pipeline.h>
 
 // 最终物理 PWM（μs），顺序为副翼1、副翼2、升降舵、油门、方向舵。
 float ActuatorOutput[5] = {};
@@ -80,14 +79,13 @@ void commandSafeActuatorPositions()
 }
 
 // 只将融合后的归一化指令转换到本机物理 PWM；分配与交联已完成。
-void convertControlCommandsToPWM(const ControlCycleOutput &cycle)
+void convertControlCommandsToPWM()
 {
-  const ActuatorCommand &local = cycle.local;
-  ActuatorOutput[0] = PWM_CENTER_US + pwm_channel1_trim + pwm_channel1_rev * (1000 * local.aileron1);
-  ActuatorOutput[1] = PWM_CENTER_US + pwm_channel2_trim + pwm_channel2_rev * (1000 * local.aileron2);
-  ActuatorOutput[2] = PWM_CENTER_US + pwm_channel3_trim + pwm_channel3_rev * (1000 * local.elevator);
-  ActuatorOutput[3] = PWM_CENTER_US + pwm_channel4_trim + pwm_channel4_rev * (1000 * local.throttle);
-  ActuatorOutput[4] = PWM_CENTER_US + pwm_channel5_trim + pwm_channel5_rev * (1000 * local.rudder);
+  ActuatorOutput[0] = PWM_CENTER_US + pwm_channel1_trim + pwm_channel1_rev * (1000 * commands.local.aileron1);
+  ActuatorOutput[1] = PWM_CENTER_US + pwm_channel2_trim + pwm_channel2_rev * (1000 * commands.local.aileron2);
+  ActuatorOutput[2] = PWM_CENTER_US + pwm_channel3_trim + pwm_channel3_rev * (1000 * commands.local.elevator);
+  ActuatorOutput[3] = PWM_CENTER_US + pwm_channel4_trim + pwm_channel4_rev * (1000 * commands.local.throttle);
+  ActuatorOutput[4] = PWM_CENTER_US + pwm_channel5_trim + pwm_channel5_rev * (1000 * commands.local.rudder);
 }
 
 // 直接将本周期从机逻辑输出打包，不保留额外中间缓存。

@@ -1,15 +1,16 @@
 #include "radio_comm/radio_comm.h"
 #include "control/control_output.h"
-#include "config/aircraft_config.h"
+#include "control/control_modes.h"
+#include "parameters/control_parameters.h"
 #include "logging/logger.h"
 #include "actuators/actuator_output.h"
 #include "config/serial_config.h"
 #include "control/command_generation.h"
-#include "control/control_allocation.h"
 #include "system/flight_clock.h"
-#include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
 #include <SD.h>
+
+using ControlParameters::integralControlEnabled;
 
 namespace
 {
@@ -120,171 +121,147 @@ unsigned int loggerFileNumber() { return fileNumber; }
 
 namespace
 {
-  void writeLoggerHeader()
-  {
-    if (headerWritten || !dataFile)
-      return;
-    if (aircraftIsSingle())
-    {
-      dataFile.println("TimeStamp(us),quat[0],quat[1],quat[2],quat[3],att[0](deg),att[1](deg),att[2](deg),ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),RC_CH1,RC_CH2,RC_CH3,RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ActuatorOutput[0],ActuatorOutput[1],ActuatorOutput[2],ActuatorOutput[3],ActuatorOutput[4],ang_vel[0],ang_vel[1],ang_vel[2],acc[0],acc[1],acc[2],airspeed_A,ang_acc[0],ang_acc[1],ang_acc[2],indi_pitch_q_des_log,indi_pitch_q_filt_log,indi_pitch_dq_des_log,indi_pitch_dq_used_log,indi_pitch_delta_e_cmd_deg_log,indi_pitch_delta_e_est_deg_log,MT6701_raw(deg),MT6701_relative(deg),MT6701_valid");
-      dataFile.flush();
+  // 表头和数据共用同一份字段清单，避免列名与数值错位。
+  class CsvLogWriter {
+  public:
+    explicit CsvLogWriter(bool header) : header(header) { dataString = ""; }
+
+    template <typename T>
+    void field(const char *name, T value) {
+      if (!first) dataString += ',';
+      first = false;
+      if (header) dataString += name;
+      else appendValue(value);
     }
-    else
-    {
-      dataFile.println(String(
-          "TimeStamp(us),att[0](deg),ROLL_Eq(deg),att[1](deg),att[2](deg),"
-          "ROLL_des(deg),PITCH_des_local(deg),YAW_des(deg),RC_CH1,RC_CH2,RC_CH3,"
-          "RC_CH4,RC_CH5,RC_CH6,RC_CH7,RC_CH8,ActuatorOutput[0],ActuatorOutput[1],ActuatorOutput[2],"
-          "ActuatorOutput[3],ActuatorOutput[4],"
-          ""
-          ""
-          "Pab(deg),Pac(deg),Pbd("
-          "deg),Pce(deg),Pdf(deg),Peg(deg),Phiab_Mea(deg),Phiab_des(deg),"
-          "phiac(deg),phibd(deg),phice(deg),phidf(deg),phieg(deg),Apitchsp,"
-          "Bpitchsp,Cpitchsp,Dpitchsp,Epitchsp,Fpitchsp,Gpitchsp,"
-          "att_B[1],att_C[1],att_D[1],att_E[1],att_F[1],att_G[1],acc[0],acc[1],acc[2],"
-          "ang_vel[0],ang_vel[1],ang_vel[2],phiab_PID,phiac_PID,"
-          "phibd_PID,phice_PID,phidf_PID,phieg_PID,roll_PID,pitch_PID,airspeed_A,"
-          "strain_value[0],strain_value[1],strain_value[2],strain_value[3],strain_value[4],"
-          "AOA,AOS,TAS,ang_acc[0],ang_acc[1],ang_acc[2],INDI_q_des,INDI_q_filt,INDI_dq_des,INDI_dq_used,"
-          "INDI_delta_e_cmd_deg,INDI_delta_e_est_deg,"
-          "MT6701_raw(deg),MT6701_relative(deg),MT6701_valid"));
-      dataFile.flush();
+
+    template <typename T, size_t N>
+    void array(const char *name, const T (&values)[N]) {
+      for (size_t i = 0; i < N; ++i) {
+        if (header) {
+          const String column = String(name) + '[' + String(i) + ']';
+          field(column.c_str(), values[i]);
+        } else {
+          field(nullptr, values[i]);
+        }
+      }
     }
+
+  private:
+    template <typename T>
+    void appendValue(T value) { dataString += String(value); }
+    void appendValue(float value) { dataString += String(value, 6); }
+    void appendValue(PitchController value) { dataString += String(static_cast<int>(value)); }
+
+    bool header;
+    bool first = true;
+  };
+
+  void buildLoggerRecord(bool header) {
+    CsvLogWriter writer(header);
+#define LOG_FIELD(value) writer.field(#value, value)
+#define LOG_ARRAY(value) writer.array(#value, value)
+
+    // 1. 本周期时间戳（us）与循环间隔（s）。
+    LOG_FIELD(current_time);
+    LOG_FIELD(dt);
+
+    // 2. 本机传感器发布值和滤波值；不读取其他飞机的传感器状态。
+    LOG_ARRAY(quat);
+    LOG_ARRAY(att);
+    LOG_ARRAY(ang_vel);
+    LOG_ARRAY(ang_vel_filtered);
+    LOG_ARRAY(ang_acc);
+    LOG_ARRAY(acc);
+    LOG_FIELD(airspeed_A);
+    LOG_ARRAY(strain_value);
+    LOG_FIELD(airdata.aoa);
+    LOG_FIELD(airdata.aos);
+    LOG_FIELD(airdata.tas);
+    LOG_FIELD(airdata.statA);
+    LOG_FIELD(airdata.statS);
+    LOG_FIELD(relativeAngle_raw);
+    LOG_FIELD(relativeAngle_ready);
+    LOG_FIELD(rotateSensorValid());
+
+    // 3. 控制实际使用的八路归一化遥控指令，范围 [-1, 1]。
+    LOG_FIELD(radio_channel1_normalized);
+    LOG_FIELD(radio_channel2_normalized);
+    LOG_FIELD(radio_channel3_normalized);
+    LOG_FIELD(radio_channel4_normalized);
+    LOG_FIELD(radio_channel5_normalized);
+    LOG_FIELD(radio_channel6_normalized);
+    LOG_FIELD(radio_channel7_normalized);
+    LOG_FIELD(radio_channel8_normalized);
+
+    // 4. 本机最终物理 PWM，单位 us。
+    LOG_ARRAY(ActuatorOutput);
+
+    // 5. initializeInitialControlMode() 初始化的全部模式变量。
+    LOG_FIELD(currentFlightMode);
+    LOG_FIELD(previousFlightMode);
+    LOG_FIELD(activePitchController);
+    LOG_FIELD(previousPitchController);
+    LOG_FIELD(mixerStrategyCommand);
+    LOG_FIELD(configurationControlScale);
+    LOG_FIELD(configurationAngleDeg);
+    LOG_FIELD(brakeEnabled);
+    LOG_FIELD(controlModeChanged);
+
+
+    // 6. 直接记录 targets 原值，手动/增稳模式的尺度约定见 ControlTargets。
+    LOG_FIELD(targets.roll);
+    LOG_FIELD(targets.pitch);
+    LOG_FIELD(targets.yaw);
+    LOG_FIELD(targets.throttle);
+    LOG_ARRAY(targets.configuration);
+
+    // 7. 各控制器输出（不记录 INDI diagnostics），顺序与 control_output.h 的声明一致。
+    LOG_FIELD(manualControlOutput.rollCommand);
+    LOG_FIELD(manualControlOutput.pitchCommand);
+    LOG_FIELD(manualControlOutput.yawCommand);
+    LOG_FIELD(manualControlOutput.throttleCommand);
+    LOG_FIELD(rollControlOutput.pidOutput);
+    LOG_FIELD(rollControlOutput.filteredPidOutput);
+    LOG_FIELD(rollControlOutput.filteredPidOutputDerivative);
+    LOG_FIELD(rollControlOutput.equivalentRollAngleDeg);
+    LOG_FIELD(pitchPidControlOutput.pidOutput);
+    LOG_FIELD(pitchIndiControlOutput.desiredAngularAccelerationDegPerSec2);
+    LOG_FIELD(pitchIndiControlOutput.desiredRateDegPerSec);
+    LOG_FIELD(pitchIndiControlOutput.filteredRateDegPerSec);
+    LOG_FIELD(pitchIndiControlOutput.isValid);
+    LOG_FIELD(pitchIndiControlOutput.elevatorPwmUs);
+    LOG_FIELD(rollDampingControlOutput.dampingCommand);
+    LOG_FIELD(yawControlOutput.pidOutput);
+    LOG_FIELD(throttleControlOutput.throttleCommand);
+    LOG_ARRAY(configurationControlOutput.pidOutputs);
+    LOG_ARRAY(configurationControlOutput.angleErrorsDeg);
+    LOG_ARRAY(configurationControlOutput.measuredAnglesDeg);
+    LOG_ARRAY(configurationControlOutput.measuredRatesDegPerSec);
+
+#undef LOG_ARRAY
+#undef LOG_FIELD
+  }
+
+  void writeLoggerHeader() {
+    if (headerWritten || !dataFile) return;
+    buildLoggerRecord(true);
+    dataFile.println(dataString);
+    dataFile.flush();
     headerWritten = true;
   }
 } // namespace
 
-// 单机日志使用本机 IMU、执行器与 INDI 数据，不读取相邻机状态。
-void loggerSINGLE()
-{
-  if (!aircraftIsSingle() || !sdReady || !dataFile)
-    return;
+// 单机、编队和主从角色使用同一日志格式。
+void logFlightData() {
+  if (!sdReady || !dataFile) return;
   const unsigned long now = micros();
-  if (now - lastLogTime < 1000000UL / logfreq)
-    return;
+  if (now - lastLogTime < 1000000UL / logfreq) return;
   lastLogTime = now;
   writeLoggerHeader();
-  dataString =
-      String(current_time) + "," +
-      String(quat[0]) + "," +
-      String(quat[1]) + "," +
-      String(quat[2]) + "," +
-      String(quat[3]) + "," +
-      String(att[0]) + "," +
-      String(att[1]) + "," +
-      String(att[2]) + "," +
-      String(targetRollDegrees()) + "," +
-      String(targetPitchDegrees()) + "," +
-      String(targetYawDegrees()) + "," +
-      String(radio_channel1_normalized, 6) + "," +
-      String(radio_channel2_normalized, 6) + "," +
-      String(radio_channel3_normalized, 6) + "," +
-      String(radio_channel4_normalized, 6) + "," +
-      String(radio_channel5_normalized, 6) + "," +
-      String(radio_channel6_normalized, 6) + "," +
-      String(radio_channel7_normalized, 6) + "," +
-      String(radio_channel8_normalized, 6) + "," +
-      String(ActuatorOutput[0]) + "," +
-      String(ActuatorOutput[1]) + "," +
-      String(ActuatorOutput[2]) + "," +
-      String(ActuatorOutput[3]) + "," +
-      String(ActuatorOutput[4]) + "," +
-      String(ang_vel[0]) + "," +
-      String(ang_vel[1]) + "," +
-      String(ang_vel[2]) + "," +
-      String(acc[0]) + "," +
-      String(acc[1]) + "," +
-      String(acc[2]) + "," +
-      String(airspeed_A) + "," +
-      String(ang_acc[0]) + "," +
-      String(ang_acc[1]) + "," +
-      String(ang_acc[2]) + "," +
-      String(pitchIndiControlOutput.diagnostics.desiredRate) + "," +
-      String(pitchIndiControlOutput.diagnostics.filteredRate) + "," +
-      String(pitchIndiControlOutput.diagnostics.desiredAcceleration) + "," +
-      String(pitchIndiControlOutput.diagnostics.usedAcceleration) + "," +
-      String(pitchIndiControlOutput.diagnostics.commandedDeflection) + "," +
-      String(pitchIndiControlOutput.diagnostics.estimatedDeflection) + "," +
-      String(relativeAngle_raw) + "," +
-      String(relativeAngle_ready) + "," +
-      String(rotateSensorValid() ? 1 : 0);
+  buildLoggerRecord(false);
   dataFile.println(dataString);
-  if (millis() - fileCycle > 2000)
-  {
+  if (millis() - fileCycle > 2000) {
     dataFile.flush();
-    fileCycle = millis();
-  }
-}
-
-// 按日志频率将编队传感器、控制和通信状态写入 SD 文件。
-void loggerTEAM()
-{
-  if (aircraftIsSingle() || !sdReady || !dataFile)
-    return;
-  writeLoggerHeader();
-  float invFreq = 1.0 / logfreq * 1000000.0;
-  unsigned long checker = micros();
-
-  if (checker - lastLogTime < invFreq)
-    return;
-  lastLogTime = checker;
-
-  const float pitchTargetLog = targetPitchDegrees();
-  // dataFile = SD.open(filename_sd, FILE_WRITE);
-  // 光打开不close 拔电就没了，但是每次都打开又close很浪费时间。
-  // 将本次采样的传感器与控制状态拼接为日志记录。
-  dataString =
-      String(current_time) + "," + String(att[0]) + "," + String(rollControlOutput.equivalentRoll) +
-      "," + String(att[1]) + "," + String(att[2]) + "," + String(targetRollDegrees()) +
-      "," + String(pitchTargetLog) + "," + String(targetYawDegrees()) + "," +
-      String(radio_channel1_normalized, 6) + "," + String(radio_channel2_normalized, 6) + "," +
-      String(radio_channel3_normalized, 6) + "," + String(radio_channel4_normalized, 6) + "," +
-      String(radio_channel5_normalized, 6) + "," + String(radio_channel6_normalized, 6) + "," +
-      String(radio_channel7_normalized, 6) + "," + String(radio_channel8_normalized, 6) + "," +
-      String(ActuatorOutput[0]) + "," +
-      String(ActuatorOutput[1]) + "," +
-      String(ActuatorOutput[2]) + "," + String(ActuatorOutput[3]) + "," +
-      String(ActuatorOutput[4]) + "," + String(configurationControlOutput.rates[0]) +
-      "," + String(configurationControlOutput.rates[1]) + "," + String(configurationControlOutput.rates[2]) + "," + String(configurationControlOutput.rates[3]) + "," +
-      String(configurationControlOutput.rates[4]) + "," + String(configurationControlOutput.rates[5]) + "," + String(configurationControlOutput.angles[0]) + "," +
-      String(targets.configuration[0]) + "," + String(configurationControlOutput.angles[1]) + "," +
-      String(configurationControlOutput.angles[2]) + "," + String(configurationControlOutput.angles[3]) + "," +
-      String(configurationControlOutput.angles[4]) + "," + String(configurationControlOutput.angles[5]) + "," +
-      String(pitchTargetLog) + "," + String(slaveTargets[0].pitch) + "," + String(slaveTargets[1].pitch) +
-      "," + String(slaveTargets[2].pitch) + "," + String(slaveTargets[3].pitch) + "," +
-      String(slaveTargets[4].pitch) + "," + String(slaveTargets[5].pitch) + "," + String(att_B[1]) +
-      "," + String(att_C[1]) + "," + String(att_D[1]) + "," +
-      String(att_E[1]) + "," + String(att_F[1]) + "," + String(att_G[1]) +
-      "," +
-      String(acc[0]) + "," + String(acc[1]) +
-      "," + String(acc[2]) + "," + String(ang_vel[0]) + "," +
-      String(ang_vel[1]) + "," + String(ang_vel[2]) + "," +
-      String(configurationControlOutput.commands[0]) + "," + String(configurationControlOutput.commands[1]) + "," + String(configurationControlOutput.commands[2]) +
-      "," + String(configurationControlOutput.commands[3]) + "," + String(configurationControlOutput.commands[4]) + "," +
-      String(configurationControlOutput.commands[5]) + "," + String(rollControlOutput.command) + "," + String(pitchPidControlOutput.command) +
-      "," + String(airspeed_A) + "," + String(strain_value[0]) + "," +
-      String(strain_value[1]) + "," + String(strain_value[2]) + "," +
-      String(strain_value[3]) + "," + String(strain_value[4]) + "," +
-      String(airdata.aoa) + "," + String(airdata.aos) + "," +
-      String(airdata.tas) + "," + String(ang_acc[0]) + "," + String(ang_acc[1]) + "," +
-      String(ang_acc[2]) + "," + String(pitchIndiControlOutput.diagnostics.desiredRate) + "," +
-      String(pitchIndiControlOutput.diagnostics.filteredRate) + "," + String(pitchIndiControlOutput.diagnostics.desiredAcceleration) +
-      "," + String(pitchIndiControlOutput.diagnostics.usedAcceleration) + "," +
-      String(pitchIndiControlOutput.diagnostics.commandedDeflection) + "," +
-      String(pitchIndiControlOutput.diagnostics.estimatedDeflection) + "," +
-      String(relativeAngle_raw) + "," + String(relativeAngle_ready) + "," +
-      String(rotateSensorValid() ? 1 : 0);
-  dataFile.println(dataString);
-
-  // 文件可用时写入本次记录。
-
-  // 定期刷新 SD 写入缓存。
-
-  if (millis() - fileCycle > 2000)
-  { // 每2秒刷新缓存
-    dataFile.flush();
-
     fileCycle = millis();
   }
 }

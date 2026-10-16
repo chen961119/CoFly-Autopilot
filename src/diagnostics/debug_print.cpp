@@ -1,6 +1,7 @@
 #include "radio_comm/radio_comm.h"
 #include "control/control_output.h"
 #include "control/control_modes.h"
+#include "parameters/control_parameters.h"
 #include "config/serial_config.h"
 #include "config/aircraft_config.h"
 #include "diagnostics/debug_print.h"
@@ -31,15 +32,15 @@ void printControlMode(int enabled) {
   char text[384];
   const int length = snprintf(text, sizeof(text),
       "\n=== ControlMode #%lu ===\n"
-      "currentMode=%d lastMode=%d pitchController=%d lastPitchController=%d\n"
-      "mixerStrategy=%.3f configurationCoeff=%.3f configurationAngle=%.1f\n"
-      "brake=%d changed=%d integralEnabled=%d\n"
+      "currentFlightMode=%d previousFlightMode=%d activePitchController=%d previousPitchController=%d\n"
+      "mixerStrategyCommand=%.3f configurationControlScale=%.3f configurationAngleDeg=%.1f\n"
+      "brakeEnabled=%d controlModeChanged=%d integralControlEnabled=%d\n"
       "=============\n",
-      static_cast<unsigned long>(frame + 1), static_cast<int>(currentMode),
-      static_cast<int>(lastMode), static_cast<int>(pitchController),
-      static_cast<int>(lastPitchController), mixerStrategy, configurationCoeff,
-      configurationAngle, static_cast<int>(brake), static_cast<int>(changed),
-      static_cast<int>(integralEnabled));
+      static_cast<unsigned long>(frame + 1), static_cast<int>(currentFlightMode),
+      static_cast<int>(previousFlightMode), static_cast<int>(activePitchController),
+      static_cast<int>(previousPitchController), mixerStrategyCommand, configurationControlScale,
+      configurationAngleDeg, static_cast<int>(brakeEnabled), static_cast<int>(controlModeChanged),
+      static_cast<int>(ControlParameters::integralControlEnabled));
   if (length <= 0 || static_cast<size_t>(length) >= sizeof(text) ||
       USBSerial.availableForWrite() < length) return;
   USBSerial.write(reinterpret_cast<const uint8_t *>(text), length);
@@ -134,7 +135,7 @@ void printConfigurationData() {
     USBSerial.print(F("phieg:"));
     USBSerial.print(att_G[0] - att_E[0]);
     USBSerial.print(F("phieq:"));
-    USBSerial.print(rollControlOutput.equivalentRoll);
+    USBSerial.print(rollControlOutput.equivalentRollAngleDeg);
     USBSerial.print(F("Pb:"));
     USBSerial.print(ang_vel_B[0]);
     USBSerial.print(F("Pc:"));
@@ -155,19 +156,19 @@ void printPIDoutput() {
   if (current_time - print_counter > 10000) {
     print_counter = micros();
     USBSerial.print(F("roll_PID:"));
-    USBSerial.print(rollControlOutput.command);
+    USBSerial.print(rollControlOutput.pidOutput);
     USBSerial.print(F(" pitch_PID:"));
-    USBSerial.print(pitchPidControlOutput.command);
+    USBSerial.print(pitchPidControlOutput.pidOutput);
     USBSerial.print(F(" yaw_PID:"));
-    USBSerial.print(yawControlOutput.command);
+    USBSerial.print(yawControlOutput.pidOutput);
     USBSerial.print(F(" Phiab_PID:"));
-    USBSerial.print(configurationControlOutput.commands[0]);
+    USBSerial.print(configurationControlOutput.pidOutputs[0]);
     USBSerial.print(F(" Phiac_PID:"));
-    USBSerial.println(configurationControlOutput.commands[1]);
+    USBSerial.println(configurationControlOutput.pidOutputs[1]);
     USBSerial.print(F(" Phibd_PID:"));
-    USBSerial.print(configurationControlOutput.commands[2]);
+    USBSerial.print(configurationControlOutput.pidOutputs[2]);
     USBSerial.print(F(" Phice_PID:"));
-    USBSerial.println(configurationControlOutput.commands[3]);
+    USBSerial.println(configurationControlOutput.pidOutputs[3]);
   }
 }
 

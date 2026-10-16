@@ -20,48 +20,54 @@ struct SlaveControlTargets {
 // 从机固定索引 0～5 对应 B～G；A 主机单独存储，不占从机槽位。
 constexpr unsigned CONTROL_AIRCRAFT_SLOTS = 6;
 struct IndiPitchDiagnostics {
-  float desiredRate = 0, filteredRate = 0;
-  float desiredAcceleration = 0, usedAcceleration = 0;
-  float commandedDeflection = 0, estimatedDeflection = 0;
+  float desiredRateDegPerSec = 0, filteredRateDegPerSec = 0; // 机体俯仰角速度目标与滤波测量值。
+  float desiredAngularAccelerationDegPerSec2 = 0, measuredAngularAccelerationDegPerSec2 = 0;
+  float commandedElevatorDeflectionDeg = 0, estimatedElevatorDeflectionDeg = 0;
 };
 
 struct IndiPitchControlOutput {
-  float acceleration = 0; // deg/s^2
-  float rate = 0;         // deg/s
-  float measuredRate = 0;
-  bool valid = false;
-  int pwm = 0; // 当前周期按原标定和限幅得到的物理 PWM（us）。
+  float desiredAngularAccelerationDegPerSec2 = 0; // 机体俯仰角加速度目标。
+  float desiredRateDegPerSec = 0; // 机体俯仰角速度目标。
+  float filteredRateDegPerSec = 0; // 机体俯仰角速度的滤波测量值。
+  bool isValid = false; // 本周期是否完成有效 INDI 控制计算。
+  int elevatorPwmUs = 0; // 当前周期按原标定和限幅得到的升降舵物理 PWM。
   IndiPitchDiagnostics diagnostics;
 };
 
 struct ManualControlOutput {
-  float roll = 0, pitch = 0, yaw = 0, throttle = 0;
+  float rollCommand = 0, pitchCommand = 0, yawCommand = 0; // 手动逻辑控制量，遥控输入除以 2。
+  float throttleCommand = 0; // 手动油门指令，范围 0～1。
 };
 
 struct PitchPidControlOutput {
-  float command = 0;
+  float pidOutput = 0; // 俯仰 PID 控制量，供后续混控分配。
 };
 
 struct RollDampingControlOutput {
-  int command = 0; // 保留原阻尼输出尺度，单位 us。
+  float dampingCommand = 0; // 归一化滚转阻尼指令：1 对应 1000 us 的逻辑控制偏移。
 };
 
 struct RollControlOutput {
-  float command = 0;
-  float filteredCommand = 0, filteredDerivative = 0;
-  float equivalentRoll = 0;
+  float pidOutput = 0; // 滚转 PID 控制量，供后续混控分配。
+  float filteredPidOutput = 0; // PID 控制量的低通滤波值。
+  float filteredPidOutputDerivative = 0; // PID 控制量对时间的导数，经低通滤波。
+  float equivalentRollAngleDeg = 0; // 反馈使用的等效滚转角，单位 deg；单机时为本机滚转角。
 };
 
 struct YawControlOutput {
-  float command = 0;
+  float pidOutput = 0; // 偏航 PID 控制量，供后续混控分配。
 };
 
 struct ThrottleControlOutput {
-  float command = 0;
+  float throttleCommand = 0; // 油门直通指令，沿用目标的 0～1 尺度。
 };
 
 struct ConfigurationControlOutput {
-  float commands[6] = {}, errors[6] = {}, angles[6] = {}, rates[6] = {};
+  // 各数组顺序均为 AB、AC、BD、CE、DF、EG。
+  float pidOutputs[6] = {}; // 各构型通道的 PID 控制量。
+  float angleErrorsDeg[6] = {}; // 目标构型角减去测量构型角。
+  float measuredAnglesDeg[6] = {}; // 相连两机的滚转角之差。
+  float measuredRatesDegPerSec[6] = {}; // 相连两机的滚转角速度之差。
 };
 
 // 统一的逻辑控制偏移：1 对应 1000 us，不含中位、安装 rev 或 trim。

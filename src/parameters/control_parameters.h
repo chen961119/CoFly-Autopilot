@@ -5,6 +5,7 @@
 // 控制器可调参数；运行状态和积分/滤波历史不放在此处。
 // 默认值在 control_parameters.cpp，注册元数据在 parameter_registry.cpp。
 namespace ControlParameters {
+extern int32_t integralControlEnabled; // 0 关闭 PID 积分，1 开启；各机独立设置。
 extern int32_t pitch_controller; // 0 PID，1 INDI；各机独立设置。
 extern float Trim_pitch_angle;
 extern float k_Clp;

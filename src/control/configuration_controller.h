@@ -2,7 +2,14 @@
 #include "control/control_types.h"
 class ConfigurationController {
 public:
-  void prepare(bool integralEnabled) { i_valid = integralEnabled ? 1.0f : 0.0f; }
+  void prepare(bool integralControlEnabled) {
+    i_valid = integralControlEnabled ? 1.0f : 0.0f;
+    if (!integralControlEnabled) {
+      integral_Phiab_RATE_prev_il = integral_Phiac_RATE_prev_il = 0;
+      integral_Phibd_RATE_prev_il = integral_Phice_RATE_prev_il = 0;
+      integral_Phidf_RATE_prev_il = integral_Phieg_RATE_prev_il = 0;
+    }
+  }
   // 始终刷新构型测量，仅主机增稳模式运行构型闭环并发布控制量。
   void update(const float (&targets)[6]);
 private:

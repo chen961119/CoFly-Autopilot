@@ -83,7 +83,7 @@ GCS SENSOR_SET 4 IMU DEFAULT
 
 CAPS/DATA 返回 TSV 的 `key=value` 字段，定义见 `station_protocol.py`。数据包含 ms（板上毫秒，可回绕）、roll/pitch/yaw（度）、gx/gy/gz（度/秒）、ax/ay/az（g）、airspeed（m/s）、angle（度）、angle_valid、rc1..rc8（原始 μs）、n1..n8（[-1,1] 归一化指令）、mode、locked。桌面过期判断用本机单调时钟。
 
-校准目标：IMU/GYRO/ACCEL、启用时的 EXTIMU、AIRSPEED、ROTATE。SENSOR_SET 接收单个 ASCII 设置标识，界面暂提供 DEFAULT。模式标识 MANUAL/STABILIZE_NO_I/STABILIZE 对应原有的手动、无积分增稳和有积分增稳三种模式。
+校准目标：IMU/GYRO/ACCEL、启用时的 EXTIMU、AIRSPEED、ROTATE。SENSOR_SET 接收单个 ASCII 设置标识，界面暂提供 DEFAULT。模式标识 MANUAL/STABILIZE 分别对应手动和增稳；积分由本机参数 `integralControlEnabled` 控制。
 
 传感器校准和设置仍返回 ERROR / NOT_IMPLEMENTED；模式映射界面和命令已移除，模式由代码直接判断通道。接口位于 `src/ground_station_service/ground_station_service.h` 与 `src/ground_station_service/ground_station_service.cpp`。现有传感器按键/开机校准存在阻塞流程，未直接接到 USB。
 

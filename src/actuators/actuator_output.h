@@ -7,7 +7,7 @@ extern float ActuatorOutput[5];
 void attachActuators();
 void commandSafeActuatorPositions();
 // 本机最终逻辑指令转物理 PWM。
-void convertControlCommandsToPWM(const ControlCycleOutput &cycle);
+void convertControlCommandsToPWM();
 // 仅打包已有子机指令，不运行控制器、mixer 或交联。
 void prepareActuatorCommands();
 void applyAndTransmitActuatorCommands();

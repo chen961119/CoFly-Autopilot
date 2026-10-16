@@ -1,5 +1,6 @@
 #include "control/control_output.h"
 #include "control/roll_pid_controller.h"
+#include "math/math_constants.h"
 #include "config/aircraft_config.h"
 #include "parameters/control_parameters.h"
 #include "system/flight_clock.h"
@@ -7,10 +8,10 @@
 #include "interaircraft_comm/interaircraft_comm.h"
 using namespace ControlParameters;
 
-void RollPidController::prepare(bool integralEnabled, bool changed) {
-  i_valid = integralEnabled ? 1.0f : 0.0f;
-  ModeChange = changed;
-  if (changed) {
+void RollPidController::prepare(bool integralControlEnabled, bool controlModeChanged) {
+  i_valid = integralControlEnabled ? 1.0f : 0.0f;
+  ModeChange = controlModeChanged;
+  if (controlModeChanged || !integralControlEnabled) {
     integral_roll_prev_ol = 0;
     integral_roll_prev_il = 0;
   }
@@ -18,7 +19,6 @@ void RollPidController::prepare(bool integralEnabled, bool changed) {
 void RollPidController::update(float rollTarget, bool enabled) {
   rollControlOutput = {0, roll_PID_lpf, roll_PID_dot_lpf, roll_eq};
   if (!enabled) return;
-  const float GyroX = ang_vel_filtered[0];
   float roll_des_ol = 0;
   if (aircraftIsSingle())
   {
@@ -62,7 +62,7 @@ void RollPidController::update(float rollTarget, bool enabled) {
     }
   }
   error_roll = rollTarget - roll_eq;
-  integral_roll_ol = integral_roll_prev_ol + error_roll * dt;
+  integral_roll_ol = i_valid > 0.0f ? integral_roll_prev_ol + error_roll * dt : 0.0f;
   integral_roll_ol =
   constrain(integral_roll_ol, -i_limit,
       i_limit);
@@ -80,31 +80,31 @@ void RollPidController::update(float rollTarget, bool enabled) {
   float Rollrate;
   if (aircraftIsSingle())
   {
-    Rollrate = GyroX;
+    Rollrate = ang_vel_filtered[0];
   }
   else
   {
     if ((aircraftCount() == 3))
     {
-      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + GyroX) / 3.0;
+      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_filtered[0]) / 3.0;
     }
     else if ((aircraftCount() == 4))
     {
-      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + GyroX) / 4.0;
+      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + ang_vel_filtered[0]) / 4.0;
     }
     else if ((aircraftCount() == 5))
     {
-      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + ang_vel_E[0] + GyroX) / 5.0;
+      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + ang_vel_E[0] + ang_vel_filtered[0]) / 5.0;
     }
     else if ((aircraftCount() == 7))
     {
       Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + ang_vel_E[0] + ang_vel_F[0] + ang_vel_G[0] +
-          GyroX) /
+          ang_vel_filtered[0]) /
       7.0;
     }
   }
   error_roll = roll_des_ol - Rollrate;
-  integral_roll_il = integral_roll_prev_il + error_roll * dt;
+  integral_roll_il = i_valid > 0.0f ? integral_roll_prev_il + error_roll * dt : 0.0f;
   integral_roll_il =
   constrain(integral_roll_il, -i_limit,
       i_limit);
@@ -119,7 +119,7 @@ void RollPidController::update(float rollTarget, bool enabled) {
       i_valid * Ki_roll_rate * integral_roll_il +
       Kd_roll_rate *
       derivative_roll);
-  float tau_roll_pid = 1.0f / (6.28f * roll_pid_lpf_fc);
+  float tau_roll_pid = 1.0f / ((2 * PI) * roll_pid_lpf_fc);
   float alpha_roll_pid = dt / (tau_roll_pid + dt);
   roll_PID_lpf = roll_PID_lpf + alpha_roll_pid * (roll_PID - roll_PID_lpf);
   if (!roll_pid_dot_initialized)
@@ -141,7 +141,7 @@ void RollPidController::update(float rollTarget, bool enabled) {
     }
     if (roll_pid_dot_lpf_fc > 0.0f && dt > 1.0e-6f)
     {
-      float tau_dot = 1.0f / (6.28f * roll_pid_dot_lpf_fc);
+      float tau_dot = 1.0f / ((2 * PI) * roll_pid_dot_lpf_fc);
       float alpha_dot = dt / (tau_dot + dt);
       roll_PID_dot_lpf =
       roll_PID_dot_lpf + alpha_dot * (roll_PID_dot - roll_PID_dot_lpf);

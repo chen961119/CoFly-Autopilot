@@ -90,9 +90,6 @@ void displayFlightModeIndicators(FlightMode mode) {
   if (mode == STABILIZE_MODE) {
     digitalWrite(33, HIGH);
     digitalWrite(32, HIGH);
-  } else if (mode == STABLIZE_MODE_NO_I) {
-    digitalWrite(33, LOW);
-    digitalWrite(32, HIGH);
   } else if (mode == MANUAL_MODE) {
     digitalWrite(33, HIGH);
     digitalWrite(32, LOW);

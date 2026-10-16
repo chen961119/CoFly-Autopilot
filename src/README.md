@@ -39,19 +39,19 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 主循环调用 `updateInertialSensors()`，按外置优先、否则当前 BMI088 路径进行采样和姿态估计，发布统一测量后计算角加速度。控制、日志、诊断、地面站和机间通信使用统一数组，具体型号的采样变量仅在 `sensors` 内部使用。
 
-机间角速度为 `ang_vel_B[3]` 至 `ang_vel_G[3]`；现有协议仅传输滚转角速度，接收端只更新 `[0]`，`[1]`/`[2]` 保持 0，不能视为有效测量。协议包布局保持不变。SD 日志列名使用 `ang_vel[i]`、`ang_acc[i]`、`acc[i]` 和 `quat[i]`；编队日志合并了原内置/外置重复列，仅记录选定数据源。
+机间角速度为 `ang_vel_B[3]` 至 `ang_vel_G[3]`；现有协议仅传输滚转角速度，接收端只更新 `[0]`，`[1]`/`[2]` 保持 0，不能视为有效测量。协议包布局保持不变。SD 日志列名使用 `ang_vel[i]`、`ang_acc[i]`、`acc[i]` 和 `quat[i]`；所有飞机使用统一日志格式，仅记录本机选定数据源及统一滤波结果。
 
-五路应变测量统一通过 `strain_value[5]`（`int32_t` 数组）读取，索引 0～4 对应传感器通道 1～5；保持原报文解析和数值单位。SD 日志中的姿态和应变列分别使用 `att[i](deg)`、`strain_value[i]`。
+五路应变测量统一通过 `strain_value[5]`（`int32_t` 数组）读取，索引 0～4 对应传感器通道 1～5；保持原报文解析和数值单位。SD 日志中的姿态和应变列分别使用 `att[i]`、`strain_value[i]`。
 
 主机目标由 `prepareControlMode()` 的主机分支更新全局 `targets`；主分配完成后，`generateSlaveCommand()` 更新 `slaveTargets[]`、`commands.slaves[]` 和独立的发送命令，路由包装结构已删除。`ControlCycleOutput commands` 仅含作动器结果，通信命令保存在独立的 `slaveCommands[]`。`prepareControlMode()` 更新各机的俯仰算法选择，并仅在主机设置遥控模式、策略、构型系数和刹车开关，控制器状态重置由各角色的 `run*Controller()` 处理。
 
-主机手动模式的 `targets.roll/pitch/yaw` 为 ±1，手动控制器直接使用这些字段除以 2；增稳模式为角度/角速度目标。`targets.throttle` 为 0～1。从机俯仰目标保持度制，分配与日志需要角度时通过 `targetRollDegrees()` / `targetPitchDegrees()` / `targetYawDegrees()` 从 `targets` 换算，不再维护独立的全局目标或 manual 字段。
+主机手动模式的 `targets.roll/pitch/yaw` 为 ±1，手动控制器直接使用这些字段除以 2；增稳模式为角度/角速度目标。`targets.throttle` 为 0～1。从机俯仰目标保持度制，分配需要角度时通过 `targetRollDegrees()` / `targetPitchDegrees()` / `targetYawDegrees()` 从 `targets` 换算，不再维护独立的全局目标或 manual 字段。
 
 构型角目标统一使用 `targets.configuration[0～5]`，依次对应 AB、AC、BD、CE、DF、EG，初始值为零。主机 `prepareControlMode()` 每周期根据第 7 通道更新构型目标：归一化值 >0.2 时上反，左侧差值为 +10°、右侧为 -10°；<-0.2 时下反，符号相反；其余为零。每对相邻飞机的目标滚转差为 10°，外侧飞机相对 A 的目标角度逐级累加。
 
-构型控制输出系数 `configurationCoeff` 由控制模式模块持有，固定为 `1.0f`，构型控制器直接读取该全局系数。
+构型控制输出系数 `configurationControlScale` 由控制模式模块持有，固定为 `1.0f`，构型控制器直接读取该全局系数。
 
-`control/control_output.h/.cpp` 按控制器持有全局 `manualControlOutput`、`rollControlOutput`、`pitchPidControlOutput`、`pitchIndiControlOutput`、`rollDampingControlOutput`、`yawControlOutput`、`throttleControlOutput`、`configurationControlOutput`；mixer、日志及遥测直接读取。分配结果仅由 `commands.local/slaves[]` 持有。模式模块持有全局 `lastMode`、`lastPitchController`；模式准备/接收阶段在覆盖当前值前保存旧值，控制入口仅判断切换。
+`control/control_output.h/.cpp` 按控制器持有全局 `manualControlOutput`、`rollControlOutput`、`pitchPidControlOutput`、`pitchIndiControlOutput`、`rollDampingControlOutput`、`yawControlOutput`、`throttleControlOutput`、`configurationControlOutput`；mixer、日志及遥测直接读取。分配结果仅由 `commands.local/slaves[]` 持有。模式模块持有全局 `previousFlightMode`、`previousPitchController`；模式准备/接收阶段在覆盖当前值前保存旧值，控制入口仅判断切换。
 
 主从控制周期均调用统一的 `prepareControlMode()`：主机读取遥控模式，从机接收上级命令，随后共同选择本机俯仰算法并计算模式状态。滚转阻尼在主机 `runMasterController()` 和从机 `mixSlaveCommands()` 内分别调用 `controlControllers().rollDamping.update()`，每周期沿所在角色路径执行一次。`mixSlaveCommands()` 与 `fuseSlaveCommands()` 均直接读写全局命令，无参数和返回值。
 
@@ -59,4 +59,4 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 所有控制器的当前结果由各自 `update()` 直接发布，未启用时在该方法内清零当周期输出；外部入口只负责准备状态、选择控制器和调用。通用结果重置函数和滚转结果 getter 已删除。油门直通由 `ThrottleController::update()` 发布；INDI 的运动目标、舵机估计、诊断及 PWM 标定结果均在其 `update()` 中更新，分配层只转换结果尺度。
 
-模式准备函数在更新本周期模式及俯仰算法后统一发布全局 `changed` 和 `integralEnabled`，主从控制入口直接读取，用于控制器状态重置与积分门控。
+模式准备函数在更新本周期模式及俯仰算法后发布 `controlModeChanged`，供控制器重置状态。`ControlParameters::integralControlEnabled` 是本机 SD 整数参数（0 关闭、1 开启，默认 1），独立于手动/增稳模式；主从控制入口读取它进行 PID 积分门控，关闭时清除积分历史。

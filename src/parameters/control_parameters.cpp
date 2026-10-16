@@ -2,7 +2,8 @@
 //#include "config/flight_config.h"
 
 namespace ControlParameters {
-int32_t pitch_controller = 1; // 保留原默认 INDI 选择，增稳两种模式均按此参数选择。
+int32_t integralControlEnabled = 1; // SD 参数，下一周期生效；关闭时清除 PID 积分历史。
+int32_t pitch_controller = 1; // 保留原默认 INDI 选择，用于增稳模式。
 float Trim_pitch_angle = 3.0;
 float k_Clp = 0.05;
 float i_limit = 45.0;        // 积分项限幅，防止长时间误差导致指令过大。

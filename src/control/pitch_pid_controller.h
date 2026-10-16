@@ -2,7 +2,7 @@
 // 原控制律及历史由本对象保存；参数继续从 ControlParameters 读取。
 class PitchPidController {
 public:
-  void prepare(bool integralEnabled, bool changed);
+  void prepare(bool integralControlEnabled, bool controlModeChanged);
   void update(float pitchTarget, bool enabled);
 
 private:

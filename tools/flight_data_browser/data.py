@@ -152,7 +152,8 @@ def _time_base(columns, data, requested_column, requested_unit, fallback_hz, war
         index = columns.index(requested_column)
     else:
         index = next((i for i, name in enumerate(columns)
-                      if re.match(r"^(timestamp|time|stamp)(?:\b|_|\()", name, re.I)), None)
+                      if name == "current_time" or
+                      re.match(r"^(timestamp|time|stamp)(?:\b|_|\()", name, re.I)), None)
     if index is None:
         warnings.append(f"没有时间列，使用样本序号与显式默认采样率 {fallback_hz:g} Hz。")
         return data, np.arange(len(data), dtype=float) / fallback_hz, fallback_hz, "Sample index", "s"
@@ -168,7 +169,9 @@ def _time_base(columns, data, requested_column, requested_unit, fallback_hz, war
     unit = requested_unit
     if unit == "auto":
         token = re.search(r"(?:\(|_|\b)(us|ms|sec|seconds|s)(?:\)|\b|$)", label)
-        if token:
+        if name == "current_time":
+            unit = "us"
+        elif token:
             unit = {"sec": "s", "seconds": "s"}.get(token[1], token[1])
         else:
             steps = np.diff(raw)
@@ -224,7 +227,8 @@ def _smooth_mask(mask, time, close_seconds, min_seconds):
 
 
 def _in_air(columns, data, time):
-    candidates = ["airspeed_A", "A_thro_PWM", "thro_PWM", "RC_CH3", "CH3_NORMALIZED", "CH3_PWM",
+    candidates = ["airspeed_A", "ActuatorOutput[3]", "A_thro_PWM", "thro_PWM",
+                  "radio_channel3_normalized", "RC_CH3", "CH3_NORMALIZED", "CH3_PWM",
                   *[f"{node}thro_PWM" for node in "BCDEFG"]]
     for name in candidates:
         if name not in columns:
@@ -235,7 +239,7 @@ def _in_air(columns, data, time):
             continue
         if name == "airspeed_A":
             threshold, gap, minimum = max(8, 0.25 * np.quantile(good, 0.99)), 2, 1
-        elif name in ("RC_CH3", "CH3_NORMALIZED"):
+        elif name in ("radio_channel3_normalized", "RC_CH3", "CH3_NORMALIZED"):
             threshold = max(-0.7, min(-0.2, np.min(good) + 0.25 * np.ptp(good)))
             gap, minimum = 3, 2
         else:
@@ -256,7 +260,23 @@ def _in_air(columns, data, time):
 
 
 def _modes(columns, data, time):
-    if "RC_CH5" in columns:
+    if "currentFlightMode" in columns:
+        values = data[:, columns.index("currentFlightMode")]
+        codes = np.where(values == 0, 1, np.where((values == 1) | (values == 2), 2, 0))
+        boundaries = np.r_[0, np.flatnonzero(np.diff(codes)) + 1, len(time)]
+        # 当前固件发布 0（手动）和 1（增稳）；保留历史增稳值 2 的读取兼容。
+        names = {0: "Unknown", 1: "Manual", 2: "Stabilize"}
+        return tuple(Segment(float(time[a]), float(time[b - 1]), names[int(codes[a])])
+                     for a, b in zip(boundaries[:-1], boundaries[1:]))
+    if "radio_channel5_normalized" in columns:
+        name, high = "radio_channel5_normalized", 0.0
+        values = data[:, columns.index(name)]
+        codes = np.where(~np.isfinite(values), 0, np.where(values > high, 1, 2))
+        boundaries = np.r_[0, np.flatnonzero(np.diff(codes)) + 1, len(time)]
+        names = {0: "Unknown", 1: "Manual", 2: "Stabilize"}
+        return tuple(Segment(float(time[a]), float(time[b - 1]), names[int(codes[a])])
+                     for a, b in zip(boundaries[:-1], boundaries[1:]))
+    elif "RC_CH5" in columns:
         name, low, high = "RC_CH5", -0.2, 0.2
     elif "CH5_NORMALIZED" in columns:
         name, low, high = "CH5_NORMALIZED", -0.2, 0.2
@@ -375,7 +395,7 @@ def describe_variable(name):
     lower = name.lower()
     if "_control_us" in lower:
         return "机间有符号控制偏移（μs），尚未应用本机中位、rev 与 trim；不是物理 PWM。"
-    if "timestamp" in lower or lower.startswith("time"):
+    if name == "current_time" or "timestamp" in lower or lower.startswith("time"):
         return "原始记录时间戳；图中横轴转换为秒，并从本文件第一个有效样本开始。"
     for token, text in (("mt6701", "MT6701 夹角传感器"), ("airspeed", "空速测量"),
                         ("strain", "应变传感器"), ("indi", "俯仰 INDI 控制状态"),

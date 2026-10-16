@@ -18,7 +18,7 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 | `src/system/flight_clock.cpp` | 时间更新和循环限频 |
 | `src/sensors/sensor_processing.cpp`、`src/sensors/filters.cpp` | 传感器采样、校准、滤波与姿态估计 |
 | `src/radio_comm/radio_comm.cpp` | 遥控接收接口 |
-| `src/control/control_pipeline.cpp`、`src/control/control_modes.cpp` | 主从并列流程、原有三种模式与俯仰算法选择 |
+| `src/control/control_pipeline.cpp`、`src/control/control_modes.cpp` | 主从并列流程、手动/增稳两种模式与俯仰算法选择 |
 | `src/control/control_modes.cpp`、`src/control/command_generation.cpp` | 主从模式与目标准备、从机命令生成 |
 | `src/control/master_controller.cpp`、`src/control/slave_controller.cpp`、`src/control/*_controller.cpp` | 主/从模式分派及各独立控制器类 |
 | `src/allocation/` | 主/从混控、交联与两路指令融合 |
