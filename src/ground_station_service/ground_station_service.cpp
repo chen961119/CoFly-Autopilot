@@ -28,7 +28,7 @@ bool validId(const char *text, uint32_t &id) {
   id = static_cast<uint32_t>(value);
   return true;
 }
-// USB display only: use the original communications module's cached values.
+// Ground station display only: use the original communications module's cached values.
 // The original protocol reports freshness per branch, not per downstream node.
 bool readGroundAircraftAttitude(int id, float &roll, float &pitch) {
   if (!aircraftConfigurationValid() || !validAircraftConfiguration(id) || id == 0) return false;

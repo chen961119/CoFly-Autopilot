@@ -44,9 +44,9 @@
 
 默认每控制周期读取一次，无额外延时或串口输出。构型控制、控制分配、OLED `Relat`、USB/数传构型与机间相对角恢复使用 tag0.1 默认分支的相邻 IMU 滚转差，移除 `userotatesensor` 控制分支。OLED 没有有效下游姿态时显示 `--`。地面站完整构型需要连接 A 主机；机翼按 B—A—C 等物理顺序连接。编译与驱动模拟测试已通过，接线、安装方向和实际循环耗时需要板上确认。
 
-## USB 地面站
+## USB / P9 地面站
 
-应用提供通讯连接、室内/室外配色与字体、参数、传感器、遥控器和飞行数据页。新增地面站协议与参数协议共用 USB Serial；传感器校准与设置暂为明确返回 `NOT_IMPLEMENTED` 的接口，模式由代码直接判断遥控通道。使用与实现范围见 [地面站说明](../tools/ground_station/README.md)。
+应用提供通讯连接、室内/室外配色与字体、参数、传感器、遥控器和飞行数据页。地面站协议与参数协议支持 USB Serial 和 P9 Serial8；传感器校准与设置暂为明确返回 `NOT_IMPLEMENTED` 的接口，模式由代码直接判断遥控通道。使用与实现范围见 [地面站说明](../tools/ground_station/README.md)。
 
 电脑端软件位于 `tools/ground_station/`，提供参数读取/就地修改（最多支持 512 项）、EEPROM/SD 按项保存、重启生效提示、列排序及支持十六进制显示的串口助手。参数类型显示为 `float` / `int`；双击当前值编辑，Enter 保存，Esc 取消。双击 `tools/ground_station/dist/CoFlyGroundStation.exe` 可启动；源码启动、协议、SD 恢复见 [参数软件使用说明](../tools/ground_station/README.md)。飞控开机在 SD 初始化后自动加载参数，立即生效参数修改成功后下次控制周期使用新值；身份重启生效，总数量由编译宏决定。
 
@@ -111,7 +111,7 @@ A 机在主分配中完成本机交联和子机指令生成；B～G 在从分配
 | `SbusSerial` | `Serial2` | SBUS 接收机 |
 | `DsmSerial` | `Serial3` | DSM 接收机 |
 | `StrainSensorSerial` | `Serial7` | 应变传感器 |
-| `TelemetrySerial` | `Serial8` | 数传发送及 airdata 接收 |
+| `TelemetrySerial` | `Serial8` | CUAV P9 双向地面站，57600 / 8N1 |
 
 ## 构建
 
@@ -174,7 +174,7 @@ pio device monitor
 | `Serial5` / 921600 | 右侧级联链路 |
 | `Serial6` / 921600 | 上级控制命令 |
 | `Serial7` / 115200 | Modbus 应变传感器 |
-| `Serial8` / 115200 | 数传/气动数据 |
+| `Serial8` / 57600 | CUAV P9 双向地面站（TX=35、RX=34） |
 | `Wire1` | SSD1306 OLED、MS4525 空速传感器、MT6701 夹角传感器（SDA=17、SCL=16） |
 | 内置 SD | 飞行日志 `datalogNNN.txt` |
 
@@ -183,7 +183,7 @@ pio device monitor
 - `55 60`：40 字节级联控制帧，包含当前模式、五路逻辑控制输出和俯仰目标。
 - `55 71`：34 字节状态帧，包含左右 bool 标志、相对角、滚转角速度及滚转/俯仰/偏航三轴姿态；与旧 33 字节协议不兼容，各节点须同步更新。
 - Modbus RTU：通过 `Serial7` 请求五通道应变数据，使用 CRC16/Modbus。
-- `AA 55`：通过 `Serial8` 接收二进制气动数据包。
+- P9 `Serial8`：使用地面站 `GCS` / `PARAM` ASCII 行协议；旧 `AA 55` 气动数据接收与 `55 71` 的 19 字节遥测发送已停用。接线及迁移见 [P9 数传接入](p9-radio.md)。
 
 级联协议没有版本字段。修改帧长度、字段顺序或缩放系数时，必须同步更新所有节点固件。
 

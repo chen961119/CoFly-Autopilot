@@ -26,7 +26,8 @@ class SerialWorker(threading.Thread):
     def run(self):
         try:
             with serial.serial_for_url(self.port, baudrate=self.baudrate,
-                                       timeout=0.05, write_timeout=0.5) as connection:
+                                       timeout=0.05, write_timeout=0.5,
+                                       rtscts=False, dsrdtr=False, xonxoff=False) as connection:
                 if self.stopping.is_set():
                     return
                 self.emit("connected")

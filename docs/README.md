@@ -10,7 +10,8 @@ CoFly Autopilot 的英文全称为 **Collaborative Distributed Autopilot**，中
 | [控制架构](control-architecture.md) | 七层主从并列流程、目标/指令接口、PID/INDI 参数及模式 |
 | [固件指南](firmware-guide.md) | 编译配置、PWM、传感器、硬件接线及级联协议 |
 | [软件需求](requirements.md) | 功能与安全目标、唯一需求编号和验收矩阵 |
-| [参数软件](../tools/ground_station/README.md) | USB 参数配置、协议、SD 恢复与测试 |
+| [P9 数传接入](p9-radio.md) | 接线、供电、官方资源、地面站与协议迁移 |
+| [参数软件](../tools/ground_station/README.md) | USB/P9 参数配置、协议、SD 恢复与测试 |
 | [飞行数据浏览器](../tools/flight_data_browser/README.md) | SD 日志读取、多机曲线对比、FFT 与数据导出 |
 | [板上调试](../tools/teensy_debug/README.md) | TeensyDebug 环境与 VS Code 使用说明 |
 | [参数板上测试记录](../tools/ground_station/BOARD_TEST_REPORT.md) | 2026-10-07 测试范围与结果 |

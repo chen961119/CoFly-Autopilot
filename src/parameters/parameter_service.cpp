@@ -31,21 +31,44 @@ const FlightParameter *table;
 size_t count;
 bool storageReady;
 bool rebootRequired = false;
-char rxLine[LINE_SIZE];
-size_t rxLength;
-bool rxOverflow;
-char txLine[LINE_SIZE];
-size_t txLength;
-size_t listIndex;
-bool listing;
-uint32_t listId;
-double snapshot[MAX_PARAMETERS];
+enum class StorageNotice { None, Saved, Failed };
+
+// Each physical link owns its parser, reply cursor and parameter snapshot.
+// No USB traffic is forwarded onto the radio (or vice versa).
+struct ParameterSession {
+  char rxLine[LINE_SIZE] = {};
+  size_t rxLength = 0;
+  bool rxOverflow = false;
+  uint32_t lastRxTime = 0;
+  char txLine[LINE_SIZE] = {};
+  size_t txLength = 0;
+  size_t txOffset = 0;
+  size_t listIndex = 0;
+  bool listing = false;
+  uint32_t listId = 0;
+  double snapshot[MAX_PARAMETERS] = {};
+  StorageNotice sdNotice = StorageNotice::None;
+  StorageNotice eeNotice = StorageNotice::None;
+
+  void reset();
+  void queueReply(uint32_t id, const char *format, ...);
+  void error(uint32_t id, const char *code, const char *message);
+  void handleCommand(char *line);
+  void poll(Stream &port);
+};
+ParameterSession usbSession, radioSession;
+
+void storageNotice(ParameterStorage medium, StorageNotice notice) {
+  ParameterSession *sessions[] = {&usbSession, &radioSession};
+  for (auto *session : sessions) {
+    if (medium == ParameterStorage::SD) session->sdNotice = notice;
+    else session->eeNotice = notice;
+  }
+}
 double defaults[MAX_PARAMETERS];
 // Main-loop-only, non-reentrant service; snapshots stay out of the stack.
 double candidate[MAX_PARAMETERS];
 ParameterSaveDebounce sdSave, eeSave;
-enum class StorageNotice { None, Saved, Failed };
-StorageNotice sdNotice = StorageNotice::None, eeNotice = StorageNotice::None;
 const char *loadState = "DEFAULTS";
 
 ParameterSD::MigrationStats loadStats;
@@ -100,14 +123,13 @@ void applyCandidateParameters() {
 
 bool flushMedium(ParameterStorage medium) {
   auto &pending = medium == ParameterStorage::SD ? sdSave : eeSave;
-  auto &notice = medium == ParameterStorage::SD ? sdNotice : eeNotice;
   if (!pending.dirty)
     return true;
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
   const bool success = persist(candidate, medium);
   pending.completed(success, millis());
-  notice = success ? StorageNotice::Saved : StorageNotice::Failed;
+  storageNotice(medium, success ? StorageNotice::Saved : StorageNotice::Failed);
   return success;
 }
 
@@ -122,11 +144,11 @@ void markParameterWrites(bool sd, bool ee) {
   const uint32_t now = millis();
   if (sd) {
     sdSave.changed(now);
-    sdNotice = StorageNotice::None;
+    storageNotice(ParameterStorage::SD, StorageNotice::None);
   }
   if (ee) {
     eeSave.changed(now);
-    eeNotice = StorageNotice::None;
+    storageNotice(ParameterStorage::EEPROM, StorageNotice::None);
   }
 }
 
@@ -171,7 +193,8 @@ SaveResult saveOne(size_t index, double value) {
   return SaveResult::Pending;
 }
 
-void queueReply(uint32_t id, const char *format, ...) {
+void ParameterSession::queueReply(uint32_t id, const char *format, ...) {
+  txOffset = 0;
   int prefix = snprintf(txLine, sizeof(txLine), "@COFLY\t%lu\t", static_cast<unsigned long>(id));
   va_list args;
   va_start(args, format);
@@ -186,11 +209,11 @@ void queueReply(uint32_t id, const char *format, ...) {
   txLine[txLength] = '\0';
 }
 
-void error(uint32_t id, const char *code, const char *message) {
+void ParameterSession::error(uint32_t id, const char *code, const char *message) {
   queueReply(id, "ERROR\t%s\t%s", code, message);
 }
 
-void handleCommand(char *line) {
+void ParameterSession::handleCommand(char *line) {
   if (!strncmp(line, "GCS ", 4) || !strncmp(line, "GCS\t", 4)) {
     handleGroundStationCommand(line, txLine, sizeof(txLine));
     txLength = strlen(txLine);
@@ -276,7 +299,8 @@ void initializeParameterService(bool sdReady) {
   rebootRequired = false;
   sdSave = {};
   eeSave = {};
-  sdNotice = eeNotice = StorageNotice::None;
+  usbSession.reset();
+  radioSession.reset();
   table = flightParameterTable(count);
   storageReady = sdReady && count > 0 && count <= MAX_PARAMETERS;
   if (!count || count > MAX_PARAMETERS) {
@@ -316,8 +340,6 @@ void initializeParameterService(bool sdReady) {
       return;
     }
   }
-  rxLength = txLength = listIndex = 0;
-  rxOverflow = listing = false;
   loadState = "DEFAULTS";
   loadStats = {0, count, 0};
   const bool haveEEPROM = initializeEEPROMParameters();
@@ -419,7 +441,7 @@ bool saveRadioCalibrationParameters(const char *const *values) {
   if (!ParameterSD::save(candidate)) return false;
   applyCandidateParameters();
   sdSave.completed(true, millis());
-  sdNotice = StorageNotice::Saved;
+  storageNotice(ParameterStorage::SD, StorageNotice::Saved);
   loadState = "SAVED";
   updateRadioNormalized();
   return true;
@@ -471,28 +493,35 @@ bool saveImuCalibrationParameters(const float *offsets) {
   return true;
 }
 
-void pollParameterService() {
-  if (table && count && count <= MAX_PARAMETERS)
-    pollParameterSaves();
-  pollDeviceReboot(txLength != 0);
-  if (deviceRebootPending() && !txLength)
-    return;
-  if (!table || count == 0 || count > MAX_PARAMETERS)
-    return;
-  if (!USBSerial) {
-    // A reconnect starts with no stale request/response bytes.
-    rxLength = txLength = 0;
-    rxOverflow = listing = false;
-    return;
+namespace {
+void ParameterSession::reset() {
+  rxLength = txLength = txOffset = listIndex = 0;
+  rxOverflow = listing = false;
+  sdNotice = eeNotice = StorageNotice::None;
+}
+
+void ParameterSession::poll(Stream &port) {
+  if (!table || count == 0 || count > MAX_PARAMETERS) return;
+  // Drop abandoned partial commands after a radio interruption. Complete
+  // commands retain the same validation/locking as the USB service.
+  if ((rxLength || rxOverflow) && static_cast<uint32_t>(millis() - lastRxTime) > 2000) {
+    rxLength = 0;
+    rxOverflow = false;
   }
   if (txLength) {
-    // A single line, one write, only when the USB buffer has enough room.
-    if (USBSerial.availableForWrite() >= static_cast<int>(txLength)) {
-      USBSerial.write(reinterpret_cast<const uint8_t *>(txLine), txLength);
-      txLength = 0;
+    // UART's normal TX buffer is smaller than a DATA frame. Never wait for
+    // an entire line to fit, and never block the 500 Hz loop in write().
+    const int available = port.availableForWrite();
+    if (available > 0) {
+      size_t amount = txLength - txOffset;
+      if (amount > static_cast<size_t>(available)) amount = available;
+      if (amount > 64) amount = 64;
+      txOffset += port.write(reinterpret_cast<const uint8_t *>(txLine) + txOffset, amount);
+      if (txOffset == txLength) txLength = txOffset = 0;
     }
     return;
   }
+  if (deviceRebootPending()) return;
   if (listing) {
     if (listIndex < count) {
       const auto &p = table[listIndex];
@@ -512,7 +541,7 @@ void pollParameterService() {
     }
     return;
   }
-  if (!USBSerial.available() &&
+  if (!port.available() &&
       (sdNotice != StorageNotice::None || eeNotice != StorageNotice::None)) {
     auto &notice = eeNotice != StorageNotice::None ? eeNotice : sdNotice;
     queueReply(0, "STORAGE\t%s\t%s", eeNotice != StorageNotice::None ? "EEPROM" : "SD",
@@ -521,8 +550,10 @@ void pollParameterService() {
     return;
   }
   // No readStringUntil()/delay(): fragments arrive over successive cycles.
-  for (unsigned budget = 0; budget < 64 && USBSerial.available(); ++budget) {
-    int c = USBSerial.read();
+  for (unsigned budget = 0; budget < 64 && port.available(); ++budget) {
+    int c = port.read();
+    if (c < 0) break;
+    lastRxTime = millis();
     if (c == '\r')
       continue;
     if (c == '\n') {
@@ -545,4 +576,18 @@ void pollParameterService() {
     else
       rxOverflow = true;
   }
+}
+
+} // namespace
+
+void pollParameterService() {
+  if (table && count && count <= MAX_PARAMETERS) pollParameterSaves();
+  if (!USBSerial) usbSession.reset();
+  // A radio reply must drain before the existing delayed reboot starts.
+  pollDeviceReboot(usbSession.txLength != 0 || radioSession.txLength != 0);
+  if (USBSerial) usbSession.poll(USBSerial);
+}
+
+void pollTelemetryParameterService() {
+  radioSession.poll(TelemetrySerial);
 }

@@ -1,4 +1,4 @@
-"""CoFly Ground Station: one USB connection for parameters and live data."""
+"""CoFly Ground Station: USB or CUAV P9 connection for parameters and live data."""
 import json
 import math
 import os
@@ -30,6 +30,7 @@ class GroundStation(ParameterConsole):
         size = settings.get("font_size", 11)
         self.font_size = tk.IntVar(root, value=size if type(size) is int and 9 <= size <= 18 else 11)
         self.auto_connect = tk.BooleanVar(root, value=settings.get("auto_connect") is True)
+        self.link_type = tk.StringVar(root, value=settings.get("link_type") if settings.get("link_type") in ("USB", "CUAV P9") else "USB")
         self.auto_detector = None
         self.auto_next_scan = 0
         self.auto_paused = False
@@ -53,11 +54,11 @@ class GroundStation(ParameterConsole):
         self.metric_vars = {}
         self.action_buttons = []
         super().__init__(root)
-        root.title("CoFly 地面站 · USB Serial")
+        root.title("CoFly 地面站 · USB / CUAV P9")
         root.geometry("1280x850")
         root.minsize(1000, 720)
         self.port.set(str(settings.get("port", self.port.get())))
-        self.baud.set(str(settings.get("baud", "921600")))
+        self.baud.set(str(settings.get("baud", "57600" if self.link_type.get() == "CUAV P9" else "921600")))
         self.apply_appearance(save=False)
         self.show_page("飞行")
         self.station_timer = root.after(200, self._station_tick)
@@ -70,7 +71,7 @@ class GroundStation(ParameterConsole):
         top = ttk.Frame(shell, padding=(20, 12))
         top.pack(fill="x")
         ttk.Label(top, text="CoFly", style="Brand.TLabel").pack(side="left")
-        ttk.Label(top, text="  地面站 / USB SERIAL", style="Muted.TLabel").pack(side="left")
+        ttk.Label(top, text="  地面站 / USB · CUAV P9", style="Muted.TLabel").pack(side="left")
         self.link_label = tk.StringVar(value="● 未连接")
         ttk.Label(top, textvariable=self.link_label, style="Accent.TLabel").pack(side="right")
         ttk.Label(shell, textvariable=self.status, padding=(20, 10), wraplength=1150).pack(side="bottom", fill="x")
@@ -92,12 +93,20 @@ class GroundStation(ParameterConsole):
         content.columnconfigure(0, weight=1)
         content.rowconfigure(0, weight=1)
         self.parameter_parent = self.pages["参数"]
-        self._heading(self.pages["串口助手"], "串口助手", "共用通讯连接页的 USB 串口 · 接收日志、发送命令与导出记录")
+        self._heading(self.pages["串口助手"], "串口助手", "共用通讯连接页的串口 · 接收日志、发送命令与导出记录")
         self.terminal_parent = self.pages["串口助手"]
         self.connection_parent = ttk.Frame(self.pages["通讯连接"], padding=12)
-        self._heading(self.pages["通讯连接"], "通讯连接", "使用飞控默认 USB Serial，默认波特率 921600。请关闭占用该端口的串口监视器。")
+        self._heading(self.pages["通讯连接"], "通讯连接", "USB 直连选 921600；CUAV P9 选地面端 COM 口，默认 57600。请关闭占用端口的其他程序。")
         self.connection_parent.pack(fill="x", pady=12)
         self.connection_parent.columnconfigure(0, weight=1)
+        preset = ttk.Frame(self.pages["通讯连接"], padding=(12, 0))
+        preset.pack(before=self.connection_parent, fill="x")
+        ttk.Label(preset, text="连接方式").pack(side="left")
+        self.link_type_box = ttk.Combobox(preset, textvariable=self.link_type,
+                                         values=("USB", "CUAV P9"), state="readonly", width=12)
+        self.link_type_box.pack(side="left", padx=8)
+        self.link_type_box.bind("<<ComboboxSelected>>", self._select_link_type)
+        ttk.Label(preset, text="P9 两端需独立供电；无线连接请手动选择端口。").pack(side="left")
         super()._build_widgets()
         parameter_actions = ttk.Frame(self.parameter_parent)
         parameter_actions.pack(before=self.parameter_parent.winfo_children()[0], fill="x", padx=12, pady=(8, 0))
@@ -116,9 +125,16 @@ class GroundStation(ParameterConsole):
         self.probe_button = ttk.Button(self.pages["通讯连接"], text="识别固件 / 重试", command=lambda: self._request("CAPS"))
         self.reboot_button = ttk.Button(self.pages["通讯连接"], text="重启飞控", command=lambda: self._request("REBOOT"), state="disabled")
         self.reboot_button.pack(anchor="w", padx=12, pady=6)
-        ttk.Label(self.pages["通讯连接"], text="重启前需锁定飞机；设备重启后请重新连接 USB。").pack(anchor="w", padx=12)
+        ttk.Label(self.pages["通讯连接"], text="重启前需锁定飞机；设备重启后请重新连接。").pack(anchor="w", padx=12)
         self.probe_button.pack(anchor="w", padx=12)
         ttk.Label(self.pages["通讯连接"], text="连接后自动识别固件。旧固件仍可使用参数页；数据与传感器页需要新版固件。", wraplength=740).pack(anchor="w", padx=12, pady=18)
+
+    def _select_link_type(self, _=None):
+        if self.auto_detector:
+            self.auto_detector.stop()
+        self.baud.set("57600" if self.link_type.get() == "CUAV P9" else "921600")
+        self._save_settings()
+        self._update_controls()
 
     def _heading(self, page, title, subtitle):
         ttk.Label(page, text=title, style="Title.TLabel").pack(anchor="w", pady=(12, 6))
@@ -365,7 +381,7 @@ class GroundStation(ParameterConsole):
         try:
             self.settings_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.settings_path.with_suffix(".tmp")
-            temporary.write_text(json.dumps({"theme": self.theme.get(), "font_size": self.font_size.get(), "port": self.port.get(), "baud": self.baud.get(), "auto_connect": self.auto_connect.get()}, ensure_ascii=False), encoding="utf-8")
+            temporary.write_text(json.dumps({"theme": self.theme.get(), "font_size": self.font_size.get(), "port": self.port.get(), "baud": self.baud.get(), "auto_connect": self.auto_connect.get(), "link_type": self.link_type.get()}, ensure_ascii=False), encoding="utf-8")
             temporary.replace(self.settings_path)
         except OSError as exc:
             self.status.set(f"设置保存失败：{exc}")
@@ -386,14 +402,15 @@ class GroundStation(ParameterConsole):
             self.reboot_button.configure(state="normal" if idle and self.caps.get("reboot") == "SUPPORTED" else "disabled")
             for button in self.action_buttons:
                 button.configure(state="normal" if idle and self.caps else "disabled")
-        self.link_label.set("● USB 已连接" if self.connected else
-                            "● 自动检测飞控" if self.auto_connect.get() and not self.auto_paused else "● 未连接")
+        self.link_type_box.configure(state="disabled" if self.worker else "readonly")
+        self.link_label.set(f"● {self.link_type.get()} 已连接" if self.connected else
+                            "● 自动检测飞控" if self.link_type.get() == "USB" and self.auto_connect.get() and not self.auto_paused else "● 未连接")
 
     def _start_request(self, *args):
         if self._defer_for_poll(self._start_request, *args):
             return
         if self.gcs_pending or self.radio_calibration or self.radio_save:
-            self.status.set("正在接收 USB 数据，请稍后再试")
+            self.status.set("正在接收串口数据，请稍后再试")
             return
         super()._start_request(*args)
 
@@ -521,13 +538,13 @@ class GroundStation(ParameterConsole):
                     messagebox.showinfo("遥控器校准", "新参数已写入 SD 卡并生效。", parent=self.root)
                 if kind == "REBOOT":
                     self.disconnect()
-                    self.status.set("飞控已接受重启指令；设备重启后请重新连接 USB")
+                    self.status.set("飞控已接受重启指令；设备重启后请重新连接")
                 if kind == "CAPS":
                     self.caps = values
                     self._render_sensors()
-                    self.device_label.set(f"CoFly USB 协议 v1 · {values['imu']} · {values['radio']}")
+                    self.device_label.set(f"CoFly 串口协议 v1 · {values['imu']} · {values['radio']}")
                     self.radio_label.set(f"接收机：{values['radio']} · 原始 PWM 输入与归一化指令")
-                    self.status.set("固件已识别，USB 数据面板已启用")
+                    self.status.set("固件已识别，数据面板已启用")
                 elif kind == "DATA":
                     self.data = values
                     self.last_data = time.monotonic()
@@ -540,7 +557,7 @@ class GroundStation(ParameterConsole):
                     self.last_configuration = time.monotonic()
                     if "aircraft_id" in values:
                         identity = chr(64 + values["aircraft_id"]) if values["config_valid"] else "未配置"
-                        self.device_label.set(f"当前生效身份：{identity} · {values['count']} 机 · USB 协议 v1")
+                        self.device_label.set(f"当前生效身份：{identity} · {values['count']} 机 · 串口协议 v1")
                     identity = values.get("aircraft_id", 1 if values["master"] else 0)
                     self.local_aircraft = chr(64 + identity) if identity else "本机"
                     self._sync_attitude_cards(ORDERS[values["count"]] if identity else ("本机", *ORDERS[values["count"]]))
@@ -681,13 +698,14 @@ class GroundStation(ParameterConsole):
 
     def _station_tick(self):
         now = time.monotonic()
-        self._auto_connect_tick(now)
+        if self.link_type.get() == "USB":
+            self._auto_connect_tick(now)
         if self.gcs_pending and now > self.gcs_pending["deadline"]:
             verb = self.gcs_pending["verb"]
             self.gcs_pending = None
             if verb == "RC_SAVE":
                 self.radio_save = None  # Do not retry an unacknowledged SD write.
-            self.status.set("地面站请求超时；请检查固件或重试识别" if verb == "CAPS" else "USB 请求超时，结果未确认")
+            self.status.set("地面站请求超时；请检查固件或重试识别" if verb == "CAPS" else "串口请求超时，结果未确认")
             self._update_controls()
         self._run_deferred_action()
         if self.radio_save and now >= self.radio_save["deadline"] and not (self.gcs_pending and self.gcs_pending["verb"] == "RC_SAVE"):
@@ -695,7 +713,7 @@ class GroundStation(ParameterConsole):
             self.status.set("五秒内遥控信号未恢复稳定，未保存校准参数；请检查接收机连接")
             self._update_controls()
         if self.radio_calibration and not self.radio_calibration.closed and now - self.last_data > 2:
-            self.radio_calibration.cancel("USB 数据中断，校准已取消，原参数保持不变")
+            self.radio_calibration.cancel("数传数据中断，校准已取消，原参数保持不变")
         if self.connected and not self.pending and not self.gcs_pending and self.file_import is None:
             if self.auto_probe:
                 self.auto_probe = False
@@ -704,7 +722,7 @@ class GroundStation(ParameterConsole):
                 self._request("DATA")
         age = now - self.last_data if self.last_data else float("inf")
         fresh = self.connected and age <= 2
-        self.freshness.set(f"● 实时 · 更新于 {age:.1f} 秒前" if fresh else "● 数据已过期 / 等待 USB 数据")
+        self.freshness.set(f"● 实时 · 更新于 {age:.1f} 秒前" if fresh else "● 数据已过期 / 等待飞控数据")
         if not fresh and self.data:
             self.data.clear()
             self._render_data()
@@ -719,7 +737,7 @@ class GroundStation(ParameterConsole):
         self.radio_save = None
         self.deferred_action = None
         if self.radio_calibration:
-            self.radio_calibration.cancel("USB 已断开，校准已取消")
+            self.radio_calibration.cancel("串口已断开，校准已取消")
         self.auto_next_scan = time.monotonic() + 2
         self.gcs_pending = None
         self.caps.clear()

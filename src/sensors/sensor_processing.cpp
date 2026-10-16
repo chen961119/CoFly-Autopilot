@@ -431,45 +431,6 @@ void printBMI088Raw(const char *tag, const uint8_t *buf, int len, int16_t x,
   USBSerial.println(z);
 }
 
-// 从 TelemetrySerial 查找 0xAA 0x55 帧头、校验二进制数据包并更新 airdata。
-// 不合法的真空速值置零；不完整或校验失败的帧不更新共享状态。
-void getairdata() {
-  while (TelemetrySerial.available() >= sizeof(FC_Binary_Packet)) {
-
-    // 检查第一个帧头
-    if (TelemetrySerial.read() == 0xAA) {
-      // 检查第二个帧头
-      if (TelemetrySerial.peek() == 0x55) {
-        FC_Binary_Packet candidate = {};
-        uint8_t *ptr = reinterpret_cast<uint8_t *>(&candidate);
-
-        TelemetrySerial.read(); // 跳过第二个帧头
-        ptr[0] = 0xAA;
-        ptr[1] = 0x55;
-
-        const size_t payloadLen = sizeof(FC_Binary_Packet) - 2;
-        if (TelemetrySerial.readBytes(&ptr[2], payloadLen) != payloadLen) {
-          continue;
-        }
-
-        // 验证校验和
-        uint8_t calcSum = 0;
-        for (int i = 2; i < (sizeof(FC_Binary_Packet) - 1); i++) {
-          calcSum += ptr[i];
-        }
-
-        if (calcSum == candidate.checksum) {
-          if (!(candidate.tas >= 0.0f && candidate.tas < 200.0f)) {
-            candidate.tas = 0.0f;
-          }
-          airdata = candidate;
-          USBSerial.println(airdata.aoa);
-        }
-      }
-    }
-  }
-}
-
 // 辅助函数：SPI 写寄存器
 // 向指定片选引脚对应的 SPI 设备写入一个寄存器值。
 void writeRegSPI(int cs, uint8_t reg, uint8_t val) {

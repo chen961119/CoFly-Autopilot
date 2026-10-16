@@ -82,7 +82,7 @@ class ParameterConsole:
         self.refresh_button.pack(side="left")
         ttk.Label(connection, text="波特率").pack(side="left", padx=(18, 8))
         self.baud_box = ttk.Combobox(connection, textvariable=self.baud, width=10,
-                                     values=(115200, 500000, 921600))
+                                     values=(57600, 115200, 230400, 500000, 921600))
         self.baud_box.pack(side="left")
         self.connect_button = ttk.Button(connection, text="连接", command=self.toggle_connection)
         self.connect_button.pack(side="left", padx=10)
@@ -393,7 +393,7 @@ class ParameterConsole:
                         "参数文件 CRC 不匹配",
                         "文件内容与 CRC 校验值不匹配，可能经过手动编辑，也可能已损坏。\n\n"
                         "参数名称、类型、范围、完整性及版本检查已通过。\n"
-                        "是否继续通过 USB 将这些参数应用到飞控？\n\n"
+                        "是否继续通过当前串口将这些参数应用到飞控？\n\n"
                         "此操作不会修改电脑上的原文件；重新保存到文件会生成正确的 CRC。",
                         parent=self.root, default=messagebox.NO):
                     self.status.set("已取消文件导入，飞控未修改")
@@ -476,11 +476,15 @@ class ParameterConsole:
                         raise ValueError("参数名称字段宽度无效")
                     self.pending["name_limit"] = name_limit
                     self.received_parameters.clear()
+                    self.pending["deadline"] = time.monotonic() + 8
                 elif kind == "VALUE" and self.pending["count"] is not None:
                     parameter = parameter_from_fields(fields)
                     if parameter.name in self.received_parameters:
                         raise ValueError("参数响应包含重复名称")
                     self.received_parameters[parameter.name] = parameter
+                    # A complete list takes longer over the 57600-baud P9.
+                    # Timeout measures silence, not total transfer duration.
+                    self.pending["deadline"] = time.monotonic() + 8
                 elif kind == "END" and len(fields) == 1:
                     if (self.pending["count"] is None or
                             int(fields[0]) != self.pending["count"] or
