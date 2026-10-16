@@ -13,8 +13,8 @@ STEPS = (
     "将偏航杆向左推到底并保持不动。",
     "将滚转杆向右推到底并保持不动。",
     "将滚转杆向左推到底并保持不动。",
+    "将俯仰杆向下拉到底并保持不动。",
     "将俯仰杆向上推到底并保持不动。",
-    "将俯仰杆向下推到底并保持不动。",
 )
 CHANNELS = (3, 3, 3, 4, 4, 1, 1, 2, 2)
 ENDPOINT_LOW = 1200
@@ -107,6 +107,7 @@ class RadioCalibration:
         if self.step != 9:
             raise ValueError("九步校准尚未完成")
         result = []
+        # Pitch pull-back (step 8) is positive; push-forward (step 9) is negative.
         for c, positive, negative in ((0, 5, 6), (1, 7, 8), (2, 1, 2), (3, 3, 4)):
             high, low = self.positions[positive][c], self.positions[negative][c]
             minimum, maximum = sorted((high, low))
