@@ -15,17 +15,18 @@ void initializeCommandLinks() {
   CommandLinks::right = nullptr;
   if (aircraftIsSingle() || !aircraftConfigurationValid())
     return;
-  Stream *parentInput = aircraftId() == 1 ? nullptr : &ParentSerial;
+  Stream *parentInput = aircraftId() == 1 ? nullptr :
+      (aircraftIsLeft() ? static_cast<Stream *>(&RightLinkSerial) : &LeftLinkSerial);
   const unsigned int localAircraftLevel = aircraftId() == 1 ? 1 :
       static_cast<unsigned int>((aircraftId() - 2) / 2 + 2);
   if (aircraftId() == 1 || aircraftIsLeft()) {
     static AircraftCommandLink left;
-    left.configure(&LeftChildSerial, parentInput, localAircraftLevel);
+    left.configure(&LeftLinkSerial, parentInput, localAircraftLevel);
     CommandLinks::left = &left;
   }
   if (aircraftId() == 1 || aircraftIsRight()) {
     static AircraftCommandLink right;
-    right.configure(&RightChildSerial, parentInput, localAircraftLevel);
+    right.configure(&RightLinkSerial, parentInput, localAircraftLevel);
     CommandLinks::right = &right;
   }
 }
@@ -63,17 +64,18 @@ void initializeSensorLinks() {
   SensorLinks::right = nullptr;
   if (aircraftIsSingle() || !aircraftConfigurationValid())
     return;
-  Stream *parentOutput = aircraftId() == 1 ? nullptr : &ParentSerial;
+  Stream *parentOutput = aircraftId() == 1 ? nullptr :
+      (aircraftIsLeft() ? static_cast<Stream *>(&RightLinkSerial) : &LeftLinkSerial);
   if (aircraftId() == 1 || aircraftIsLeft()) {
     // A 和左侧从机使用 left；静态存储避免堆分配。
     static AircraftSensorLink left;
-    left.configure(parentOutput, &LeftChildSerial, true);
+    left.configure(parentOutput, &LeftLinkSerial, true);
     SensorLinks::left = &left;
   }
   if (aircraftId() == 1 || aircraftIsRight()) {
     // A 和右侧从机使用 right，未走此分支不会构造该对象。
     static AircraftSensorLink right;
-    right.configure(parentOutput, &RightChildSerial, false);
+    right.configure(parentOutput, &RightLinkSerial, false);
     SensorLinks::right = &right;
   }
 }
@@ -127,12 +129,8 @@ bool localWingRelativeAngle(float &angle) {
     return false;
   }
 }
-// 以 921600 波特率启动面向上一级机体的 ParentSerial。
-void beginParentLink() {
-  ParentSerial.begin(921600);
-}
-// 以 921600 波特率启动左右子机所用的 LeftChildSerial 与 RightChildSerial。
-void beginChildLinks() {
-  RightChildSerial.begin(921600);
-  LeftChildSerial.begin(921600);
+// 固定初始化两个物理端口；翼尖也保留下级端口绑定，沿用原收发判断。
+void beginInteraircraftLinks() {
+  RightLinkSerial.begin(921600);
+  LeftLinkSerial.begin(921600);
 }

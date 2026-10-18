@@ -19,6 +19,7 @@ constexpr uint16_t UsbCommandLinkDebug = 1301;
 constexpr uint16_t UsbSensorLinkDebug = 1302;
 constexpr uint16_t UsbActuatorOutputDebug = 1303;
 constexpr uint16_t UsbControlModeDebug = 1304;
+constexpr uint16_t UsbAirspeedDebug = 1305;
 // Five consecutive min/max pairs, channel 1 through channel 5.
 constexpr uint16_t ActuatorPwmFirst = 1501;
 constexpr uint16_t ActuatorPwmLast = 1510;

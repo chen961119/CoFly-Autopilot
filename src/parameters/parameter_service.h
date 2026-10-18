@@ -1,4 +1,5 @@
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
 
 // Called after SD.begin(), before controller/filter initialization.
@@ -8,6 +9,9 @@ void initializeParameterService(bool sdReady);
 void pollParameterService();
 // Same protocol on the X6 UART, with independent RX/TX and listing state.
 void pollTelemetryParameterService();
+// Best-effort complete diagnostic frame on each idle USB/X6 session.
+// Busy links drop independently; poll drains accepted frames without blocking.
+bool queueDiagnosticOutput(const char *text, size_t length);
 // True means accepted in RAM; persistence is debounced per medium by 2 seconds.
 bool saveParameterValue(uint16_t id, double value);
 // Force queued writes before explicit reboot; false blocks reset.

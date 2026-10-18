@@ -16,13 +16,19 @@
 bool MS4525read_Task::readMS4525()
 {
     MS4525_wire->requestFrom(I2C_ADDR, uint8_t(4));
-    if (MS4525_wire->available() != 4) 
+    lastReadBytes = MS4525_wire->available();
+    lastReadOk = lastReadBytes == 4;
+    lastStatus = 0xff;
+    if (!lastReadOk)
     {
-        
+        ++failedReads;
         return false;
     }
   for (int i = 0; i < 4; ++i) buf[i] = MS4525_wire->read();
   uint16_t P_counts = ((buf[0] & 0x3F) << 8) | buf[1];//静压减动压
+  lastStatus = buf[0] >> 6;
+  lastPressureCounts = P_counts;
+  ++successfulReads;
   uint16_t T_counts = ((buf[2] << 3) | (buf[3] >> 5));
   MS4525_param.pressure=(P_counts-COUNTS_MIN) *(Pmax-Pmin)/COUNTS_MAX+Pmin;
   MS4525_param.temperature= float(T_counts) * 200.0f / 2047.0f - 50.0f;

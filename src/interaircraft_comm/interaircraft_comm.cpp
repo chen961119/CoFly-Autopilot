@@ -1,3 +1,4 @@
+#include "diagnostics/diagnostic_frame.h"
 #include "math/units.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 #include "config/aircraft_config.h"
@@ -146,14 +147,16 @@ void AircraftCommandLink::forwardReceivedChildCommands() {
 void AircraftCommandLink::printReceivedData(int enabled) {
   if (enabled != 1)
     return;
-  USBSerial.printf("\n=== 帧#%lu ===\n", static_cast<unsigned long>(++receivedFrameCount));
-  USBSerial.printf("controlMode: %u\n", static_cast<unsigned>(commandPayload.controlMode));
-  USBSerial.print("controlOutputs (int16, scale=4096): ");
-  for (int16_t value : commandPayload.controlOutputs) USBSerial.printf("%d ", static_cast<int>(value));
-  USBSerial.print("\npitchAngles (deg): ");
+  DiagnosticFrame output;
+  output.printf("\n=== 帧#%lu ===\n", static_cast<unsigned long>(++receivedFrameCount));
+  output.printf("controlMode: %u\n", static_cast<unsigned>(commandPayload.controlMode));
+  output.print("controlOutputs (int16, scale=4096): ");
+  for (int16_t value : commandPayload.controlOutputs) output.printf("%d ", static_cast<int>(value));
+  output.print("\npitchAngles (deg): ");
   for (int16_t value : commandPayload.pitchAngles)
-    USBSerial.printf("%.3f ", Units::toDegrees(value / CommandPayload::ANGLE_SCALE));
-  USBSerial.println("\n=============");
+    output.printf("%.3f ", Units::toDegrees(value / CommandPayload::ANGLE_SCALE));
+  output.println("\n=============");
+  output.send();
 }
 
 
@@ -219,25 +222,27 @@ void AircraftSensorLink::getSensorLink() {
 void AircraftSensorLink::printReceivedData(int enabled) {
   if (enabled != 1)
     return;
-  USBSerial.printf("\n=== Sensor frame #%lu ===\n",
+  DiagnosticFrame output;
+  output.printf("\n=== Sensor frame #%lu ===\n",
                    static_cast<unsigned long>(++receivedFrameCount));
-  USBSerial.printf("isLeft: %u\n", sensorPayload.isLeft ? 1u : 0u);
-  USBSerial.print("relativeAngles (deg): ");
+  output.printf("isLeft: %u\n", sensorPayload.isLeft ? 1u : 0u);
+  output.print("relativeAngles (deg): ");
   for (int16_t value : sensorPayload.relativeAngles)
-    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
-  USBSerial.print("\nrollRates (deg/s): ");
+    output.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  output.print("\nrollRates (deg/s): ");
   for (int16_t value : sensorPayload.rollRates)
-    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
-  USBSerial.print("\nrollAngles (deg): ");
+    output.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  output.print("\nrollAngles (deg): ");
   for (int16_t value : sensorPayload.rollAngles)
-    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
-  USBSerial.print("\npitchAngles (deg): ");
+    output.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  output.print("\npitchAngles (deg): ");
   for (int16_t value : sensorPayload.pitchAngles)
-    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
-  USBSerial.print("\nyawAngles (deg): ");
+    output.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  output.print("\nyawAngles (deg): ");
   for (int16_t value : sensorPayload.yawAngles)
-    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
-  USBSerial.println("\n=============");
+    output.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  output.println("\n=============");
+  output.send();
 }
 
 // 汇总本机和下游状态；固定槽位不移位，转换为协议类型后再复制发送。

@@ -175,7 +175,7 @@ namespace
     LOG_ARRAY(ang_vel_filtered);
     LOG_ARRAY(ang_acc);
     LOG_ARRAY(acc);
-    LOG_FIELD(airspeed_A);
+    LOG_FIELD(airspeed);
     LOG_ARRAY(strain_value);
     LOG_FIELD(airdata.aoa);
     LOG_FIELD(airdata.aos);

@@ -56,6 +56,7 @@ struct ParameterSession {
   void error(uint32_t id, const char *code, const char *message);
   void handleCommand(char *line);
   void poll(Stream &port);
+  bool queueDiagnostic(Stream &port, const char *text, size_t length);
 };
 ParameterSession usbSession, radioSession;
 
@@ -519,6 +520,19 @@ void ParameterSession::reset() {
   sdNotice = eeNotice = StorageNotice::None;
 }
 
+bool ParameterSession::queueDiagnostic(Stream &port, const char *text, size_t length) {
+  // A reply may span multiple control cycles. Share its cursor so a diagnostic
+  // can never be inserted in the middle of a protocol frame. Incoming commands,
+  // parameter listings and storage notices take priority over new diagnostics.
+  if (txLength || listing || rxLength || rxOverflow || port.available() ||
+      sdNotice != StorageNotice::None || eeNotice != StorageNotice::None)
+    return false;
+  memcpy(txLine, text, length);
+  txLength = length;
+  txOffset = 0;
+  return true;
+}
+
 void ParameterSession::poll(Stream &port) {
   if (!table || count == 0 || count > MAX_PARAMETERS) return;
   // Drop abandoned partial commands after a radio interruption. Complete
@@ -609,4 +623,13 @@ void pollParameterService() {
 
 void pollTelemetryParameterService() {
   radioSession.poll(TelemetrySerial);
+}
+
+bool queueDiagnosticOutput(const char *text, size_t length) {
+  if (!table || !count || count > MAX_PARAMETERS || !text || !length ||
+      length >= LINE_SIZE || text[length - 1] != '\n' || deviceRebootPending())
+    return false;
+  const bool usb = USBSerial && usbSession.queueDiagnostic(USBSerial, text, length);
+  const bool radio = radioSession.queueDiagnostic(TelemetrySerial, text, length);
+  return usb || radio;
 }

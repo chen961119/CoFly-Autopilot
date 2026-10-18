@@ -577,11 +577,17 @@ class ParameterConsole:
         return "\n[发送] " + payload.decode("utf-8", errors="replace")
 
     def _remember_bytes(self, kind, payload):
+        payload = self._terminal_payload(kind, payload)
+        if not payload:
+            return ""
         self.history.append((kind, payload))
         self.history_size += len(payload)
         while self.history_size > 128_000 and self.history:
             self.history_size -= len(self.history.popleft()[1])
         return self._display_bytes(kind, payload)
+
+    def _terminal_payload(self, kind, payload):
+        return payload
 
     def _rebuild_terminal(self):
         self.display_pending.clear()

@@ -13,6 +13,7 @@ from station_protocol import MODES, decode_fields
 from wing_geometry import ORDERS, configuration_ready, aircraft_attitudes, wing_surfaces, project_wing
 from auto_connect import FlightControllerDetector
 from radio_calibration import RadioCalibrationDialog
+from terminal_filter import AutomaticQueryFilter
 
 SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CoFly" / "ground_station.json"
 
@@ -30,10 +31,7 @@ class GroundStation(ParameterConsole):
         size = settings.get("font_size", 11)
         self.font_size = tk.IntVar(root, value=size if type(size) is int and 9 <= size <= 18 else 11)
         self.auto_connect = tk.BooleanVar(root, value=settings.get("auto_connect") is True)
-        # Preserve the wireless port and baud when upgrading old P9 settings.
         saved_link_type = settings.get("link_type")
-        if saved_link_type == "CUAV P9":
-            saved_link_type = "3DR X6"
         self.link_type = tk.StringVar(root, value=saved_link_type if saved_link_type in ("USB", "3DR X6") else "USB")
         self.auto_detector = None
         self.link_timeouts = 0
@@ -50,6 +48,7 @@ class GroundStation(ParameterConsole):
         self.pages = {}
         self.nav = {}
         self.caps = {}
+        self.terminal_filter = AutomaticQueryFilter()
         self.gcs_pending = None
         self.deferred_action = None
         self.radio_calibration = None
@@ -466,13 +465,19 @@ class GroundStation(ParameterConsole):
             self.radio_calibration = RadioCalibrationDialog(self)
             self._update_controls()
 
-    def _request(self, verb, *args):
-        if verb not in ("DATA", "CONFIG") and self._defer_for_poll(self._request, verb, *args):
+    def _terminal_payload(self, kind, payload):
+        return self.terminal_filter.feed(kind, payload)
+
+    def _request(self, verb, *args, automatic=False):
+        if not automatic and verb not in ("DATA", "CONFIG") and self._defer_for_poll(self._request, verb, *args):
             return
         if not self.connected or self.pending or self.gcs_pending or self.file_import is not None:
             return
         self.request_id = (self.request_id + 1) & 0xffffffff
-        self.gcs_pending = {"id": self.request_id, "verb": verb, "deadline": time.monotonic() + (10 if verb == "RC_SAVE" else 3)}
+        self.gcs_pending = {"id": self.request_id, "verb": verb, "automatic": automatic,
+                            "deadline": time.monotonic() + (10 if verb == "RC_SAVE" else 3)}
+        if automatic:
+            self.terminal_filter.register(self.request_id, verb)
         self.worker.send((f"GCS {verb} {self.request_id}" + (" " + " ".join(args) if args else "") + "\n").encode("ascii"))
         self._update_controls()
 
@@ -560,7 +565,7 @@ class GroundStation(ParameterConsole):
                 if kind == "REBOOT":
                     self.disconnect()
                     self.status.set("飞控已接受重启指令；设备重启后请重新连接")
-                if kind == "CAPS":
+                if kind == "CAPS" and not (pending.get("automatic") and self.caps):
                     self.caps = values
                     self._render_sensors()
                     self.device_label.set(f"CoFly 串口协议 v1 · {values['imu']} · {values['radio']}")
@@ -592,7 +597,7 @@ class GroundStation(ParameterConsole):
         if self._run_deferred_action():
             return
         if kind == "DATA" and self.page == "飞行" and self.config_supported and self.radio_save is None:
-            self._request("CONFIG")
+            self._request("CONFIG", automatic=True)
 
     def _render_sensors(self):
         self.sensor_tree.delete(*self.sensor_tree.get_children())
@@ -742,11 +747,11 @@ class GroundStation(ParameterConsole):
         if self.connected and not self.pending and not self.gcs_pending and self.file_import is None:
             if self.auto_probe:
                 self.auto_probe = False
-                self._request("CAPS")
+                self._request("CAPS", automatic=True)
             elif self.caps and (self.page in ("飞行", "遥控器", "校准") or self.radio_calibration or self.radio_save) and not (self.radio_calibration and self.radio_calibration.closed):
-                self._request("DATA")
+                self._request("DATA", automatic=True)
             elif self.auto_connect.get() and not self.auto_paused and now >= self.next_link_check:
-                self._request("CAPS")
+                self._request("CAPS", automatic=True)
         age = now - self.last_data if self.last_data else float("inf")
         fresh = self.connected and age <= 2
         self.freshness.set(f"● 实时 · 更新于 {age:.1f} 秒前" if fresh else "● 数据已过期 / 等待飞控数据")
@@ -761,6 +766,7 @@ class GroundStation(ParameterConsole):
         self.station_timer = self.root.after(200, self._station_tick)
 
     def disconnect(self):
+        self.terminal_filter = AutomaticQueryFilter()
         self.link_timeouts = 0
         self.next_link_check = 0
         self.radio_save = None

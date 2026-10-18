@@ -1,10 +1,10 @@
 #include "config/serial_config.h"
-// 遥控接收模块：支持编译配置选定的 PPM、PWM、SBUS 或 DSM 接收机。
+// 遥控接收模块：支持编译配置选定的 PPM、PWM 或 SBUS 接收机。
 // 原始实现来自 Nicholas Rehm 的 dRehmFlight 项目，后续按本项目硬件接线调整。
 #include <Arduino.h>
 #include "radio_comm/radio_comm.h"
 #include <SBUS.h>  // SBUS 接收机驱动。
-// 以下引脚用于 PWM 接收机；SBUS 实际使用 SbusSerial，DSM 使用 DsmSerial。
+// 以下引脚用于 PWM 接收机；SBUS 实际使用 SbusSerial。
 const int ch1Pin = 15; // 通道 1：滚转
 const int ch2Pin = 16; // 通道 2：俯仰
 const int ch3Pin = 17; // 通道 3：油门
@@ -47,12 +47,8 @@ uint16_t sbusChannels[16];
 bool sbusFailSafe;
 bool sbusLostFrame;
 #endif
-#if defined USE_DSM_RX
-DSM1024 DSM;
-static const uint8_t num_DSM_channels = 6;
-#endif
 
-// 按编译配置初始化 PPM、PWM、SBUS 或 DSM 接收机及相应中断。
+// 按编译配置初始化 PPM、PWM 或 SBUS 接收机及相应中断。
 void radioSetup() {
   // PPM：单引脚中断，按相邻上升沿的间隔分离各通道。
   #if defined USE_PPM_RX
@@ -85,9 +81,6 @@ void radioSetup() {
   #elif defined USE_SBUS_RX
     sbus.begin();
 
-  // DSM 接收机。
-  #elif defined USE_DSM_RX
-    DsmSerial.begin(115000);
   #else
     // 未配置接收机类型时不执行初始化。
   #endif
@@ -157,21 +150,6 @@ void getCommands() {
     for (unsigned i = 0; i < 4; ++i) markRadioReceived(i);
   }
 
-#elif defined USE_DSM_RX
-  if (DSM.timedOut(micros())) {
-    // USBSerial.println("*** DSM RX TIMED OUT ***");
-  } else if (DSM.gotNewFrame()) {
-    uint16_t values[num_DSM_channels];
-    DSM.getChannelValues(values, num_DSM_channels);
-
-    radio_channel1_raw = values[0];
-    radio_channel2_raw = values[1];
-    radio_channel3_raw = values[2];
-    radio_channel4_raw = values[3];
-    radio_channel5_raw = values[4];
-    radio_channel6_raw = values[5];
-    for (unsigned i = 0; i < 4; ++i) markRadioReceived(i);
-  }
 #endif
 
   // 对关键遥控通道做一阶低通，并保存本次值。
@@ -212,19 +190,6 @@ unsigned long getRadioPWM(int ch_num) {
   
   return returnPWM;
 }
-
-// DSM 串口回调：逐字节交给协议解析器。
-// 接收 DSM 串口字节并交给 DSM 协议解析器。
-void serialEvent3(void)
-{
-  #if defined USE_DSM_RX
-    while (DsmSerial.available()) {
-        DSM.handleSerialEvent(DsmSerial.read(), micros());
-    }
-  #endif
-}
-
-
 
 // PPM/PWM 中断服务函数：只记录边沿时间和脉宽，不执行控制计算。
 

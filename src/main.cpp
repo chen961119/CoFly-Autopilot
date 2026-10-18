@@ -26,9 +26,8 @@ void setup() {
   beginHumanInterfaceLinks();
   initializeFirmwareDebug();
   beginTelemetryLink();
-  beginParentLink();
+  beginInteraircraftLinks();
   beginStrainSensorLink();
-  beginChildLinks();
   beginExternalImuLink();
 
   delay(20);
@@ -69,6 +68,7 @@ void loop() {
 
   updateInertialSensors();
   getairspeed();
+  printAirspeed(airspeedDebugSetting());
   getRotateSensor1();
   ProcessButtonState();
   displayAttitude();

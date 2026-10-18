@@ -138,5 +138,4 @@ extern float ang_vel_B[3], ang_vel_C[3], ang_vel_D[3], ang_vel_E[3], ang_vel_F[3
 // Local downstream joint, derived from the two IMU rolls; never MT6701.
 bool localWingRelativeAngle(float &angle);
 
-void beginParentLink();
-void beginChildLinks();
+void beginInteraircraftLinks();

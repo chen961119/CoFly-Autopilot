@@ -33,8 +33,14 @@
 
 `V_cruise` 为 float32 SD 参数，默认 13 m/s，允许范围 0.1～100 m/s。偏航协调转弯计算直接读取该参数，修改后下一控制周期生效；通过现有参数保存/加载流程持久化，旧文件缺少该项时保留默认值。
 
-执行器调试：整数 SD 参数 `usb_actuator_output_debug` 默认 0，设为 1 后立即启用 `printActuatorOutput(int enabled)`，以独立的 10 Hz 节流打印本机 `ActuatorOutput[5]`。字段顺序为 ail1、ail2、ele、thro、rudd，单位 us；打印点位于最终限幅、锁定覆盖和舵机写出之后，配置无效时打印本机安全位置。USB 未连接或发送缓冲不足时跳过，不等待发送空间。参数通过既有延迟保存机制持久化。
+执行器调试：整数 SD 参数 `usb_actuator_output_debug` 默认 0，设为 1 后立即启用 `printActuatorOutput(int enabled)`，以独立的 10 Hz 节流打印本机 `ActuatorOutput[5]`。字段顺序为 ail1、ail2、ele、thro、rudd，单位 us；打印点位于最终限幅、锁定覆盖和舵机写出之后，配置无效时打印本机安全位置。USB 与 X6 数传独立发送，忙时跳过该链路，不等待发送空间。参数通过既有延迟保存机制持久化。
 
-控制模式调试：整数 SD 参数 `usb_control_mode_debug` 默认 0，设为 1 后立即启用 `printControlMode(int enabled)`，以独立的 10 Hz 节流打印 `initializeInitialControlMode()` 涉及变量的当前值：currentFlightMode、previousFlightMode、activePitchController、previousPitchController、mixerStrategyCommand、configurationControlScale、configurationAngle（rad）、brakeEnabled、controlModeChanged，并附加积分参数 integralControlEnabled。FlightMode 数值 0/1 分别表示手动/增稳；PitchController 数值 0/1 分别表示 PID/INDI。USB 未连接或发送缓冲不足时跳过，参数沿用 SD 延迟保存。
+空速调试：整数 SD 参数 `usb_airspeed_debug` 默认 0，仅接受 0/1。设为 1 后立即启用 `printAirspeed(int enabled)`，在空速采样之后以独立的 10 Hz 节流打印 `[AIRSPEED] airspeed=... (m/s)`；锁定或飞机身份未配置时也可查看。USB 与 X6 数传独立发送，忙时跳过该链路，不等待发送空间，不额外读取传感器。参数通过现有延迟保存机制持久化，旧参数文件缺少该项时默认关闭。
+
+空速输出同时包含 `rx`（最近一次接收字节数）、`read_ok`（是否收到完整4字节）、`status`（首字节高2位，未读到完整帧时为255）、`raw`（14位压力计数）、`pressure/zero/dp`（压力、校零值、未截断差压，Pa）、`temp`（℃）、`reads/failed`（完整帧/不完整帧累计次数，包含上电校零）。这些字段为已有采样结果的快照，不增加 I²C 请求；`read_ok=1` 只说明帧完整，不代表传感器状态正常或数据新鲜。读取失败时压力和温度仍可能是旧值，需结合 `read_ok` 判断。空速为0不能单独证明传感器通信正常；无风、负差压截零和读失败都可能表现为0。
+
+控制模式调试：整数 SD 参数 `usb_control_mode_debug` 默认 0，设为 1 后立即启用 `printControlMode(int enabled)`，以独立的 10 Hz 节流打印 `initializeInitialControlMode()` 涉及变量的当前值：currentFlightMode、previousFlightMode、activePitchController、previousPitchController、mixerStrategyCommand、configurationControlScale、configurationAngle（rad）、brakeEnabled、controlModeChanged，并附加积分参数 integralControlEnabled。FlightMode 数值 0/1 分别表示手动/增稳；PitchController 数值 0/1 分别表示 PID/INDI。USB 与 X6 数传独立发送，忙时跳过该链路，参数沿用 SD 延迟保存。
 
 积分开关：`integralControlEnabled` 为本机 SD 整数参数，默认 1，仅接受 0/1。0 关闭滚转、俯仰、偏航和构型 PID 积分并清除历史，1 开启积分；修改后下一控制周期生效，使用现有延迟保存机制。该参数不由模式初始化或模式切换覆盖，各机独立设置。
+
+Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊断（含命令链、传感器链及 `debug_print` 函数）均同时提供给 USB 与 Serial8/X6，不依赖 USB 在线。诊断先组装完整帧，再交给对应会话的非阻塞发送游标，每周期最多发送 64 字节；等待中的命令、参数列表和存储通知优先，诊断不会插入协议回复中间。链路忙时独立丢弃新诊断帧，数传带宽不足时不保证完整采样率。

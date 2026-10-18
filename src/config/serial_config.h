@@ -25,18 +25,17 @@ inline GdbUsbSerial gdbUsbSerial;
 #endif
 // 第一 USB CDC 在普通、调试固件中始终保留给地面站与常规输出。
 #define USBSerial Serial
-#define ParentSerial Serial6
-#define LeftChildSerial Serial3
-#define RightChildSerial Serial5
+#define LeftLinkSerial Serial3
+#define RightLinkSerial Serial5
+// 从机按左右翼身份选择上级端口；Serial6 不用于机间通信。
 #define ExternalImuSerial Serial1
 #define SbusSerial Serial2
-#define DsmSerial Serial3
 #define StrainSensorSerial Serial7
 #define TelemetrySerial Serial8
 // 3DR X6 transparent UART preset (8N1, no hardware flow control).
 // Configure both radio UARTs to this baud; this is not the RF air data rate.
 constexpr unsigned long TELEMETRY_BAUD = 57600;
 
-// DSM 与左子机共用 Serial3；应变传感器使用 Serial7。
+// 应变传感器使用 Serial7。
 // MT6701 转角传感器使用 Wire1，不占用串口。
 // 这些映射保持现有接线，相应设备由当前配置决定。

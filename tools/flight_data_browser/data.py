@@ -227,7 +227,7 @@ def _smooth_mask(mask, time, close_seconds, min_seconds):
 
 
 def _in_air(columns, data, time):
-    candidates = ["airspeed_A", "ActuatorOutput[3]", "A_thro_PWM", "thro_PWM",
+    candidates = ["airspeed", "ActuatorOutput[3]", "A_thro_PWM", "thro_PWM",
                   "radio_channel3_normalized", "RC_CH3", "CH3_NORMALIZED", "CH3_PWM",
                   *[f"{node}thro_PWM" for node in "BCDEFG"]]
     for name in candidates:
@@ -237,7 +237,7 @@ def _in_air(columns, data, time):
         good = series[np.isfinite(series)]
         if not len(good):
             continue
-        if name == "airspeed_A":
+        if name == "airspeed":
             threshold, gap, minimum = max(8, 0.25 * np.quantile(good, 0.99)), 2, 1
         elif name in ("radio_channel3_normalized", "RC_CH3", "CH3_NORMALIZED"):
             threshold = max(-0.7, min(-0.2, np.min(good) + 0.25 * np.ptp(good)))

@@ -49,7 +49,7 @@
 | `filteredPressure` | 同名 | hPa → Pa | 初始海平面气压 1013.25 改为 101325；静态检查；该全局当前未被使用 |
 | `temp` | 同名 | °C → K | BMP280 温度读数加 273.15，打印标签同步改 K；S |
 
-已为 SI 的空速 `airspeed_A`、`airdata.tas`（m/s）、气压 `pressure`（Pa）、高度 `filteredAltitude`（m）、分配模型质量（kg）、惯量（kg·m²）及几何量（m、m²）保持原值。`strain_value` 与遥控原始通道是设备计数，缺少工程量标定关系，不臆造缩放。
+已为 SI 的空速 `airspeed`、`airdata.tas`（m/s）、气压 `pressure`（Pa）、高度 `filteredAltitude`（m）、分配模型质量（kg）、惯量（kg·m²）及几何量（m、m²）保持原值。`strain_value` 与遥控原始通道是设备计数，缺少工程量标定关系，不臆造缩放。
 
 ## 2. 每个实现位置的修改与验证
 
@@ -317,7 +317,7 @@ git diff --check
 | 171 | [src/sensors/sensor_processing.h](../src/sensors/sensor_processing.h) | 12 | 12 | -3 / +3 | `struct FC_Binary_Packet {` |
 | 172 | [src/sensors/sensor_processing.h](../src/sensors/sensor_processing.h) | 36 | 35 | -0 / +1 | `extern int32_t imuCalibrationChecksumParameter;` |
 | 173 | [src/sensors/sensor_processing.h](../src/sensors/sensor_processing.h) | 57 | 55 | -0 / +1 | `void writeRegSPI(int cs, uint8_t reg, uint8_t val);` |
-| 174 | [src/sensors/sensor_processing.h](../src/sensors/sensor_processing.h) | 60 | 58 | -1 / +1 | `extern float airspeed_A;` |
+| 174 | [src/sensors/sensor_processing.h](../src/sensors/sensor_processing.h) | 60 | 58 | -1 / +1 | `extern float airspeed;` |
 | 175 | [src/sensors/sensor_processing.h](../src/sensors/sensor_processing.h) | 63 | 61 | -1 / +1 | `extern float ang_vel[3];` |
 | 176 | [src/telemetry/telemetry.cpp](../src/telemetry/telemetry.cpp) | 1 | 0 | -0 / +1 | `文件级声明/注释` |
 | 177 | [src/telemetry/telemetry.cpp](../src/telemetry/telemetry.cpp) | 42 | 41 | -1 / +1 | `void telemetry() // 主机数传` |

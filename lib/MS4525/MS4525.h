@@ -25,7 +25,14 @@ class MS4525read_Task
     uint8_t buf[4];
     TwoWire* MS4525_wire;
     public:
-    MS4525_paramt MS4525_param;
+    MS4525_paramt MS4525_param{};
+    // Passive diagnostics: a complete 4-byte read is not a freshness check.
+    uint8_t lastReadBytes = 0;
+    uint8_t lastStatus = 0xff;
+    uint16_t lastPressureCounts = 0;
+    bool lastReadOk = false;
+    uint32_t successfulReads = 0;
+    uint32_t failedReads = 0;
     public:
     MS4525read_Task(TwoWire* wire) : MS4525_wire(wire)
     {

@@ -70,7 +70,8 @@ INDI 以通道3配平中位为零舵角，内部使用浮点物理 PWM，出口�
 | --- | --- |
 | Servo 1～5 / 引脚 2～6 | 左副翼、右副翼、升降、油门、方向 |
 | SPI CS 10、37 | BMI088 加速度计、陀螺仪 |
-| `Wire1`，SDA=17、SCL=16 | OLED、MS4525 空速、MT6701 夹角 |
+| `Wire1`，SDA=17、SCL=16 | OLED、MT6701 夹角 |
+| `Wire2`，SDA=25、SCL=24 | CUAV MEAS/MS4525 空速计，底板6号口 |
 | 内置 SD | `datalogNNN.txt`、参数主备文件 |
 
 串口宏集中在 `src/config/serial_config.h`：
@@ -78,14 +79,31 @@ INDI 以通道3配平中位为零舵角，内部使用浮点物理 PWM，出口�
 | 宏 | 硬件串口 | 用途 |
 | --- | --- | --- |
 | `USBSerial` | `Serial` | 地面站、参数与调试 |
-| `ParentSerial` | `Serial6` | 上级链路，921600 baud |
-| `LeftChildSerial` | `Serial3` | 左侧链路，921600 baud |
-| `RightChildSerial` | `Serial5` | 右侧链路，921600 baud |
+| `LeftLinkSerial` | `Serial3` | 左侧邻机，921600 baud；A/左翼为下级，右翼为上级 |
+| `RightLinkSerial` | `Serial5` | 右侧邻机，921600 baud；A/右翼为下级，左翼为上级 |
 | `ExternalImuSerial` | `Serial1` | 外置 IMU，115200 baud |
 | `SbusSerial` | `Serial2` | SBUS |
-| `DsmSerial` | `Serial3` | DSM 备选，与左侧链路复用需核对 |
 | `StrainSensorSerial` | `Serial7` | Modbus 应变，115200 baud |
 | `TelemetrySerial` | `Serial8` | 3DR X6 双向地面站，57600 / 8N1，无流控（TX=35、RX=34） |
+
+机间通信只初始化 Serial3、Serial5，Serial6 已释放。各相邻节点的右接口 Serial5 接另一节点的左接口 Serial3，TX/RX 交叉、GND 共地；旧接在从机 Serial6 的上级线需迁移。翼尖仍配置未接线的下级端口，沿用现有收发判断。6号口现用于空速计 Wire2，不得同时启用 Serial6。
+
+### CUAV MEAS/MS4525 空速计接6号口
+
+MS4525 驱动绑定 `Wire2`，7 位地址仍为 `0x28`。`calibrateAirspeedSensor()` 在上电校零前显式配置 SDA=25、SCL=24，并以 100 kHz 启动总线；主循环继续每 20 ms 更新 `airspeed`（m/s），零点标定与换算公式保持原样。
+
+| 空速计标识 | 底板6号口 U6 针号 | 网络 / Teensy 引脚 |
+| --- | --- | --- |
+| 5V | 1 | +5V 稳压供电 |
+| GND | 2 | GND |
+| SCL | 3 | TX6 / 24 / SCL2 |
+| SDA | 4 | RX6 / 25 / SDA2 |
+
+空速计线序 `5V/SCL/SDA/GND` 与底板 `5V/GND/TX6/RX6` 不同，按信号转接，不能按顺序直接对插。模块5V供电与 I²C 信号电平不是同一要求；SCL/SDA 上拉须兼容 Teensy 的3.3V输入，若模块上拉到5V，使用 I²C 双向电平转换。外部上拉一般取 2.2～4.7 kΩ，接至3.3V，已有合适上拉时不要重复添加。上电校零时保持皮托管无气流、两路压力相等。
+
+`USE_BAROMETER` 当前停用；如以后启用 BMP280，其同样使用 Wire2（0x76/0x77），与空速计共享总线，校零阶段会将总线统一设为100 kHz。OLED 与 MT6701 保持在 Wire1。
+
+在地面站参数页将 Debug 组的 `usb_airspeed_debug` 设为 1，可在 USB 或 X6 数传串口助手中以最高10 Hz查看 `[AIRSPEED] airspeed=... (m/s)`；设为0关闭。该参数默认0、立即生效，并通过 SD 延迟保存。输出仅显示当前空速值，不作为传感器在线或测量有效的判据。
 
 预留 Servo 6/7 同为引脚 9，旧电机候选引脚含 BMI088 CS 37，当前均为注释代码；重新启用前须处理冲突。
 

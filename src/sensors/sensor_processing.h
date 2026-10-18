@@ -55,7 +55,16 @@ void writeRegSPI(int cs, uint8_t reg, uint8_t val);
 
 // MT6701 原始绝对角和归零后的相对角，均为 rad。
 extern float relativeAngle_raw, relativeAngle_ready;
-extern float airspeed_A;
+extern float airspeed;
+// Snapshot of the last sensor read; retrieving this does not access I2C.
+struct AirspeedDiagnostics {
+  uint8_t receivedBytes, status;
+  uint16_t pressureCounts;
+  bool readOk;
+  uint32_t successfulReads, failedReads;
+  float pressurePa, zeroPa, differentialPa, temperatureC;
+};
+AirspeedDiagnostics airspeedDiagnostics();
 // 统一测量接口：三轴顺序 X/Y/Z；角速度 rad/s、角加速度 rad/s²、加速度 m/s²。
 // X 轴方向与原控制/日志使用方向一致；型号选择、安装轴映射在传感器层完成。
 extern float ang_vel[3];

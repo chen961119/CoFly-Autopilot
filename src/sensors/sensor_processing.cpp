@@ -103,7 +103,7 @@ float AccX_6050, AccY_6050, AccZ_6050;
 float GyroX_6050, GyroY_6050, GyroZ_6050;
 float Gyro_X_EXT, Gyro_Y_EXT, Gyro_Z_EXT;
 float Acc_X_EXT, Acc_Y_EXT, Acc_Z_EXT;
-float airspeed_A;
+float airspeed;
 
 namespace {
 unsigned long last_read_Strain_Time = 0;
@@ -462,8 +462,17 @@ constexpr unsigned long ANGLE_RETRY_INTERVAL_US = 20000;
 } // namespace
 
 
-// 空速
-MS4525read_Task airspeedSensor(&Wire1);
+// CUAV MEAS/MS4525 空速计：底板6号口，SCL2=24（TX6）、SDA2=25（RX6）。
+MS4525read_Task airspeedSensor(&Wire2);
+
+AirspeedDiagnostics airspeedDiagnostics() {
+  const auto &sample = airspeedSensor.MS4525_param;
+  return {airspeedSensor.lastReadBytes, airspeedSensor.lastStatus,
+          airspeedSensor.lastPressureCounts, airspeedSensor.lastReadOk,
+          airspeedSensor.successfulReads, airspeedSensor.failedReads,
+          sample.pressure * PSI_to_Pa, sample.pressure_drift * PSI_to_Pa,
+          (sample.pressure - sample.pressure_drift) * PSI_to_Pa, sample.temperature};
+}
 
 
 float B_accel_6050 =
@@ -492,8 +501,14 @@ void loadRotateSensorOffset() {
   // Already restored and range checked by the unified parameter service.
 
 }
-// 调用空速传感器驱动进行零点标定。
-void calibrateAirspeedSensor() { airspeedSensor.calib(); }
+// 上电校零前显式初始化 Wire2；Serial6 已从机间通信中释放。
+void calibrateAirspeedSensor() {
+  Wire2.setSCL(24);
+  Wire2.setSDA(25);
+  Wire2.begin();
+  Wire2.setClock(100000);
+  airspeedSensor.calib();
+}
 
 // 按编译配置初始化内置 IMU 的总线、电源状态、量程及采样参数。
 void IMUinit() {
@@ -706,14 +721,14 @@ void calculate_IMU_error() {
 // 函数结尾停机，不会返回飞行主循环。
 
 
-// 每隔至少 20 ms 从空速驱动刷新一次 airspeed_A。
+// 每隔至少 20 ms 从空速驱动刷新一次 airspeed。
 void getairspeed() {
   // 以 50 Hz 更新空速；其他控制周期沿用上次有效测量。
   static unsigned long lastAirspeedRead = 0;
   if (micros() - lastAirspeedRead > 20000) {
     lastAirspeedRead = micros();
-    airspeed_A = airspeedSensor.getAirspeed();
-    // USBSerial.println(airspeed_A);
+    airspeed = airspeedSensor.getAirspeed();
+    // USBSerial.println(airspeed);
   }
 }
 

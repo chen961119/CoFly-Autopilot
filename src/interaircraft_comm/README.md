@@ -12,6 +12,22 @@
 
 每当修改通讯中的AircraftCommandLink和AircraftSensorLink所传输的信息时，仅允许修改CommandPayload、setCommandLink、getCommandLink、printReceivedData、SensorPayload、getSensorLink、setSensorLink、void printReceivedData。
 
+## 两串口接线与对象绑定
+
+`beginInteraircraftLinks()` 固定初始化 Serial3（物理左侧）和 Serial5（物理右侧），均为 921600 baud；不再初始化 Serial6。`CommandLinks::left/right` 和 `SensorLinks::left/right` 仍表示 B/D/F、C/E/G 两个分支，不能直接理解为上级串口所在的物理方向。
+
+| 身份 | 上级端口 | 下级端口 |
+| --- | --- | --- |
+| A | 无（nullptr） | 左 Serial3，右 Serial5 |
+| B/D/F | Serial5 | Serial3 |
+| C/E/G | Serial3 | Serial5 |
+
+不按是否翼尖裁剪端口：翼尖同样绑定下级命令输出和状态输入，只是接口未接线。原 `interaircraft_comm.cpp` 的端口非空判断、首帧门控、收发与转发逻辑保持不变。上级端口只有命令解析器读取，下级端口只有状态解析器读取，不会竞争消费同一串口。
+
+所有相邻节点按左接口 Serial3 ↔ 右接口 Serial5 接线，TX/RX 交叉、GND 共地；从机旧上级线需从 Serial6 迁移。各节点应统一更新固件及接线。单机和身份无效时仍不创建链对象。
+
+2026-10-18 本地验证：普通与调试固件编译通过；使用实际身份配置、对象绑定及原收发实现进行主机模拟串口检查，覆盖 1/3/4/5/7 机构型，共 417 项断言通过，包括角色映射、翼尖保留下级端口、首帧门控、读取端口隔离、命令原帧转发、状态上行、有效期和 Serial6 无初始化/收发。临时测试文件已删除，尚未进行实板改线联调。
+
 ## 当前命令协议
 
 命令帧 `55 60` 固定为 40 字节：帧头 2 字节、载荷 37 字节、累加校验 1 字节。载荷按小端紧密排列：`controlMode`（uint8，0 手动、1 增稳），15 个 int16 `controlOutputs`（逻辑值 ×4096）（每槽位为副翼1、副翼2、油门、方向舵、升降舵），3 个 int16 俯仰目标（0.001 rad）。

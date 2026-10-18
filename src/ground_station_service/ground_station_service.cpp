@@ -121,8 +121,6 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     const char *radio = "PPM";
 #elif defined USE_PWM_RX
     const char *radio = "PWM";
-#elif defined USE_DSM_RX
-    const char *radio = "DSM";
 #else
     const char *radio = "DISABLED";
 #endif
@@ -140,7 +138,7 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
       "@COFLY\t%lu\tDATA\tms=%lu\troll=%.3f\tpitch=%.3f\tyaw=%.3f\tgx=%.3f\tgy=%.3f\tgz=%.3f\tax=%.3f\tay=%.3f\taz=%.3f\tairspeed=%.3f\tangle=%.3f\tangle_valid=%d\trc1=%d\trc2=%d\trc3=%d\trc4=%d\trc5=%d\trc6=%d\trc7=%d\trc8=%d\tn1=%.3f\tn2=%.3f\tn3=%.3f\tn4=%.3f\tn5=%.3f\tn6=%.3f\tn7=%.3f\tn8=%.3f\tmode=%s\tlocked=%d\tradio_valid=%d\n",
       static_cast<unsigned long>(id), millis(), Units::toDegrees(att[0]), Units::toDegrees(att[1]), Units::toDegrees(att[2]),
       Units::toDegrees(ang_vel[0]), Units::toDegrees(ang_vel[1]), Units::toDegrees(ang_vel[2]), groundAcceleration(acc[0]), groundAcceleration(acc[1]), groundAcceleration(acc[2]),
-      airspeed_A, Units::toDegrees(relativeRoll), relativeValid, radio_channel1_raw,
+      airspeed, Units::toDegrees(relativeRoll), relativeValid, radio_channel1_raw,
       radio_channel2_raw, radio_channel3_raw, radio_channel4_raw, radio_channel5_raw, radio_channel6_raw, radio_channel7_raw, radio_channel8_raw,
       radio_channel1_normalized, radio_channel2_normalized, radio_channel3_normalized, radio_channel4_normalized,
       radio_channel5_normalized, radio_channel6_normalized, radio_channel7_normalized, radio_channel8_normalized,
