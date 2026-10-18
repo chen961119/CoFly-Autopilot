@@ -63,7 +63,7 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 构型结果由 `controllers.configuration.update(targets.configuration)` 直接更新全局 `configurationControlOutput`，无返回值、临时结果或外部复制。主从机每周期调用以更新构型测量；只有主机增稳模式计算构型闭环，其他周期清零构型控制量并保持积分历史。
 
-所有控制器的当前结果由各自 `update()` 直接发布，未启用时在该方法内清零当周期输出；外部入口只负责准备状态、选择控制器和调用。通用结果重置函数和滚转结果 getter 已删除。油门直通由 `ThrottleController::update()` 发布；INDI 的运动目标、舵机估计和归一化 `indiOutput` 均在其 `update()` 中更新，控制器内部恢复物理PWM命令和延迟队列，仅在出口转换为原有1=1000μs的indiOutput，mixer直接使用。配平中位对应0°，命令范围统一使用通道3上下限；计算、接口和模型限制见 [俯仰 INDI](../docs/indi-variable-naming.md)。
+所有控制器的当前结果由各自 `update()` 直接发布，未启用时在该方法内清零当周期输出；外部入口只负责准备状态、选择控制器和调用。通用结果重置函数和滚转结果 getter 已删除。油门由 `ThrottleController::update()` 发布，主机增稳时默认执行空速低通与 PI，其余路径直通或清零，见 [简单空速控制](../docs/airspeed-control.md)；INDI 的运动目标、舵机估计和归一化 `indiOutput` 均在其 `update()` 中更新，控制器内部恢复物理PWM命令和延迟队列，仅在出口转换为原有1=1000μs的indiOutput，mixer直接使用。配平中位对应0°，命令范围统一使用通道3上下限；计算、接口和模型限制见 [俯仰 INDI](../docs/indi-variable-naming.md)。
 
 模式准备函数在更新本周期模式及俯仰算法后发布 `controlModeChanged`，供控制器重置状态。`ControlParameters::integralControlEnabled` 是本机 SD 整数参数（0 关闭、1 开启，默认 1），独立于手动/增稳模式；主从控制入口读取它进行 PID 积分门控，关闭时清除积分历史。
 

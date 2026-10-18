@@ -5,7 +5,7 @@
 // Called after SD.begin(), before controller/filter initialization.
 void initializeParameterService(bool sdReady);
 // USB RX/TX, deferred saves and reboot processing; call once per control cycle.
-// SD writes are synchronous.
+// SD writes are synchronous and deferred while unlocked.
 void pollParameterService();
 // Same protocol on the X6 UART, with independent RX/TX and listing state.
 void pollTelemetryParameterService();
@@ -13,8 +13,10 @@ void pollTelemetryParameterService();
 // Busy links drop independently; poll drains accepted frames without blocking.
 bool queueDiagnosticOutput(const char *text, size_t length);
 // True means accepted in RAM; persistence is debounced per medium by 2 seconds.
+// EEPROM edits require lock; SD edits are accepted unlocked but only saved locked.
 bool saveParameterValue(uint16_t id, double value);
 // Force queued writes before explicit reboot; false blocks reset.
+// Pending SD writes cannot be flushed while unlocked.
 bool flushParameterWrites();
 // Latched immediately after changing any reboot-effective parameter in RAM.
 bool parameterRebootRequired();

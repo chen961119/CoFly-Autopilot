@@ -23,6 +23,7 @@ bool isStabilizedMode(FlightMode mode) {
   return mode == STABILIZE_MODE;
 }
 
+
 void initializeInitialControlMode() {
   currentFlightMode = MANUAL_MODE;
   previousFlightMode = MANUAL_MODE;

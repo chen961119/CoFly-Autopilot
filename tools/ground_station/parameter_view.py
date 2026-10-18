@@ -416,7 +416,7 @@ class ParameterConsole:
             return
         if not importing["queue"]:
             self.file_import = None
-            self.status.set(f"文件导入完成：已确认应用 {importing['done']} 项 SD 参数，{importing.get('pending_save', 0)} 项等待合并保存，{importing['ram_only']} 项仅内存生效；最后变动后 2 秒保存")
+            self.status.set(f"文件导入完成：已确认应用 {importing['done']} 项 SD 参数，{importing.get('pending_save', 0)} 项等待合并保存，{importing['ram_only']} 项仅内存生效；SD 仅在锁定且最后变动满 2 秒后保存")
             self._update_controls()
             return
         name, value = importing["queue"].popleft()
@@ -525,7 +525,9 @@ class ParameterConsole:
                     self.file_import["pending_save"] = self.file_import.get("pending_save", 0) + (saved == "PENDING")
                     self.file_import["acked"] = True
                 outcome = {"SAVED": f"{self.parameters[name].storage} 无待保存变动",
-                           "PENDING": f"等待合并保存到 {self.parameters[name].storage}（最后变动后 2 秒）",
+                           "PENDING": ("内存已更新，等待合并保存到 SD（仅在锁定且最后变动满 2 秒后）"
+                                       if self.parameters[name].storage == "SD" else
+                                       "等待合并保存到 EEPROM（最后变动后 2 秒）"),
                            "RAM_ONLY": "内存已生效，未持久保存；重启可能恢复旧值"}[saved]
                 self._finish_request(f"{name} = {format_value(value, self.parameters[name].dtype)}，{outcome}" + ("；重启后生效" if self.parameters[name].effect == "REBOOT" else ""))
         except (ValueError, KeyError) as exc:

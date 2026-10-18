@@ -127,6 +127,10 @@ bool flushMedium(ParameterStorage medium) {
   auto &pending = medium == ParameterStorage::SD ? sdSave : eeSave;
   if (!pending.dirty)
     return true;
+  // Live SD edits stay pending until locked, including explicit flush requests.
+  // Deferring is not a failed save: preserve the debounce timer and notices.
+  if (medium == ParameterStorage::SD && !isFlightLocked())
+    return false;
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
   const bool success = persist(candidate, medium);
@@ -138,7 +142,7 @@ bool flushMedium(ParameterStorage medium) {
 void pollParameterSaves() {
   if (eeSave.due(millis()))
     flushMedium(ParameterStorage::EEPROM);
-  if (sdSave.due(millis()))
+  if (isFlightLocked() && sdSave.due(millis()))
     flushMedium(ParameterStorage::SD);
 }
 
@@ -155,8 +159,7 @@ void markParameterWrites(bool sd, bool ee) {
 }
 
 bool requiresFlightLock(const FlightParameter &parameter) {
-  return parameter.storage == ParameterStorage::EEPROM ||
-         parameter.id >= ParameterKey::AircraftId || parameter.effect == ParameterEffect::Reboot;
+  return parameter.storage == ParameterStorage::EEPROM;
 }
 
 enum class SaveResult { Rejected, Pending, Saved };
@@ -276,7 +279,7 @@ void ParameterSession::handleCommand(char *line) {
       return;
     }
     if (requiresFlightLock(table[index]) && !isFlightLocked()) {
-      error(id, "LOCK_REQUIRED", "Lock aircraft before changing reboot parameters or calibration");
+      error(id, "LOCK_REQUIRED", "Lock aircraft before changing EEPROM parameters");
       return;
     }
     if (table[index].storage == ParameterStorage::SD && !storageReady &&

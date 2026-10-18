@@ -14,6 +14,11 @@ extern float maxRoll;
 extern float maxPitch;
 extern float maxYawRate;
 extern float V_cruise; // 偏航协调转弯计算使用的巡航空速，m/s。
+extern int32_t airspeed_control_enabled; // 0 油门直通，1 增稳时空速 PI。
+extern float airspeed_min, airspeed_max; // 油门杆映射的目标空速范围，m/s。
+extern float throttle_cruise; // 空速 PI 的基础油门，0～1。
+extern float Kp_airspeed, Ki_airspeed; // 油门/(m/s)、油门/(m/s*s)。
+extern float airspeed_lpf_hz; // 控制器反馈一阶低通截止频率；0 直通。
 extern float Kp_roll_angle;
 extern float Ki_roll_angle;
 extern float Kd_roll_angle;

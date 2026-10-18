@@ -8,6 +8,7 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 | --- | --- |
 | [系统架构](architecture.md) | 实现边界、模块职责、主循环及修改入口 |
 | [控制架构](control-architecture.md) | 主从流程、目标与输出接口、模式、混控和融合 |
+| [简单空速控制](airspeed-control.md) | 增稳空速 PI、反馈低通、目标映射、回退与调参 |
 | [俯仰 INDI](indi-variable-naming.md) | 控制公式、PWM 与逻辑输出换算、变量单位和模型限制 |
 | [固件指南](firmware-guide.md) | 编译、配置、接线、锁定、方向迁移及日志 |
 | [X6 数传接入](x6-radio.md) | 数传接线、供电、配置及 USB/X6 自动选择 |

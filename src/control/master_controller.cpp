@@ -6,6 +6,9 @@
 #include "control/control_modes.h"
 #include "config/aircraft_config.h"
 #include "parameters/control_parameters.h"
+#include "sensors/sensor_processing.h"
+#include "system/flight_clock.h"
+#include "system/flight_lock.h"
 
 void runMasterController()
 {
@@ -21,7 +24,8 @@ void runMasterController()
   const bool stabilized = isStabilizedMode(currentFlightMode);
   controllers.roll.update(Units::toDegrees(targets.roll), stabilized);
   controllers.yawRate.update(Units::toDegrees(targets.yawRate), Units::toDegrees(targets.roll), 0.0f, stabilized);
-  controllers.throttle.update(targets.throttle);
+  controllers.throttle.update(targets.throttle, airspeed, airspeedValid(),
+                              stabilized, integralEnabled, dt);
   controllers.pitchPid.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::PID);
   controllers.pitchIndi.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::INDI);
   controllers.manual.update(targets);

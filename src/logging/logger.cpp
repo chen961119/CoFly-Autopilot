@@ -239,6 +239,11 @@ namespace
     LOG_FIELD(rollDampingControlOutput.dampingCommand);
     LOG_FIELD(yawRateControlOutput.pidOutput);
     LOG_FIELD(throttleControlOutput.throttleCommand);
+    LOG_FIELD(throttleControlOutput.airspeedTarget);
+    LOG_FIELD(throttleControlOutput.filteredAirspeed);
+    LOG_FIELD(throttleControlOutput.airspeedError);
+    LOG_FIELD(throttleControlOutput.integralTerm);
+    LOG_FIELD(throttleControlOutput.speedControlActive);
     LOG_ARRAY(configurationControlOutput.pidOutputs);
     LOG_ARRAY(configurationControlOutput.angleErrors);
     LOG_ARRAY(configurationControlOutput.measuredAngles);

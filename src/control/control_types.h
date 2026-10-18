@@ -58,7 +58,12 @@ struct YawRateControlOutput {
 };
 
 struct ThrottleControlOutput {
-  float throttleCommand = 0; // 油门直通指令，沿用目标的 0～1 尺度。
+  float throttleCommand = 0; // 基础油门 0～1，随后仍由 mixer 叠加差动。
+  float airspeedTarget = 0; // m/s；仅空速闭环启用时有效。
+  float filteredAirspeed = 0; // m/s；无有效反馈时为 0。
+  float airspeedError = 0; // m/s，目标减反馈。
+  float integralTerm = 0; // 油门尺度的 I 项。
+  bool speedControlActive = false;
 };
 
 struct ConfigurationControlOutput {

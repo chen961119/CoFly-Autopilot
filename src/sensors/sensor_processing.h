@@ -55,7 +55,8 @@ void writeRegSPI(int cs, uint8_t reg, uint8_t val);
 
 // MT6701 原始绝对角和归零后的相对角，均为 rad。
 extern float relativeAngle_raw, relativeAngle_ready;
-extern float airspeed;
+extern float airspeed; // 空速管换算值，m/s；保持未低通的数据用于日志/诊断。
+bool airspeedValid(); // 最近一次读取完整、状态正常且距该次有效样本不超过 100 ms。
 // Snapshot of the last sensor read; retrieving this does not access I2C.
 struct AirspeedDiagnostics {
   uint8_t receivedBytes, status;

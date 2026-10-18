@@ -464,6 +464,15 @@ constexpr unsigned long ANGLE_RETRY_INTERVAL_US = 20000;
 
 // CUAV MEAS/MS4525 空速计：底板6号口，SCL2=24（TX6）、SDA2=25（RX6）。
 MS4525read_Task airspeedSensor(&Wire2);
+namespace {
+bool airspeedReadValid = false;
+uint32_t lastValidAirspeedTime = 0;
+}
+
+bool airspeedValid() {
+  return airspeedReadValid &&
+      static_cast<uint32_t>(micros() - lastValidAirspeedTime) <= 100000UL;
+}
 
 AirspeedDiagnostics airspeedDiagnostics() {
   const auto &sample = airspeedSensor.MS4525_param;
@@ -728,7 +737,11 @@ void getairspeed() {
   if (micros() - lastAirspeedRead > 20000) {
     lastAirspeedRead = micros();
     airspeed = airspeedSensor.getAirspeed();
-    // USBSerial.println(airspeed);
+    uint32_t bits;
+    memcpy(&bits, &airspeed, sizeof(bits));
+    airspeedReadValid = airspeedSensor.lastReadOk && airspeedSensor.lastStatus == 0 &&
+        (bits & 0x7f800000u) != 0x7f800000u && airspeed >= 0 && airspeed <= 100;
+    if (airspeedReadValid) lastValidAirspeedTime = micros();
   }
 }
 

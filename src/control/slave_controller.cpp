@@ -15,7 +15,7 @@ void runSlaveController() {
   const bool stabilized = isStabilizedMode(currentFlightMode);
   controllers.roll.update(0.0f, false);
   controllers.yawRate.update(0.0f, 0.0f, 0.0f, false);
-  controllers.throttle.update(0.0f);
+  controllers.throttle.update(0.0f, 0.0f, false, false, false, 0.0f);
   controllers.pitchPid.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::PID);
   controllers.pitchIndi.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::INDI);
   controllers.configuration.update(targets.configuration);
