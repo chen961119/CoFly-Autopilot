@@ -5,7 +5,7 @@ RollControlOutput rollControlOutput{};
 PitchPidControlOutput pitchPidControlOutput{};
 IndiPitchControlOutput pitchIndiControlOutput{};
 RollDampingControlOutput rollDampingControlOutput{};
-YawControlOutput yawControlOutput{};
+YawRateControlOutput yawRateControlOutput{};
 ThrottleControlOutput throttleControlOutput{};
 ConfigurationControlOutput configurationControlOutput{};
 

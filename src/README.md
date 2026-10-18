@@ -45,18 +45,24 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 主机目标由 `prepareControlMode()` 的主机分支更新全局 `targets`；主分配完成后，`generateSlaveCommand()` 更新 `slaveTargets[]`、`commands.slaves[]` 和独立的发送命令，路由包装结构已删除。`ControlCycleOutput commands` 仅含作动器结果，通信命令保存在独立的 `slaveCommands[]`。`prepareControlMode()` 更新各机的俯仰算法选择，并仅在主机设置遥控模式、策略、构型系数和刹车开关，控制器状态重置由各角色的 `run*Controller()` 处理。
 
-主机手动模式的 `targets.roll/pitch/yaw` 为 ±1，手动控制器直接使用这些字段除以 2；增稳模式为角度/角速度目标。`targets.throttle` 为 0～1。从机俯仰目标保持度制，分配需要角度时通过 `targetRollDegrees()` / `targetPitchDegrees()` / `targetYawDegrees()` 从 `targets` 换算，不再维护独立的全局目标或 manual 字段。
+主机手动模式的 `targets.roll/pitch/yawRate` 为 ±1，手动控制器直接使用这些字段除以 2；增稳模式下 roll/pitch 为角度目标（deg），yawRate 为偏航角速度目标（deg/s）。`targets.throttle` 为 0～1。从机俯仰目标保持度制，`targetRollDegrees()` / `targetPitchDegrees()` 将对应目标换算为角度，`targetYawRateDegreesPerSec()` 将 yawRate 目标换算为角速度，不再维护独立的全局目标或 manual 字段。
+
+偏航角速度控制器为 `control/yaw_rate_pid_controller.h/.cpp` 中的 `YawRatePidController`，实例为 `controllers.yawRate`，结果为 `yawRateControlOutput`。内部增益使用 `Kp_yaw_rate` / `Ki_yaw_rate` / `Kd_yaw_rate`，最大角速度使用 `maxYawRate`；SD 和地面站参数键保留 `Kp_yaw` / `Ki_yaw` / `Kd_yaw` / `maxYaw`，继续兼容已保存的参数。
 
 构型角目标统一使用 `targets.configuration[0～5]`，依次对应 AB、AC、BD、CE、DF、EG，初始值为零。主机 `prepareControlMode()` 每周期根据第 7 通道更新构型目标：归一化值 >0.2 时上反，左侧差值为 +10°、右侧为 -10°；<-0.2 时下反，符号相反；其余为零。每对相邻飞机的目标滚转差为 10°，外侧飞机相对 A 的目标角度逐级累加。
 
 构型控制输出系数 `configurationControlScale` 由控制模式模块持有，固定为 `1.0f`，构型控制器直接读取该全局系数。
 
-`control/control_output.h/.cpp` 按控制器持有全局 `manualControlOutput`、`rollControlOutput`、`pitchPidControlOutput`、`pitchIndiControlOutput`、`rollDampingControlOutput`、`yawControlOutput`、`throttleControlOutput`、`configurationControlOutput`；mixer、日志及遥测直接读取。分配结果仅由 `commands.local/slaves[]` 持有。模式模块持有全局 `previousFlightMode`、`previousPitchController`；模式准备/接收阶段在覆盖当前值前保存旧值，控制入口仅判断切换。
+`control/control_output.h/.cpp` 按控制器持有全局 `manualControlOutput`、`rollControlOutput`、`pitchPidControlOutput`、`pitchIndiControlOutput`、`rollDampingControlOutput`、`yawRateControlOutput`、`throttleControlOutput`、`configurationControlOutput`；mixer、日志及遥测直接读取。分配结果仅由 `commands.local/slaves[]` 持有。模式模块持有全局 `previousFlightMode`、`previousPitchController`；模式准备/接收阶段在覆盖当前值前保存旧值，控制入口仅判断切换。
+
+`pitchIndiControlOutput` 直接保存角速度目标与滤波反馈、角加速度目标与实测值、命令舵偏与估计舵偏，以及有效标志和归一化 `indiOutput`，不再嵌套 `diagnostics` 或重复保存同一过程量。命令/估计舵偏均为 deg、下偏为正；估计值来自舵机模型，并非舵角传感器。上述字段均写入统一 SD 日志。 INDI 变量按 `theta`（俯仰角）、`q`（机体俯仰角速度）、`q_dot_ref`（虚拟控制量/目标角加速度）、`delta_e`（升降舵偏角）命名，后缀和旧名对照见 [INDI 变量命名](../docs/indi-variable-naming.md)。
+
+`ActuatorCommand` 的副翼和升降舵均为下偏正的归一化舵面偏移。手动/PID的抬头控制意图在俯仰分配入口转换一次，INDI内部使用物理PWM，出口indiOutput直接使用原有下偏正逻辑尺度；通信与融合原样传递该舵面坐标。俯仰角目标仍抬头为正，最终 rev 只适配各机安装方向。
 
 主从控制周期均调用统一的 `prepareControlMode()`：主机读取遥控模式，从机接收上级命令，随后共同选择本机俯仰算法并计算模式状态。滚转阻尼在主机 `runMasterController()` 和从机 `mixSlaveCommands()` 内分别调用 `controlControllers().rollDamping.update()`，每周期沿所在角色路径执行一次。`mixSlaveCommands()` 与 `fuseSlaveCommands()` 均直接读写全局命令，无参数和返回值。
 
 构型结果由 `controllers.configuration.update(targets.configuration)` 直接更新全局 `configurationControlOutput`，无返回值、临时结果或外部复制。主从机每周期调用以更新构型测量；只有主机增稳模式计算构型闭环，其他周期清零构型控制量并保持积分历史。
 
-所有控制器的当前结果由各自 `update()` 直接发布，未启用时在该方法内清零当周期输出；外部入口只负责准备状态、选择控制器和调用。通用结果重置函数和滚转结果 getter 已删除。油门直通由 `ThrottleController::update()` 发布；INDI 的运动目标、舵机估计、诊断及 PWM 标定结果均在其 `update()` 中更新，分配层只转换结果尺度。
+所有控制器的当前结果由各自 `update()` 直接发布，未启用时在该方法内清零当周期输出；外部入口只负责准备状态、选择控制器和调用。通用结果重置函数和滚转结果 getter 已删除。油门直通由 `ThrottleController::update()` 发布；INDI 的运动目标、舵机估计和归一化 `indiOutput` 均在其 `update()` 中更新，控制器内部恢复物理PWM命令和延迟队列，仅在出口转换为原有1=1000μs的indiOutput，mixer直接使用。配平中位对应0°，命令范围统一使用通道3上下限；计算、接口和模型限制见 [俯仰 INDI](../docs/indi-variable-naming.md)。
 
 模式准备函数在更新本周期模式及俯仰算法后发布 `controlModeChanged`，供控制器重置状态。`ControlParameters::integralControlEnabled` 是本机 SD 整数参数（0 关闭、1 开启，默认 1），独立于手动/增稳模式；主从控制入口读取它进行 PID 积分门控，关闭时清除积分历史。

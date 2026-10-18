@@ -31,6 +31,7 @@ bool AircraftCommandLink::setCommandLink(unsigned int index, const SlaveCommand 
   if (index >= CHILD_COUNT || command.mode < MANUAL_MODE || command.mode > STABILIZE_MODE)
     return false;
   const ActuatorCommand &output = command.masterContribution;
+  // 分配层已统一舵面下偏为正；通信只编码数值，不引入安装方向或额外取反。
   const float values[] = {output.aileron1, output.aileron2, output.throttle,
                           output.rudder, output.elevator};
   // 在写缓存前检查所有浮点输入；位检查不受 release 的 -ffast-math 影响。

@@ -53,11 +53,11 @@ void prepareControlMode() {
     targets.throttle = 0.5f * (constrain(radio_channel3_normalized, -1.0f, 1.0f) + 1.0f);
     targets.roll = constrain(radio_channel1_normalized, -1.0f, 1.0f);
     targets.pitch = constrain(radio_channel2_normalized, -1.0f, 1.0f);
-    targets.yaw = constrain(radio_channel4_normalized, -1.0f, 1.0f);
+    targets.yawRate = constrain(radio_channel4_normalized, -1.0f, 1.0f);
     if (currentFlightMode != MANUAL_MODE) {
       targets.roll *= ControlParameters::maxRoll;
       targets.pitch = targets.pitch * ControlParameters::maxPitch + ControlParameters::Trim_pitch_angle;
-      targets.yaw *= ControlParameters::maxYaw;
+      targets.yawRate *= ControlParameters::maxYawRate;
     }
   } else {
     // 从机：由所在侧命令链发布模式、俯仰目标和上级作动器贡献。

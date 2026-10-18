@@ -6,7 +6,7 @@ extern RollControlOutput rollControlOutput;
 extern PitchPidControlOutput pitchPidControlOutput;
 extern IndiPitchControlOutput pitchIndiControlOutput;
 extern RollDampingControlOutput rollDampingControlOutput;
-extern YawControlOutput yawControlOutput;
+extern YawRateControlOutput yawRateControlOutput;
 extern ThrottleControlOutput throttleControlOutput;
 extern ConfigurationControlOutput configurationControlOutput;
 

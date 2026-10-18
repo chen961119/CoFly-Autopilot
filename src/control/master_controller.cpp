@@ -12,14 +12,14 @@ void runMasterController()
   const bool integralEnabled = ControlParameters::integralControlEnabled != 0;
   controllers.rollDamping.update();
   controllers.roll.prepare(integralEnabled, controlModeChanged);
-  controllers.yaw.prepare(integralEnabled, controlModeChanged);
+  controllers.yawRate.prepare(integralEnabled, controlModeChanged);
   controllers.configuration.prepare(integralEnabled);
   controllers.pitchPid.prepare(integralEnabled, controlModeChanged);
   if (controlModeChanged) controllers.pitchIndi.reset(targetPitchDegrees());
 
   const bool stabilized = isStabilizedMode(currentFlightMode);
   controllers.roll.update(targets.roll, stabilized);
-  controllers.yaw.update(targets.yaw, targets.roll, 0.0f, stabilized);
+  controllers.yawRate.update(targets.yawRate, targets.roll, 0.0f, stabilized);
   controllers.throttle.update(targets.throttle);
   controllers.pitchPid.update(targets.pitch, stabilized && activePitchController == PitchController::PID);
   controllers.pitchIndi.update(targets.pitch, stabilized && activePitchController == PitchController::INDI);

@@ -1,7 +1,7 @@
 #pragma once
 #include "control/roll_pid_controller.h"
 #include "control/pitch_pid_controller.h"
-#include "control/yaw_pid_controller.h"
+#include "control/yaw_rate_pid_controller.h"
 #include "control/configuration_controller.h"
 #include "control/pitch_indi_controller.h"
 #include "control/manual_controller.h"
@@ -11,7 +11,7 @@
 struct ControllerInstances {
   RollPidController roll;
   PitchPidController pitchPid;
-  YawPidController yaw;
+  YawRatePidController yawRate;
   ConfigurationController configuration;
   PitchIndiController pitchIndi;
   ManualController manual;

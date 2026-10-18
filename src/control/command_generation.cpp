@@ -21,8 +21,9 @@ float targetPitchDegrees() {
       ? targets.pitch * maxPitch + Trim_pitch_angle : targets.pitch;
 }
 
-float targetYawDegrees() {
-  return aircraftId() == 1 && currentFlightMode == MANUAL_MODE ? targets.yaw * maxYaw : targets.yaw;
+// yawRate 目标的统一角速度尺度，单位 deg/s；手动归一化输入按最大偏航角速度换算。
+float targetYawRateDegreesPerSec() {
+  return aircraftId() == 1 && currentFlightMode == MANUAL_MODE ? targets.yawRate * maxYawRate : targets.yawRate;
 }
 
 
@@ -92,7 +93,7 @@ void generateSlaveCommand() {
     ActuatorCommand &child = commands.slaves[i];
     // 手动交联先读取原始副翼值，再原位缩放，避免把刹车和缩放计入交联。
     if (currentFlightMode == MANUAL_MODE) {
-      child.elevator = commands.local.elevator +
+      child.elevator = commands.local.elevator -
           0.5f * (child.aileron1 + child.aileron2) / 2;
     }
     child.aileron1 = child.aileron1 * 0.4f + brakeOffset;

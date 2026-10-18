@@ -78,7 +78,7 @@ void commandSafeActuatorPositions()
   servo5.writeMicroseconds(ActuatorOutput[4]);
 }
 
-// 只将融合后的归一化指令转换到本机物理 PWM；分配与交联已完成。
+// 只将融合后的归一化指令转换到本机物理 PWM；舵面均下偏为正，rev 仅适配安装方向。
 void convertControlCommandsToPWM()
 {
   ActuatorOutput[0] = PWM_CENTER_US + pwm_channel1_trim + pwm_channel1_rev * (1000 * commands.local.aileron1);
@@ -115,11 +115,11 @@ void applyAndTransmitActuatorCommands()
   }
   else
   {
-    ActuatorOutput[0] = limitActuatorPwm(ActuatorOutput[0], PWM_SERVO1_MIN_US, PWM_SERVO1_MAX_US, static_cast<int>(PWM_CENTER_US + pwm_channel1_trim));
-    ActuatorOutput[1] = limitActuatorPwm(ActuatorOutput[1], PWM_SERVO2_MIN_US, PWM_SERVO2_MAX_US, static_cast<int>(PWM_CENTER_US + pwm_channel2_trim));
-    ActuatorOutput[2] = limitActuatorPwm(ActuatorOutput[2], PWM_SERVO3_MIN_US, PWM_SERVO3_MAX_US, static_cast<int>(PWM_CENTER_US + pwm_channel3_trim));
-    ActuatorOutput[3] = limitActuatorPwm(ActuatorOutput[3], PWM_SERVO4_MIN_US, PWM_SERVO4_MAX_US, static_cast<int>(PWM_CENTER_US + pwm_channel4_trim));
-    ActuatorOutput[4] = limitActuatorPwm(ActuatorOutput[4], PWM_SERVO5_MIN_US, PWM_SERVO5_MAX_US, static_cast<int>(PWM_CENTER_US + pwm_channel5_trim));
+    ActuatorOutput[0] = limitActuatorPwm(ActuatorOutput[0], pwm_servo1_min_us, pwm_servo1_max_us, static_cast<int>(PWM_CENTER_US + pwm_channel1_trim));
+    ActuatorOutput[1] = limitActuatorPwm(ActuatorOutput[1], pwm_servo2_min_us, pwm_servo2_max_us, static_cast<int>(PWM_CENTER_US + pwm_channel2_trim));
+    ActuatorOutput[2] = limitActuatorPwm(ActuatorOutput[2], pwm_servo3_min_us, pwm_servo3_max_us, static_cast<int>(PWM_CENTER_US + pwm_channel3_trim));
+    ActuatorOutput[3] = limitActuatorPwm(ActuatorOutput[3], pwm_servo4_min_us, pwm_servo4_max_us, static_cast<int>(PWM_CENTER_US + pwm_channel4_trim));
+    ActuatorOutput[4] = limitActuatorPwm(ActuatorOutput[4], pwm_servo5_min_us, pwm_servo5_max_us, static_cast<int>(PWM_CENTER_US + pwm_channel5_trim));
   }
   servo1.writeMicroseconds(ActuatorOutput[0]);
   servo2.writeMicroseconds(ActuatorOutput[1]);

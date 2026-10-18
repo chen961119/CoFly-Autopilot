@@ -31,7 +31,7 @@ private:
 #pragma pack(push, 1)
   struct CommandPayload {
     uint8_t controlMode = MANUAL_MODE;
-    // 每槽位依次为副翼1、副翼2、油门、方向舵、升降舵，int16 定点逻辑控制量（真实值 ×4096）。
+    // 每槽位依次为副翼1、副翼2、油门、方向舵、升降舵，int16 定点逻辑量（真实值 ×4096）；副翼和升降舵均下偏为正。
     // 原构造函数的低油门默认值移到载荷初始化，不在构造函数中处理协议。
     int16_t controlOutputs[CHILD_COUNT * 5] = {
         0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0};

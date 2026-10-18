@@ -14,6 +14,7 @@
 | `parameter_eeprom.h/.cpp` | EEPROM 主槽与备份槽的读取、保存、校验及恢复 |
 | `parameter_save_debounce.h` | 每种介质独立的 2 秒延迟保存与失败重试计时 |
 | `imu_calibration_integrity.h` | 完整 IMU 校准组的指纹校验 |
+| `actuator_parameter_validation.h` | 五路 PWM 上下限的整份候选快照校验 |
 | `parameter_service.h/.cpp` | 初始化、参数修改校验、RAM 更新、保存调度、校准组提交和 USB 协议 |
 
 添加或调整参数时，优先修改 `parameter_registry.cpp`。修改每行的 `storage` 可选择 SD 或 EEPROM；IMU 校准组必须整体使用同一介质。控制参数默认值在 `control_parameters.cpp`，飞机身份和传感器变量仍由对应硬件模块持有。
@@ -25,6 +26,8 @@
 固件使用 `pio run -e teensy41 -e teensy41_debug` 构建。参数服务与 EEPROM 主备故障测试已完成验证；按项目要求，测试脚本在验证后删除。
 
 八路遥控归一化参数为 `RC1_MIN/MAX/TRIM/REV/DZ` 至 `RC8_MIN/MAX/TRIM/REV/DZ`，直接绑定 `radio_comm` 的参数，全部位于 SD，可通过普通参数读写接口修改。
+
+五路执行器软件限幅为整数 SD 参数 `pwm_servo1_min_us/max_us` 至 `pwm_servo5_min_us/max_us`，默认每路 1000～2000 us。锁定时可修改，立即生效并延迟保存；每路要求驱动范围内的 min <= max。通道3同时用于 INDI 舵角边界推导；锁定输出仍使用 1500+trim。旧 SD 文件缺项时补默认值，已存上下限倒置时整组恢复默认并迁移保存。
 
 本机俯仰算法由整数 SD 参数 `pitch_controller` 选择：0 PID、1 INDI，默认 1；增稳模式使用此选择，修改下一周期生效。各机独立设置，原 `TESTINDI` 宏已移除。控制历史状态由 `control/` 下各控制器对象持有，模式切换由 `control/control_modes.cpp` 管理。
 

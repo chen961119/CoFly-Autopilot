@@ -113,8 +113,8 @@ void printDesiredState() {
     USBSerial.print(targets.roll);
     USBSerial.print(F(" targets.pitch:"));
     USBSerial.print(targets.pitch);
-    USBSerial.print(F(" targets.yaw:"));
-    USBSerial.println(targets.yaw);
+    USBSerial.print(F(" targets.yawRate:"));
+    USBSerial.println(targets.yawRate);
   }
 }
 
@@ -159,8 +159,8 @@ void printPIDoutput() {
     USBSerial.print(rollControlOutput.pidOutput);
     USBSerial.print(F(" pitch_PID:"));
     USBSerial.print(pitchPidControlOutput.pidOutput);
-    USBSerial.print(F(" yaw_PID:"));
-    USBSerial.print(yawControlOutput.pidOutput);
+    USBSerial.print(F(" yawRate_PID:"));
+    USBSerial.print(yawRateControlOutput.pidOutput);
     USBSerial.print(F(" Phiab_PID:"));
     USBSerial.print(configurationControlOutput.pidOutputs[0]);
     USBSerial.print(F(" Phiac_PID:"));

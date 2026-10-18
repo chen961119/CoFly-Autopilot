@@ -3,16 +3,8 @@
 // PWM 逻辑中位统一为 1500 μs；机械中位由各路 trim 修正。
 constexpr int PWM_CENTER_US = 1500;
 
-constexpr int PWM_SERVO1_MIN_US = 1000; // 左副翼
-constexpr int PWM_SERVO1_MAX_US = 2000;
-constexpr int PWM_SERVO2_MIN_US = 1000; // 右副翼
-constexpr int PWM_SERVO2_MAX_US = 2000;
-constexpr int PWM_SERVO3_MIN_US = 1000; // 升降
-constexpr int PWM_SERVO3_MAX_US = 2000;
-constexpr int PWM_SERVO4_MIN_US = 1000; // 油门
-constexpr int PWM_SERVO4_MAX_US = 2000;
-constexpr int PWM_SERVO5_MIN_US = 1000; // 方向
-constexpr int PWM_SERVO5_MAX_US = 2000;
+// 各通道软件上下限为 SD 参数 pwm_servo1_min_us/max_us 至 pwm_servo5_min_us/max_us，
+// 声明与默认值见 parameters/control_parameters.h/.cpp。
 
 // 驱动范围独立于软件限幅，覆盖全部合法锁定位置（1500 + trim）。
 constexpr int PWM_SERVO_ATTACH_MIN_US = 1000;
@@ -21,11 +13,6 @@ constexpr bool validActuatorPwmLimits(int minimum, int maximum) {
   return PWM_SERVO_ATTACH_MIN_US <= minimum && minimum <= maximum &&
          maximum <= PWM_SERVO_ATTACH_MAX_US;
 }
-static_assert(validActuatorPwmLimits(PWM_SERVO1_MIN_US, PWM_SERVO1_MAX_US), "Invalid channel 1 PWM limits");
-static_assert(validActuatorPwmLimits(PWM_SERVO2_MIN_US, PWM_SERVO2_MAX_US), "Invalid channel 2 PWM limits");
-static_assert(validActuatorPwmLimits(PWM_SERVO3_MIN_US, PWM_SERVO3_MAX_US), "Invalid channel 3 PWM limits");
-static_assert(validActuatorPwmLimits(PWM_SERVO4_MIN_US, PWM_SERVO4_MAX_US), "Invalid channel 4 PWM limits");
-static_assert(validActuatorPwmLimits(PWM_SERVO5_MIN_US, PWM_SERVO5_MAX_US), "Invalid channel 5 PWM limits");
 
 // Identity is an EEPROM boot parameter; count is COFLY_AIRCRAFT_COUNT in aircraft_config.h.
 // 俯仰算法由 SD 参数 pitch_controller 选择：0 PID，1 INDI。

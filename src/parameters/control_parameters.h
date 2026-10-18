@@ -12,7 +12,7 @@ extern float k_Clp;
 extern float i_limit;
 extern float maxRoll;
 extern float maxPitch;
-extern float maxYaw;
+extern float maxYawRate;
 extern float V_cruise; // 偏航协调转弯计算使用的巡航空速，m/s。
 extern float Kp_roll_angle;
 extern float Ki_roll_angle;
@@ -27,15 +27,10 @@ extern float B_loop_FLAP;
 extern float indi_pitch_q_gain;
 extern float indi_pitch_effectiveness;
 extern float indi_pitch_pwm_to_deg_k;
-extern float indi_pitch_pwm_to_deg_b;
 extern float indi_pitch_servo_delay_s;
 extern float indi_pitch_servo_tau_s;
-extern float indi_pitch_defl_min;
-extern float indi_pitch_defl_max;
 extern float indi_pitch_rate_limit_deg_s;
 extern float indi_pitch_cmd_lpf_fc_hz;
-extern float indi_pitch_pwm_min;
-extern float indi_pitch_pwm_max;
 extern float Kp_roll_rate;
 extern float Ki_roll_rate;
 extern float Kd_roll_rate;
@@ -48,13 +43,20 @@ extern float Kff_yaw_rate;
 extern float Kff_FLAP_RATE;
 extern float Kp_FLAP_RATE;
 extern float Ki_FLAP_RATE;
-extern float Kp_yaw;
-extern float Ki_yaw;
-extern float Kd_yaw;
+extern float Kp_yaw_rate;
+extern float Ki_yaw_rate;
+extern float Kd_yaw_rate;
 extern float roll_pid_lpf_fc;
 extern float pitch_des_local_rate_lpf_fc;
 extern float roll_pid_dot_lpf_fc;
 } // namespace ControlParameters
+
+// 执行器软件脉宽上下限（us），本机 SD 参数；方向和 trim 不改变其物理含义。
+extern int32_t pwm_servo1_min_us, pwm_servo1_max_us;
+extern int32_t pwm_servo2_min_us, pwm_servo2_max_us;
+extern int32_t pwm_servo3_min_us, pwm_servo3_max_us;
+extern int32_t pwm_servo4_min_us, pwm_servo4_max_us;
+extern int32_t pwm_servo5_min_us, pwm_servo5_max_us;
 
 // 执行器方向和本机安装偏置，供控制、输出与日志模块共享。
 extern int32_t pwm_channel1_rev, pwm_channel2_rev, pwm_channel3_rev, pwm_channel4_rev,

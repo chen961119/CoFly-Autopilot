@@ -211,11 +211,11 @@ namespace
     // 6. 直接记录 targets 原值，手动/增稳模式的尺度约定见 ControlTargets。
     LOG_FIELD(targets.roll);
     LOG_FIELD(targets.pitch);
-    LOG_FIELD(targets.yaw);
+    LOG_FIELD(targets.yawRate);
     LOG_FIELD(targets.throttle);
     LOG_ARRAY(targets.configuration);
 
-    // 7. 各控制器输出（不记录 INDI diagnostics），顺序与 control_output.h 的声明一致。
+    // 7. 各控制器输出，顺序与 control_output.h 的声明一致。
     LOG_FIELD(manualControlOutput.rollCommand);
     LOG_FIELD(manualControlOutput.pitchCommand);
     LOG_FIELD(manualControlOutput.yawCommand);
@@ -225,13 +225,16 @@ namespace
     LOG_FIELD(rollControlOutput.filteredPidOutputDerivative);
     LOG_FIELD(rollControlOutput.equivalentRollAngleDeg);
     LOG_FIELD(pitchPidControlOutput.pidOutput);
-    LOG_FIELD(pitchIndiControlOutput.desiredAngularAccelerationDegPerSec2);
-    LOG_FIELD(pitchIndiControlOutput.desiredRateDegPerSec);
-    LOG_FIELD(pitchIndiControlOutput.filteredRateDegPerSec);
+    LOG_FIELD(pitchIndiControlOutput.q_dot_ref_deg_s2);
+    LOG_FIELD(pitchIndiControlOutput.q_ref_deg_s);
+    LOG_FIELD(pitchIndiControlOutput.q_f_deg_s);
     LOG_FIELD(pitchIndiControlOutput.isValid);
-    LOG_FIELD(pitchIndiControlOutput.elevatorPwmUs);
+    LOG_FIELD(pitchIndiControlOutput.indiOutput);
+    LOG_FIELD(pitchIndiControlOutput.q_dot_meas_deg_s2);
+    LOG_FIELD(pitchIndiControlOutput.delta_e_cmd_deg);
+    LOG_FIELD(pitchIndiControlOutput.delta_e_hat_deg);
     LOG_FIELD(rollDampingControlOutput.dampingCommand);
-    LOG_FIELD(yawControlOutput.pidOutput);
+    LOG_FIELD(yawRateControlOutput.pidOutput);
     LOG_FIELD(throttleControlOutput.throttleCommand);
     LOG_ARRAY(configurationControlOutput.pidOutputs);
     LOG_ARRAY(configurationControlOutput.angleErrorsDeg);

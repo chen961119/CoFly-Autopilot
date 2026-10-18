@@ -5,23 +5,14 @@
 #include "control/control_modes.h"
 #include "control/control_pipeline.h"
 
-float allocatePitchCommand() {
-  if (currentFlightMode == MANUAL_MODE) return manualControlOutput.pitchCommand;
-  if (activePitchController == PitchController::INDI) {
-    // 原 INDI 输出按实测物理 PWM 标定；只在此适配回统一逻辑方向，输出时恢复一次。
-    const int pwm = pitchIndiControlOutput.elevatorPwmUs;
-    return (pwm - PWM_CENTER_US - pwm_channel3_trim) / (1000.0f * pwm_channel3_rev);
-  }
-  // PID 直接输出逻辑控制量；PWM 缩放由执行器层完成。
-  return pitchPidControlOutput.pidOutput;
-}
-
 void mixSlaveCommands() {
   controlControllers().rollDamping.update();
   commands.local = {};
   const float elevator = currentFlightMode == MANUAL_MODE ? slaveCommand.masterContribution.elevator :
-      allocatePitchCommand();
+      (activePitchController == PitchController::INDI ?
+       pitchIndiControlOutput.indiOutput :
+       -pitchPidControlOutput.pidOutput);
   // 交联只在从分配生成；主机升降舵前馈不重复作为本机俯仰贡献。
-  commands.local.aileron1 = commands.local.aileron2 = elevator / 15.0f + rollDampingControlOutput.dampingCommand;
+  commands.local.aileron1 = commands.local.aileron2 = -elevator / 15.0f + rollDampingControlOutput.dampingCommand;
   if (isStabilizedMode(currentFlightMode)) commands.local.elevator = elevator;
 }

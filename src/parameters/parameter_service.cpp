@@ -6,6 +6,7 @@
 #include "parameters/parameter_eeprom.h"
 #include "parameters/parameter_keys.h"
 #include "parameters/parameter_registry.h"
+#include "parameters/actuator_parameter_validation.h"
 #include "parameters/parameter_save_debounce.h"
 #include "parameters/parameter_sd.h"
 #include "parameters/parameter_text.h"
@@ -146,6 +147,8 @@ SaveResult saveOne(size_t index, double value) {
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
   candidate[index] = value;
+  if (!validActuatorPwmParameters(table, count, candidate))
+    return SaveResult::Rejected;
   const size_t idIndex = parameterIndex(ParameterKey::AircraftId);
   if (idIndex < count && !validAircraftConfiguration(candidate[idIndex]))
     return SaveResult::Rejected;
@@ -330,12 +333,28 @@ void initializeParameterService(bool sdReady) {
     }
   }
   for (size_t i = 0; i < count; ++i)
+    candidate[i] = table[i].defaultValue;
+  if (!validActuatorPwmParameters(table, count, candidate)) {
+    count = 0;
+    storageReady = false;
+    return;
+  }
+  for (size_t i = 0; i < count; ++i)
     table[i].write(defaults[i]);
   bool needsMigration = false;
   ParameterSD::initialize(storageReady, table, count, defaults, validValue);
   const bool loadedSD = ParameterSD::load(candidate, needsMigration, loadStats);
   if (!loadedSD)
     memcpy(candidate, defaults, count * sizeof(double));
+  // Individual SD values may be in range while a min/max pair is reversed.
+  // Restore the PWM-limit group only; retain all other compatible parameters.
+  if (!validActuatorPwmParameters(table, count, candidate)) {
+    for (size_t i = 0; i < count; ++i)
+      if (table[i].id >= ParameterKey::ActuatorPwmFirst && table[i].id <= ParameterKey::ActuatorPwmLast)
+        candidate[i] = table[i].defaultValue;
+    needsMigration = true;
+    USBSerial.printf("[PARAM] Invalid actuator PWM limits; restored default limits\n");
+  }
   bool completeCalibration = true;
   for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::EEPROM && eepromLoaded[i])
