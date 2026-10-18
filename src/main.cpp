@@ -25,7 +25,7 @@ void setup() {
   // 建立串口链路，再初始化传感器、执行器和控制器。
   beginHumanInterfaceLinks();
   initializeFirmwareDebug();
-  // beginTelemetryLink();
+  beginTelemetryLink();
   beginParentLink();
   beginStrainSensorLink();
   beginChildLinks();
@@ -73,9 +73,6 @@ void loop() {
   ProcessButtonState();
   displayAttitude();
   Strain_read_all();
-  getairdata();
-
-  // telemetry(); //数传。 传输等效姿态角，相对转角，相对扭转角 10hz
 
   if (!aircraftConfigurationValid() || parameterRebootRequired()) {
     setFlightLocked(true);
@@ -83,6 +80,7 @@ void loop() {
     printActuatorOutput(actuatorOutputDebugSetting());
     printControlMode(controlModeDebugSetting());
     pollParameterService();
+    telemetry();
     loopRate(500);
     return;
   }
@@ -101,6 +99,7 @@ void loop() {
   getCommands(); // 接收值供下一周期控制使用，避免周期中途改变控制输入。
   updateRadioNormalized();
   pollParameterService();
+  telemetry();
 
   loopRate(500);// 目标频率 500 Hz；若本周期已超时，loopRate 不会额外等待。
 }

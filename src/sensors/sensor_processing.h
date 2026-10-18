@@ -50,7 +50,6 @@ void getICM42688data();
 void getBMI088data();
 void printBMI088Raw(const char *tag, const uint8_t *buf, int len, int16_t x,
                     int16_t y, int16_t z);
-void getairdata();
 void getIMUdata_EXT();
 void writeRegSPI(int cs, uint8_t reg, uint8_t val);
 

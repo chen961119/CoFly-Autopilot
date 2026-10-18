@@ -41,7 +41,7 @@ pio device monitor -e teensy41
 ## 配套工具
 
 - [飞行数据浏览器](tools/flight_data_browser/README.md)：读取 SD 日志，多文件对比、子图、飞行区段、FFT 和 CSV 导出。
-- [USB 地面站](tools/ground_station/README.md)：读取、修改与保存本机参数，支持 SD 恢复和串口日志。
+- [USB / X6 地面站](tools/ground_station/README.md)：通过 USB 或 3DR X6 读取、修改与保存本机参数，查看姿态和构型，支持 SD 恢复和串口日志。
 - [Teensy 板上断点调试](tools/teensy_debug/README.md)：通过 `teensy41_debug` 环境与 VS Code 调试板上固件。
 
 ## 仓库结构
@@ -54,9 +54,9 @@ CoFly-Autopilot/
 │   ├── sensors/              # 传感器、滤波与姿态估计
 │   ├── actuators/            # 执行器输出与 PWM 限制
 │   ├── interaircraft_comm/   # 机间通讯：收发实现与公共逻辑
-│   ├── ground_station_service/ # USB 地面站服务
+│   ├── ground_station_service/ # USB / X6 地面站服务
 │   ├── radio_comm/           # 遥控接收
-│   ├── telemetry/            # 遥测输出
+│   ├── telemetry/            # X6 双向数传
 │   ├── system/               # 时钟、锁定与重启
 │   ├── diagnostics/          # 诊断输出与固件调试
 │   ├── interface/            # 按键与 OLED
@@ -66,7 +66,7 @@ CoFly-Autopilot/
 ├── lib/                      # 随仓库保存的驱动和依赖库
 ├── tools/
 │   ├── flight_data_browser/  # Python 飞行日志读取与分析
-│   ├── ground_station/    # USB 地面站与测试
+│   ├── ground_station/    # USB / X6 地面站与测试
 │   └── teensy_debug/         # 板上调试脚本与配置模板
 ├── docs/
 │   ├── README.md             # 文档导航

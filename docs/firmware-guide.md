@@ -27,11 +27,11 @@ pio device monitor -e teensy41
 
 板上断点调试使用 `teensy41_debug` 和 VS Code 的“TeensyDebug：编译、上传并调试”。调试固件的 `Serial` 保留地面站，`SerialUSB1` 用于 GDB；断点暂停时地面站请求也暂停。克隆后先构建以生成本机配置，详见 [板上调试](../tools/teensy_debug/README.md)。
 
-## USB 地面站
+## USB / X6 地面站
 
 [地面站软件](../tools/ground_station/README.md) 位于 `tools/ground_station/`，支持参数读取、就地编辑、SD 恢复、重启提示、传感器/遥控/飞行数据显示及串口助手。参数页双击当前值编辑，Enter 保存，Esc 取消。启动方式、协议和电脑端依赖统一在工具文档维护。
 
-USB 参数与地面站协议共用 `Serial`。立即生效参数接受后在 RAM 中使用，存储采用 2 秒合并保存；身份重启生效。传感器校准与设置的部分 USB 接口仍返回 `NOT_IMPLEMENTED`，不能据此代替板上按键校准。
+USB 参数与地面站协议共用 `Serial`，3DR X6 通过 `Serial8` 独立收发同一协议。两条链路各自维护解析和回复状态；自动连接优先 USB，规则见地面站工具文档，接线和模块配置见 [X6 数传接入](x6-radio.md)。立即生效参数接受后在 RAM 中使用，存储采用 2 秒合并保存；身份重启生效。传感器校准与设置的部分 USB 接口仍返回 `NOT_IMPLEMENTED`，不能据此代替板上按键校准。
 
 ## 执行器映射与方向迁移
 
@@ -85,7 +85,7 @@ INDI 以通道3配平中位为零舵角，内部使用浮点物理 PWM，出口�
 | `SbusSerial` | `Serial2` | SBUS |
 | `DsmSerial` | `Serial3` | DSM 备选，与左侧链路复用需核对 |
 | `StrainSensorSerial` | `Serial7` | Modbus 应变，115200 baud |
-| `TelemetrySerial` | `Serial8` | 数传发送/气动数据接收，115200 baud |
+| `TelemetrySerial` | `Serial8` | 3DR X6 双向地面站，57600 / 8N1，无流控（TX=35、RX=34） |
 
 预留 Servo 6/7 同为引脚 9，旧电机候选引脚含 BMI088 CS 37，当前均为注释代码；重新启用前须处理冲突。
 
@@ -115,7 +115,9 @@ MT6701 仅用于测量与日志。构型控制、分配、OLED、地面站及机
 | 级联命令 | `55 60` | 40 字节，模式、五路定点逻辑输出和俯仰目标 |
 | 状态汇总 | `55 71` | 34 字节，左右标志、相对角、滚转角速度和三轴姿态 |
 | 应变 | Modbus RTU | 五通道请求，CRC16/Modbus |
-| 气动数据 | `AA 55` | Serial8 二进制数据包 |
+| 地面站 | `GCS` / `PARAM` | USB / Serial8 ASCII 行协议 |
+
+Serial8 旧 `AA 55` 气动读取和 `55 71` 二进制遥测已停用，避免吞掉地面站命令或混入文本回复；外部气动数据需另行分配串口。
 
 级联协议没有版本字段。改变布局、长度、缩放或方向语义须同步更新所有节点；当前命令/状态帧与旧 50/33 字节版本不兼容。对象、缓存与路由详见 [机间通讯模块](../src/interaircraft_comm/README.md)。
 

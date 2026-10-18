@@ -10,6 +10,7 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 | [控制架构](control-architecture.md) | 主从流程、目标与输出接口、模式、混控和融合 |
 | [俯仰 INDI](indi-variable-naming.md) | 控制公式、PWM 与逻辑输出换算、变量单位和模型限制 |
 | [固件指南](firmware-guide.md) | 编译、配置、接线、锁定、方向迁移及日志 |
+| [X6 数传接入](x6-radio.md) | 数传接线、供电、配置及 USB/X6 自动选择 |
 | [参数与持久存储](parameter-storage.md) | 首次配置、参数注册、SD/EEPROM、V8 格式及迁移 |
 | [软件需求](requirements.md) | 唯一需求编号、目标行为及验收矩阵；不代表全部已实现 |
 
@@ -19,7 +20,7 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 
 | 入口 | 内容 |
 | --- | --- |
-| [USB 地面站](../tools/ground_station/README.md) | 参数配置、协议、SD 恢复与电脑端使用 |
+| [USB / X6 地面站](../tools/ground_station/README.md) | 参数配置、协议、SD 恢复与电脑端使用 |
 | [飞行数据浏览器](../tools/flight_data_browser/README.md) | SD 日志、多机曲线、FFT 和数据导出 |
 | [板上调试](../tools/teensy_debug/README.md) | TeensyDebug 环境与 VS Code 调试 |
 | [参数板上测试记录](../tools/ground_station/BOARD_TEST_REPORT.md) | 2026-10-07 的测试范围与结果 |

@@ -3,9 +3,11 @@
 
 // Called after SD.begin(), before controller/filter initialization.
 void initializeParameterService(bool sdReady);
-// Bounded serial RX/TX processing; call once at the end of a control cycle.
+// USB RX/TX, deferred saves and reboot processing; call once per control cycle.
 // SD writes are synchronous.
 void pollParameterService();
+// Same protocol on the X6 UART, with independent RX/TX and listing state.
+void pollTelemetryParameterService();
 // True means accepted in RAM; persistence is debounced per medium by 2 seconds.
 bool saveParameterValue(uint16_t id, double value);
 // Force queued writes before explicit reboot; false blocks reset.
