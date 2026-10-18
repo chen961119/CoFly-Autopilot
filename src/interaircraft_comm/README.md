@@ -10,11 +10,11 @@
 
 ## 修改规则
 
-每当修改通讯中的AircraftCommandLink和AircraftSensorLink所传输的信息时，一般仅允许修改CommandPayload、setCommandLink、getCommandLink、printReceivedData、SensorPayload、getSensorLink、setSensorLink、void printReceivedData。
+每当修改通讯中的AircraftCommandLink和AircraftSensorLink所传输的信息时，仅允许修改CommandPayload、setCommandLink、getCommandLink、printReceivedData、SensorPayload、getSensorLink、setSensorLink、void printReceivedData。
 
 ## 当前命令协议
 
-命令帧 `55 60` 固定为 40 字节：帧头 2 字节、载荷 37 字节、累加校验 1 字节。载荷按小端紧密排列：`controlMode`（uint8，0 手动、1 增稳），15 个 int16 `controlOutputs`（逻辑值 ×4096）（每槽位为副翼1、副翼2、油门、方向舵、升降舵），3 个 int16 俯仰目标（0.1 度）。
+命令帧 `55 60` 固定为 40 字节：帧头 2 字节、载荷 37 字节、累加校验 1 字节。载荷按小端紧密排列：`controlMode`（uint8，0 手动、1 增稳），15 个 int16 `controlOutputs`（逻辑值 ×4096）（每槽位为副翼1、副翼2、油门、方向舵、升降舵），3 个 int16 俯仰目标（0.001 rad）。
 
 五路输出均为 PWM 缩放前的逻辑量，以 int16 定点编码（发送乘 4096，接收除 4096），1 对应 1000 μs，但报文不包含 PWM 中位、rev 或 trim，逻辑值不限制在 ±1，编码范围为 [-8, 7.999755859375]，超过编码范围时饱和限幅。手动模式的 elevator 是完整升降舵贡献，增稳模式是主机前馈，从机融合本机闭环贡献后才换算物理 PWM。上行状态包传输三轴姿态，不再回传升降舵 PWM。
 
@@ -29,8 +29,24 @@
 
 ## 当前状态协议
 
-`55 71` 状态帧仍为 34 字节（31 字节载荷）：左右 bool 标志及各 3 项 int16 相对滚转角、滚转角速度、滚转、俯仰、偏航。角度为 0.1 度，角速度为 0.1 度/秒。原最后三项物理升降舵 PWM 已替换为偏航角，帧长虽相同，字段含义不兼容，各节点仍须同步更新固件。
+`55 71` 状态帧仍为 34 字节（31 字节载荷）：左右 bool 标志及各 3 项 int16 相对滚转角、滚转角速度、滚转、俯仰、偏航。角度为 0.001 rad，角速度为 0.001 rad/s。原最后三项物理升降舵 PWM 已替换为偏航角，帧长虽相同，字段含义不兼容，各节点仍须同步更新固件。
 
-接收端使用 `att_B[3]` 至 `att_G[3]`，索引 0/1/2 为滚转/俯仰/偏航，单位 deg。本机槽位写入 `att[3]`，外侧槽位汇总下游姿态，内侧槽位沿用原清零行为；左右槽位、上行频率、帧头和校验不变。删除子机升降舵 PWM 的全局缓存及日志列，执行器日志仅记录本机最终 `ActuatorOutput[5]`，不记录从机逻辑输出缓存。
+接收端使用 `att_B[3]` 至 `att_G[3]`，索引 0/1/2 为滚转/俯仰/偏航，单位 rad，角速度为 rad/s；编解码直接乘/除 1000，不再经过度制。本机槽位写入 `att[3]`，外侧槽位汇总下游姿态，内侧槽位沿用原清零行为；左右槽位、上行频率、帧头和校验不变。删除子机升降舵 PWM 的全局缓存及日志列，执行器日志仅记录本机最终 `ActuatorOutput[5]`，不记录从机逻辑输出缓存。
 
 `AircraftCommandLink::localAircraftLevel` 表示链路层级（A=1、B/C=2、D/E=3、F/G=4），不是唯一飞机 ID。`configure()` 的层级参数为 `ownAircraftLevel`，本机命令槽位按层级减 2 提取。该重命名不改变串口绑定、收发或转发行为。
+
+## 角度与角速度编码
+
+`CommandPayload::pitchAngles` 和 `SensorPayload` 的全部角度/角速度字段均保留 int16 类型。两种载荷各自声明静态 `ANGLE_SCALE=1000`，不占报文字节。
+
+| 字段 | 发送 | 接收 | 单位/步长 |
+| --- | --- | --- | --- |
+| 命令 `pitchAngles` | rad ×1000，取最近整数 | 编码值 ÷1000 | rad / 0.001 rad |
+| 状态 `relativeAngles/rollAngles/pitchAngles/yawAngles` | rad ×1000，取最近整数 | 编码值 ÷1000 | rad / 0.001 rad |
+| 状态 `rollRates` | rad/s ×1000，取最近整数 | 编码值 ÷1000 | rad/s / 0.001 rad/s |
+
+正负数均使用对称四舍五入，恰好半步时远离零；未饱和时理论量化误差不超过 0.0005 rad 或 0.0005 rad/s，另有 float32 舍入误差。int16 范围对应 [-32.768, 32.767] rad 或 rad/s（角速度约 [-1877.468, 1877.411] 度/秒）。命令目标超范围或为 NaN/Inf 时拒绝更新整个命令槽位；状态超范围时饱和，NaN/Inf 编码为 0，避免浮点转 int16 溢出；这些异常占位值本身不代表有效测量。
+
+两个 `printReceivedData()` 均先将编码值除以 1000，再转度，角度标签为 `deg`、角速度标签为 `deg/s`，保留三位小数。例如编码 1000 表示 1 rad，打印 57.296 度；编码 -500 表示 -0.5 rad，打印 -28.648 度。`controlOutputs` 的 ×4096 编码与原始整数打印保持不变。
+
+本次线上单位与之前的 0.1 度协议不兼容。帧头、大小、校验、槽位、收发与转发实现、100/200 Hz 频率及全部时间单位不变；各机需要统一使用新协议固件。独立数值/帧/打印验证见 [弧度协议验证报告](../../docs/interaircraft-radian-protocol.md)。

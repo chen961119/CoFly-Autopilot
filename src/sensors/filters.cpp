@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "sensors/filters.h"
 #include "config/flight_config.h"
 #include "sensors/sensor_processing.h"
@@ -82,8 +83,9 @@ float quat[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // W/X/Y/Z，初始机体水平。
 // 内置 IMU 使用六轴 Madgwick 姿态融合；外置 IMU 直接提供姿态。
 void Madgwick() {
 #if defined INTIMU && !defined EXTIMU
-  Madgwick6DOF(GyroX_6050, GyroY_6050, GyroZ_6050, AccX_6050, AccY_6050,
-               AccZ_6050, dt);
+  Madgwick6DOF(Units::toDegrees(GyroX_6050), Units::toDegrees(GyroY_6050), Units::toDegrees(GyroZ_6050),
+               Units::gravityUnits(AccX_6050), Units::gravityUnits(AccY_6050),
+               Units::gravityUnits(AccZ_6050), dt);
 #endif
 }
 
@@ -182,11 +184,8 @@ void Madgwick6DOF(float gx, float gy, float gz, float ax, float ay, float az,
   quat[3] *= recipNorm;
 
   // 输出角度；滚转角按当前安装方向取反。
-  att[0] = -atan2(quat[0] * quat[1] + quat[2] * quat[3], 0.5f - quat[1] * quat[1] - quat[2] * quat[2]) *
-             57.29577951; // 转为度。
+  att[0] = -atan2(quat[0] * quat[1] + quat[2] * quat[3], 0.5f - quat[1] * quat[1] - quat[2] * quat[2]) ; // rad。
   att[1] =
-      asin(constrain(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]), -0.999999, 0.999999)) *
-      57.29577951; // 转为度。
-  att[2] = - atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) *
-            57.29577951; // 转为度。
+      asin(constrain(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]), -0.999999, 0.999999)) ; // rad。
+  att[2] = - atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) ; // rad。
 }

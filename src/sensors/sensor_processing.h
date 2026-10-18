@@ -9,9 +9,9 @@
 struct FC_Binary_Packet {
   uint8_t head1;
   uint8_t head2;
-  float aoa;
-  float aos;
-  float tas;
+  float aoa; // 线上 deg；全局 airdata 发布 rad。
+  float aos; // 线上 deg；全局 airdata 发布 rad。
+  float tas; // m/s。
   uint8_t statA;
   uint8_t statS;
   uint8_t checksum;
@@ -33,6 +33,7 @@ extern FC_Binary_Packet airdata;
 extern CalibrationAccGyroData calAccGyroData;
 extern int32_t imuCalibrationValidParameter, imuCalibrationModelParameter;
 extern int32_t imuCalibrationChecksumParameter;
+// 持久化标定参数保持度制；不是运行时物理状态。
 extern float relativeAngle_offset;
 extern SPISettings bmiSettings;
 // 五路应变原始测量值，顺序与传感器报文通道 1～5 一致。
@@ -53,12 +54,13 @@ void getairdata();
 void getIMUdata_EXT();
 void writeRegSPI(int cs, uint8_t reg, uint8_t val);
 
+// MT6701 原始绝对角和归零后的相对角，均为 rad。
 extern float relativeAngle_raw, relativeAngle_ready;
 extern float airspeed_A;
-// 统一测量接口：三轴顺序 X/Y/Z；角速度 deg/s、角加速度 deg/s²、加速度 g。
+// 统一测量接口：三轴顺序 X/Y/Z；角速度 rad/s、角加速度 rad/s²、加速度 m/s²。
 // X 轴方向与原控制/日志使用方向一致；型号选择、安装轴映射在传感器层完成。
 extern float ang_vel[3];
-// 传感器层每次发布测量时统一滤波，三轴顺序 X/Y/Z，单位 deg/s。
+// 传感器层每次发布测量时统一滤波，三轴顺序 X/Y/Z，单位 rad/s。
 extern float ang_vel_filtered[3];
 extern float ang_acc[3];
 extern float acc[3];

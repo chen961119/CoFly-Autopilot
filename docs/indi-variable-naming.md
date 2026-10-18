@@ -1,6 +1,6 @@
 # 俯仰 INDI：计算与变量约定
 
-本机俯仰 INDI 由 [PitchIndiController](../src/control/pitch_indi_controller.cpp) 实现，主从机复用。它求解本机升降舵，不负责机间分配。俯仰抬头为正，升降舵下偏为正；角度、角速度和角加速度分别用 deg、deg/s、deg/s²。
+本机俯仰 INDI 由 [PitchIndiController](../src/control/pitch_indi_controller.cpp) 实现，主从机复用。它求解本机升降舵，不负责机间分配。俯仰抬头为正，升降舵下偏为正；全局发布的角度、角速度和角加速度分别用 rad、rad/s、rad/s²；控制器内部局部变量、历史状态及参数仍用原有 deg、deg/s、deg/s²，在全局读写边界换算。
 
 ## 变量与发布接口
 
@@ -16,22 +16,24 @@
 | `tau_*_s`、`alpha_*` | 时间常数（秒）、无量纲离散滤波系数 |
 | `pwm_*_us` | 内部物理 PWM 命令或历史，单位 μs |
 
-以下为 `pitchIndiControlOutput` 的直接成员，类型定义见 [control_types.h](../src/control/control_types.h)：
+以下为 SI 全局 `pitchIndiControlOutput` 的直接成员（q 为 rad/s、q_dot 为 rad/s²、delta_e 为 rad），类型定义见 [control_types.h](../src/control/control_types.h)：
 
 | 字段 | 含义 |
 | --- | --- |
-| `q_ref_deg_s` | 运动学转换并限幅后的机体俯仰角速度参考 |
-| `q_f_deg_s` | INDI 专用低通后的 q 反馈 |
-| `q_dot_ref_deg_s2` | 虚拟控制量：目标俯仰角加速度 |
-| `q_dot_meas_deg_s2` | 用于增量反演的 `ang_acc[1]`，已由传感器层差分滤波 |
-| `delta_e_cmd_deg` | 限速、一次低通及通道3范围限幅后的命令舵偏 |
-| `delta_e_hat_deg` | 本周期推进舵机模型后的舵偏估计 |
+| `q_ref` | 运动学转换并限幅后的机体俯仰角速度参考 |
+| `q_f` | INDI 专用低通后的 q 反馈 |
+| `q_dot_ref` | 虚拟控制量：目标俯仰角加速度 |
+| `q_dot_meas` | 用于增量反演的 `ang_acc[1]`，已由传感器层差分滤波 |
+| `delta_e_cmd` | 限速、一次低通及通道3范围限幅后的命令舵偏 |
+| `delta_e_hat` | 本周期推进舵机模型后的舵偏估计 |
 | `indiOutput` | 下偏正的逻辑控制偏移，1 对应 1000 μs，供 mixer 直接使用 |
 | `isValid` | 本周期是否完成有效控制计算 |
 
 旧日志字段 `desiredRateDegPerSec`、`desiredAngularAccelerationDegPerSec2`、`commandedElevatorDeflectionDeg` 分别对应上述 `q_ref`、`q_dot_ref`、`delta_e_cmd` 字段。旧 `elevatorPwmUs` / `pwm_cmd_us` 是整数物理 PWM，不能直接按 `indiOutput` 的尺度读取；短暂采用两端归一化的历史版本也使用过 `indiOutput` 名称，读取历史日志必须区分固件版本。
 
 ## 控制律与处理顺序
+
+以下控制律和数值限幅继续按控制器内部度制解释，发布到全局时转换为 SI。
 
 令 `K_q=indi_pitch_q_gain`，`G_qe=indi_pitch_effectiveness`。默认 G_qe 为负，下偏对应负俯仰角加速度。
 
@@ -54,7 +56,7 @@ delta_e_cmd      = delta_e_hat + delta_delta_e
 4. 将物理 PWM 写入 `pwm_delay_buffer_us`；读取延迟命令，换算舵角并推进一阶舵机模型。
 5. 将限幅后的本机 PWM 转换为 `indiOutput`，供主/从 mixer 直接读取。
 
-增量公式使用进入本次更新时的 `delta_e_hat`；发布的 `delta_e_hat_deg` 是模型更新后的值，供下次反演使用。目标变化率前馈不等于含角度误差修正的 `theta_dot_cmd`。`q_f` 和 `q_dot_meas` 使用两条既有滤波路径，不能假定完全时间对齐。
+增量公式使用进入本次更新时的 `delta_e_hat`；发布的 `delta_e_hat` 是模型更新后的值，供下次反演使用。目标变化率前馈不等于含角度误差修正的 `theta_dot_cmd`。`q_f` 和 `q_dot_meas` 使用两条既有滤波路径，不能假定完全时间对齐。
 
 ## 配平零点与线性换算
 
@@ -79,7 +81,7 @@ C 对应 0°。上下偏使用同一个 1000*k 系数，不按两侧行程分段
 
 ## 模型与使用限制
 
-舵偏估计只包含本机 INDI 命令，未包含之后从机融合加入的主机升降舵前馈，也未反馈融合后的最终通道饱和或锁定输出。因此 `delta_e_hat_deg` 不是最终舵面的完整估计，更不是实测舵角。
+舵偏估计只包含本机 INDI 命令，未包含之后从机融合加入的主机升降舵前馈，也未反馈融合后的最终通道饱和或锁定输出。因此 `delta_e_hat` 不是最终舵面的完整估计，更不是实测舵角。
 
 例如 rev=1、trim=0、k=0.090909，本机目标与运动反馈均为零时，INDI 可保持输出和估计均为零；若主机持续加入 +0.1 前馈，最终 PWM 为 1600 μs，按标定对应约 +9.09° 命令舵角，模型仍可为 0°。前馈只叠加一次，差别来自模型输入范围。
 

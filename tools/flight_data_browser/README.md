@@ -78,3 +78,5 @@ print(log.sample_rate, fft.peak_frequency)
 MATLAB 参考文件作为实现参考读取，原脚本与原始飞行日志不修改，也不复制到仓库。
 
 当前飞控日志列名直接使用代码变量名：`current_time` 固定按微秒读取，`att[0]` 等不附单位别名；遥控列为 `radio_channel1_normalized`～`radio_channel8_normalized`，范围 [-1,1]，保留六位小数。浏览器优先读取实际 `currentFlightMode`（0 手动、1 增稳；历史增稳值 2 仍兼容读取），没有模式字段时再从 CH5 推断。飞行区段可由空速、`ActuatorOutput[3]` 或归一化 CH3 估算。旧 `TimeStamp(us)`、`RC_CHx` 和 `CHx_PWM` 日志仍兼容读取。
+
+含 `si_units_version=1` 的新日志中，`att` 为 rad、`ang_vel` 为 rad/s、`ang_acc` 为 rad/s²、`acc` 为 m/s²；INDI 和构型全局字段已去掉度制后缀。浏览器直接显示原始数值，不自动转度。时间和 PWM 单位保持原约定；上述带 `(deg)` 的命令示例用于历史日志。完整字段迁移见 [全局变量 SI 迁移报告](../../docs/global-si-migration.md)。

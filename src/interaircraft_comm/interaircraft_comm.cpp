@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 #include "config/aircraft_config.h"
 #include "config/flight_config.h"
@@ -6,7 +7,7 @@
 #include <cstring>
 #include <cstddef>
 
-// 各机姿态角，单位 deg，顺序滚转/俯仰/偏航。
+// 各机姿态角，单位 rad，顺序滚转/俯仰/偏航。
 float att_B[3], att_C[3], att_D[3], att_E[3], att_F[3], att_G[3];
 float ang_vel_B[3], ang_vel_C[3], ang_vel_D[3], ang_vel_E[3], ang_vel_F[3], ang_vel_G[3];
 
@@ -41,8 +42,11 @@ bool AircraftCommandLink::setCommandLink(unsigned int index, const SlaveCommand 
     return (bits & 0x7f800000u) != 0x7f800000u;
   };
   for (float value : values) if (!finite(value)) return false;
-  if (!finite(command.target.pitch) || command.target.pitch < -3276.8f ||
-      command.target.pitch > 3276.7f) return false;
+  // 与解码的 float32 毫弧度步长一致；避免 -ffast-math 的倒数乘法
+  // 让有效的最大编码回读后因一个浮点舍入位而被拒绝。
+  constexpr float angleStep = 1.0f / CommandPayload::ANGLE_SCALE;
+  if (!finite(command.target.pitch) || command.target.pitch < -32768.0f * angleStep ||
+      command.target.pitch > 32767.0f * angleStep) return false;
   const auto encode = [](float value) -> int16_t {
     // 先限幅再缩放和取最近整数，避免大输入溢出；负值也使用对称舍入。
     if (value >= 32767.0f / CONTROL_OUTPUT_SCALE) return 32767;
@@ -53,7 +57,9 @@ bool AircraftCommandLink::setCommandLink(unsigned int index, const SlaveCommand 
   const unsigned offset = index * 5;
   for (unsigned field = 0; field < 5; ++field)
     commandPayload.controlOutputs[offset + field] = encode(values[field]);
-  commandPayload.pitchAngles[index] = static_cast<int16_t>(command.target.pitch * 10.0f);
+  const float scaledPitch = command.target.pitch * CommandPayload::ANGLE_SCALE;
+  commandPayload.pitchAngles[index] = static_cast<int16_t>(
+      scaledPitch + (scaledPitch >= 0.0f ? 0.5f : -0.5f));
   commandPayload.controlMode = static_cast<uint8_t>(command.mode);
   return true;
 }
@@ -120,7 +126,7 @@ const SlaveCommand &AircraftCommandLink::getCommandLink() {
   const unsigned offset = localSlot * 5;
   SlaveCommand command;
   command.mode = static_cast<FlightMode>(commandPayload.controlMode);
-  command.target.pitch = commandPayload.pitchAngles[localSlot] / 10.0f;
+  command.target.pitch = commandPayload.pitchAngles[localSlot] / CommandPayload::ANGLE_SCALE;
   command.masterContribution.aileron1 = commandPayload.controlOutputs[offset] / CONTROL_OUTPUT_SCALE;
   command.masterContribution.aileron2 = commandPayload.controlOutputs[offset + 1] / CONTROL_OUTPUT_SCALE;
   command.masterContribution.throttle = commandPayload.controlOutputs[offset + 2] / CONTROL_OUTPUT_SCALE;
@@ -144,8 +150,9 @@ void AircraftCommandLink::printReceivedData(int enabled) {
   USBSerial.printf("controlMode: %u\n", static_cast<unsigned>(commandPayload.controlMode));
   USBSerial.print("controlOutputs (int16, scale=4096): ");
   for (int16_t value : commandPayload.controlOutputs) USBSerial.printf("%d ", static_cast<int>(value));
-  USBSerial.print("\npitchAngles (0.1 deg): ");
-  for (int16_t value : commandPayload.pitchAngles) USBSerial.printf("%d ", static_cast<int>(value));
+  USBSerial.print("\npitchAngles (deg): ");
+  for (int16_t value : commandPayload.pitchAngles)
+    USBSerial.printf("%.3f ", Units::toDegrees(value / CommandPayload::ANGLE_SCALE));
   USBSerial.println("\n=============");
 }
 
@@ -202,10 +209,10 @@ void AircraftSensorLink::getSensorLink() {
       left ? &ang_vel_B[0] : &ang_vel_C[0], left ? &ang_vel_D[0] : &ang_vel_E[0],
       left ? &ang_vel_F[0] : &ang_vel_G[0]};
   for (unsigned index = 0; index < CHILD_COUNT; ++index) {
-    attitudeTargets[index][0] = sensorPayload.rollAngles[index] / 10.0f;
-    attitudeTargets[index][1] = sensorPayload.pitchAngles[index] / 10.0f;
-    attitudeTargets[index][2] = sensorPayload.yawAngles[index] / 10.0f;
-    *rateTargets[index] = sensorPayload.rollRates[index] / 10.0f;
+    attitudeTargets[index][0] = sensorPayload.rollAngles[index] / SensorPayload::ANGLE_SCALE;
+    attitudeTargets[index][1] = sensorPayload.pitchAngles[index] / SensorPayload::ANGLE_SCALE;
+    attitudeTargets[index][2] = sensorPayload.yawAngles[index] / SensorPayload::ANGLE_SCALE;
+    *rateTargets[index] = sensorPayload.rollRates[index] / SensorPayload::ANGLE_SCALE;
   }
 }
 
@@ -215,21 +222,21 @@ void AircraftSensorLink::printReceivedData(int enabled) {
   USBSerial.printf("\n=== Sensor frame #%lu ===\n",
                    static_cast<unsigned long>(++receivedFrameCount));
   USBSerial.printf("isLeft: %u\n", sensorPayload.isLeft ? 1u : 0u);
-  USBSerial.print("relativeAngles (0.1 deg): ");
+  USBSerial.print("relativeAngles (deg): ");
   for (int16_t value : sensorPayload.relativeAngles)
-    USBSerial.printf("%d ", static_cast<int>(value));
-  USBSerial.print("\nrollRates (0.1 deg/s): ");
+    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  USBSerial.print("\nrollRates (deg/s): ");
   for (int16_t value : sensorPayload.rollRates)
-    USBSerial.printf("%d ", static_cast<int>(value));
-  USBSerial.print("\nrollAngles (0.1 deg): ");
+    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  USBSerial.print("\nrollAngles (deg): ");
   for (int16_t value : sensorPayload.rollAngles)
-    USBSerial.printf("%d ", static_cast<int>(value));
-  USBSerial.print("\npitchAngles (0.1 deg): ");
+    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  USBSerial.print("\npitchAngles (deg): ");
   for (int16_t value : sensorPayload.pitchAngles)
-    USBSerial.printf("%d ", static_cast<int>(value));
-  USBSerial.print("\nyawAngles (0.1 deg): ");
+    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
+  USBSerial.print("\nyawAngles (deg): ");
   for (int16_t value : sensorPayload.yawAngles)
-    USBSerial.printf("%d ", static_cast<int>(value));
+    USBSerial.printf("%.3f ", Units::toDegrees(value / SensorPayload::ANGLE_SCALE));
   USBSerial.println("\n=============");
 }
 
@@ -244,6 +251,16 @@ void AircraftSensorLink::setSensorLink() {
   const float downstreamRates[CHILD_COUNT] = {
       left ? ang_vel_B[0] : ang_vel_C[0], left ? ang_vel_D[0] : ang_vel_E[0],
       left ? ang_vel_F[0] : ang_vel_G[0]};
+  const auto encode = [](float value) -> int16_t {
+    // 状态不能拒绝整帧：非有限测量置零，超量程饱和，防止 int16 转换溢出。
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    if ((bits & 0x7f800000u) == 0x7f800000u) return 0;
+    if (value >= 32767.0f / SensorPayload::ANGLE_SCALE) return 32767;
+    if (value <= -32768.0f / SensorPayload::ANGLE_SCALE) return -32768;
+    const float scaled = value * SensorPayload::ANGLE_SCALE;
+    return static_cast<int16_t>(scaled + (scaled >= 0.0f ? 0.5f : -0.5f));
+  };
   for (unsigned int index = 0; index < CHILD_COUNT; ++index) {
     float relativeAngle = 0;
     float roll = 0;
@@ -264,11 +281,11 @@ void AircraftSensorLink::setSensorLink() {
       // 保留相邻 IMU 原始滚转角差，不用量化后的协议角度计算；MT6701 仅记录。
       relativeAngle = roll - previousRoll;
     }
-    sensorPayload.relativeAngles[index] = static_cast<int16_t>(relativeAngle * 10.0f);
-    sensorPayload.rollRates[index] = static_cast<int16_t>(rate * 10.0f);
-    sensorPayload.rollAngles[index] = static_cast<int16_t>(roll * 10.0f);
-    sensorPayload.pitchAngles[index] = static_cast<int16_t>(pitch * 10.0f);
-    sensorPayload.yawAngles[index] = static_cast<int16_t>(yaw * 10.0f);
+    sensorPayload.relativeAngles[index] = encode(relativeAngle);
+    sensorPayload.rollRates[index] = encode(rate);
+    sensorPayload.rollAngles[index] = encode(roll);
+    sensorPayload.pitchAngles[index] = encode(pitch);
+    sensorPayload.yawAngles[index] = encode(yaw);
   }
 }
 

@@ -164,6 +164,9 @@ namespace
     // 1. 本周期时间戳（us）与循环间隔（s）。
     LOG_FIELD(current_time);
     LOG_FIELD(dt);
+    // Identify SI physical columns in logs that share names with older firmware.
+    // Time and PWM units retain their original definitions.
+    writer.field("si_units_version", 1);
 
     // 2. 本机传感器发布值和滤波值；不读取其他飞机的传感器状态。
     LOG_ARRAY(quat);
@@ -203,7 +206,7 @@ namespace
     LOG_FIELD(previousPitchController);
     LOG_FIELD(mixerStrategyCommand);
     LOG_FIELD(configurationControlScale);
-    LOG_FIELD(configurationAngleDeg);
+    LOG_FIELD(configurationAngle);
     LOG_FIELD(brakeEnabled);
     LOG_FIELD(controlModeChanged);
 
@@ -223,23 +226,23 @@ namespace
     LOG_FIELD(rollControlOutput.pidOutput);
     LOG_FIELD(rollControlOutput.filteredPidOutput);
     LOG_FIELD(rollControlOutput.filteredPidOutputDerivative);
-    LOG_FIELD(rollControlOutput.equivalentRollAngleDeg);
+    LOG_FIELD(rollControlOutput.equivalentRollAngle);
     LOG_FIELD(pitchPidControlOutput.pidOutput);
-    LOG_FIELD(pitchIndiControlOutput.q_dot_ref_deg_s2);
-    LOG_FIELD(pitchIndiControlOutput.q_ref_deg_s);
-    LOG_FIELD(pitchIndiControlOutput.q_f_deg_s);
+    LOG_FIELD(pitchIndiControlOutput.q_dot_ref);
+    LOG_FIELD(pitchIndiControlOutput.q_ref);
+    LOG_FIELD(pitchIndiControlOutput.q_f);
     LOG_FIELD(pitchIndiControlOutput.isValid);
     LOG_FIELD(pitchIndiControlOutput.indiOutput);
-    LOG_FIELD(pitchIndiControlOutput.q_dot_meas_deg_s2);
-    LOG_FIELD(pitchIndiControlOutput.delta_e_cmd_deg);
-    LOG_FIELD(pitchIndiControlOutput.delta_e_hat_deg);
+    LOG_FIELD(pitchIndiControlOutput.q_dot_meas);
+    LOG_FIELD(pitchIndiControlOutput.delta_e_cmd);
+    LOG_FIELD(pitchIndiControlOutput.delta_e_hat);
     LOG_FIELD(rollDampingControlOutput.dampingCommand);
     LOG_FIELD(yawRateControlOutput.pidOutput);
     LOG_FIELD(throttleControlOutput.throttleCommand);
     LOG_ARRAY(configurationControlOutput.pidOutputs);
-    LOG_ARRAY(configurationControlOutput.angleErrorsDeg);
-    LOG_ARRAY(configurationControlOutput.measuredAnglesDeg);
-    LOG_ARRAY(configurationControlOutput.measuredRatesDegPerSec);
+    LOG_ARRAY(configurationControlOutput.angleErrors);
+    LOG_ARRAY(configurationControlOutput.measuredAngles);
+    LOG_ARRAY(configurationControlOutput.measuredRates);
 
 #undef LOG_ARRAY
 #undef LOG_FIELD

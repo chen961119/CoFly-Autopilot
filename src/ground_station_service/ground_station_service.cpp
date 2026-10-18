@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "control/control_modes.h"
 #include "config/aircraft_config.h"
 #include "ground_station_service/ground_station_service.h"
@@ -17,6 +18,14 @@ GroundStationResult requestGroundCalibration(const char *) { return GroundStatio
 GroundStationResult requestGroundSensorSetting(const char *, const char *) { return GroundStationResult::NotImplemented; }
 
 namespace {
+float groundAcceleration(float value) {
+#if defined EXTIMU
+  return value;
+#else
+  return Units::gravityUnits(value);
+#endif
+}
+
 bool validId(const char *text, uint32_t &id) {
   if (!*text) return false;
   uint64_t value = 0;
@@ -32,10 +41,10 @@ bool validId(const char *text, uint32_t &id) {
 // The original protocol reports freshness per branch, not per downstream node.
 bool readGroundAircraftAttitude(int id, float &roll, float &pitch) {
   if (!aircraftConfigurationValid() || !validAircraftConfiguration(id) || id == 0) return false;
-  if (id == aircraftId()) { roll = att[0]; pitch = att[1]; return true; }
+  if (id == aircraftId()) { roll = Units::toDegrees(att[0]); pitch = Units::toDegrees(att[1]); return true; }
   if (id == 1 || id < aircraftId() || !isSensorDataFresh(id % 2 == 0)) return false;
-  const float rolls[] = {att_B[0], att_C[0], att_D[0], att_E[0], att_F[0], att_G[0]};
-  const float pitches[] = {att_B[1], att_C[1], att_D[1], att_E[1], att_F[1], att_G[1]};
+  const float rolls[] = {Units::toDegrees(att_B[0]), Units::toDegrees(att_C[0]), Units::toDegrees(att_D[0]), Units::toDegrees(att_E[0]), Units::toDegrees(att_F[0]), Units::toDegrees(att_G[0])};
+  const float pitches[] = {Units::toDegrees(att_B[1]), Units::toDegrees(att_C[1]), Units::toDegrees(att_D[1]), Units::toDegrees(att_E[1]), Units::toDegrees(att_F[1]), Units::toDegrees(att_G[1])};
   roll = rolls[id - 2]; pitch = pitches[id - 2];
   return true;
 }
@@ -129,9 +138,9 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     const bool relativeValid = localWingRelativeAngle(relativeRoll);
     const int written = snprintf(response, capacity,
       "@COFLY\t%lu\tDATA\tms=%lu\troll=%.3f\tpitch=%.3f\tyaw=%.3f\tgx=%.3f\tgy=%.3f\tgz=%.3f\tax=%.3f\tay=%.3f\taz=%.3f\tairspeed=%.3f\tangle=%.3f\tangle_valid=%d\trc1=%d\trc2=%d\trc3=%d\trc4=%d\trc5=%d\trc6=%d\trc7=%d\trc8=%d\tn1=%.3f\tn2=%.3f\tn3=%.3f\tn4=%.3f\tn5=%.3f\tn6=%.3f\tn7=%.3f\tn8=%.3f\tmode=%s\tlocked=%d\tradio_valid=%d\n",
-      static_cast<unsigned long>(id), millis(), att[0], att[1], att[2],
-      ang_vel[0], ang_vel[1], ang_vel[2], acc[0], acc[1], acc[2],
-      airspeed_A, relativeRoll, relativeValid, radio_channel1_raw,
+      static_cast<unsigned long>(id), millis(), Units::toDegrees(att[0]), Units::toDegrees(att[1]), Units::toDegrees(att[2]),
+      Units::toDegrees(ang_vel[0]), Units::toDegrees(ang_vel[1]), Units::toDegrees(ang_vel[2]), groundAcceleration(acc[0]), groundAcceleration(acc[1]), groundAcceleration(acc[2]),
+      airspeed_A, Units::toDegrees(relativeRoll), relativeValid, radio_channel1_raw,
       radio_channel2_raw, radio_channel3_raw, radio_channel4_raw, radio_channel5_raw, radio_channel6_raw, radio_channel7_raw, radio_channel8_raw,
       radio_channel1_normalized, radio_channel2_normalized, radio_channel3_normalized, radio_channel4_normalized,
       radio_channel5_normalized, radio_channel6_normalized, radio_channel7_normalized, radio_channel8_normalized,
@@ -145,9 +154,9 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     const unsigned master = aircraftConfigurationValid() && aircraftId() == 1;
     int written = snprintf(response, capacity,
       "@COFLY\t%lu\tCONFIG\tcount=%u\tmaster=%u\troll_a=%.3f\tab=%.3f\tac=%.3f\tbd=%.3f\tce=%.3f\tdf=%.3f\teg=%.3f\tleft_valid=%d\tright_valid=%d\taircraft_id=%d\tconfig_valid=%d\n",
-      static_cast<unsigned long>(id), static_cast<unsigned>(aircraftCount()), master, att[0],
-      att_B[0] - att[0], att_C[0] - att[0], att_D[0] - att_B[0],
-      att_E[0] - att_C[0], att_F[0] - att_D[0], att_G[0] - att_E[0],
+      static_cast<unsigned long>(id), static_cast<unsigned>(aircraftCount()), master, Units::toDegrees(att[0]),
+      Units::toDegrees(att_B[0]) - Units::toDegrees(att[0]), Units::toDegrees(att_C[0]) - Units::toDegrees(att[0]), Units::toDegrees(att_D[0]) - Units::toDegrees(att_B[0]),
+      Units::toDegrees(att_E[0]) - Units::toDegrees(att_C[0]), Units::toDegrees(att_F[0]) - Units::toDegrees(att_D[0]), Units::toDegrees(att_G[0]) - Units::toDegrees(att_E[0]),
       isSensorDataFresh(true), isSensorDataFresh(false),
       aircraftId(), aircraftConfigurationValid());
     // Per-aircraft attitude comes from local IMU or valid downstream slots.

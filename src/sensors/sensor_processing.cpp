@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "parameters/parameter_service.h"
 #include "parameters/parameter_keys.h"
 #include "parameters/imu_calibration_integrity.h"
@@ -19,7 +20,7 @@
 Adafruit_BMP280 bmp(&BMP280_I2C);
 // 滤波参数
 #define FILTER_ALPHA 0.2
-float filteredPressure = 1013.25; // 初始海平面气压(hPa)
+float filteredPressure = 101325.0f; // 初始海平面气压(Pa)
 float filteredAltitude = 0;
 float temp;
 float pressure;
@@ -124,7 +125,7 @@ const float inv_gyr_lsb = 1.0f / 16.384f;
 }
 
 // 解析 ExternalImuSerial 的 11 字节外置 IMU 帧；校验通过后更新姿态角、角速度或加速度。
-// 输出角度为度、角速度为 °/s、加速度为 m/s²。
+// 全局输出为 rad、rad/s、m/s²；设备量程与原始帧保持不变。
 void getIMUdata_EXT() {
 #if defined EXTIMU
   // 串口帧长 11 字节：0x55 帧头、数据类型、8 字节数据及累加校验字节。
@@ -161,20 +162,17 @@ void getIMUdata_EXT() {
           // USBSerial.print("Q:"); USBSerial.print(quat[0],3); USBSerial.print(",");
           // USBSerial.print(quat[1],3); USBSerial.print(","); USBSerial.print(quat[2],3);
           // USBSerial.print(","); USBSerial.println(quat[3],3);
-          att[0] = -atan2(quat[0] * quat[1] + quat[2] * quat[3], 0.5f - quat[1] * quat[1] - quat[2] * quat[2]) *
-                         57.29577951; // 弧度转角度。
+          att[0] = -atan2(quat[0] * quat[1] + quat[2] * quat[3], 0.5f - quat[1] * quat[1] - quat[2] * quat[2]) ; // rad。
           att[1] = asin(constrain(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]), -0.999999,
-                                         0.999999)) *
-                          57.29577951; // 弧度转角度。
-          att[2] = - atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) *
-                        57.29577951; // 弧度转角度。
+                                         0.999999)) ; // rad。
+          att[2] = - atan2(quat[1] * quat[2] + quat[0] * quat[3], 0.5f - quat[2] * quat[2] - quat[3] * quat[3]) ; // rad。
           // USBSerial.print("R:");
           // USBSerial.println(att[0]);
         } else if (buf[1] == 0x52) { // 角速度数据
           Gyro_X_EXT =
-              -1 * (((int16_t)(buf[3] << 8) | buf[2]) / 32768.0f * 2000.0f);
-          Gyro_Y_EXT = ((int16_t)(buf[5] << 8) | buf[4]) / 32768.0f * 2000.0f;
-          Gyro_Z_EXT = ((int16_t)(buf[7] << 8) | buf[6]) / 32768.0f * 2000.0f;
+              Units::toRadians(-1 * (((int16_t)(buf[3] << 8) | buf[2]) / 32768.0f * 2000.0f));
+          Gyro_Y_EXT = Units::toRadians(((int16_t)(buf[5] << 8) | buf[4]) / 32768.0f * 2000.0f);
+          Gyro_Z_EXT = Units::toRadians(((int16_t)(buf[7] << 8) | buf[6]) / 32768.0f * 2000.0f);
           // USBSerial.print("X:");
           // USBSerial.println(Gyro_X_EXT);
           // USBSerial.print(wy,1); USBSerial.print(","); USBSerial.println(wz,1);
@@ -296,7 +294,7 @@ void Strain_read_all() {
 }
 
 // 经 I2C 连续读取 ICM42688 三轴加速度和角速度，并换算到共享 IMU 变量。
-// 当前量程换算后的单位分别为 g 和 °/s；通信失败时保持旧值。
+// 当前量程换算后的全局单位分别为 m/s² 和 rad/s；通信失败时保持旧值。
 void getICM42688data() {
   // 切换到寄存器 Bank 0 后连续读取三轴加速度和三轴角速度。
   Wire.beginTransmission(ICM_ADDR);
@@ -320,13 +318,13 @@ void getICM42688data() {
     int16_t raw_gz = (int16_t)(Wire.read() << 8 | Wire.read());
 
     // 保持控制器沿用的 6050 变量名；按当前 ±16 g、±2000 deg/s 量程换算。
-    AccX_6050 = raw_ax / 2048.0;
-    AccY_6050 = raw_ay / 2048.0;
-    AccZ_6050 = raw_az / 2048.0;
+    AccX_6050 = Units::acceleration(raw_ax / 2048.0);
+    AccY_6050 = Units::acceleration(raw_ay / 2048.0);
+    AccZ_6050 = Units::acceleration(raw_az / 2048.0);
 
-    GyroX_6050 = raw_gx / 16.4;
-    GyroY_6050 = raw_gy / 16.4;
-    GyroZ_6050 = raw_gz / 16.4;
+    GyroX_6050 = Units::toRadians(raw_gx / 16.4);
+    GyroY_6050 = Units::toRadians(raw_gy / 16.4);
+    GyroZ_6050 = Units::toRadians(raw_gz / 16.4);
 
     // 4. 应用低通滤波 (保留你原有的 B_accel_6050 逻辑)
     /*
@@ -346,7 +344,7 @@ void getICM42688data() {
 }
 
 // 经 SPI 读取 BMI088，加速度与角速度按安装方向旋转 90° 并扣除 EEPROM 零偏。
-// 结果写入沿用的 6050 变量，单位分别为 g 和 °/s。
+// 结果写入沿用的 6050 变量，单位分别为 m/s² 和 rad/s。
 void getBMI088data() {
 #if defined INTIMU
   // 加速度计 SPI 读取需要一个哑字节；陀螺仪读取不需要。
@@ -385,13 +383,13 @@ void getBMI088data() {
   int16_t rgz = (int16_t)(buf[4] | (buf[5] << 8));
 
   // 按安装方向绕 Z 轴旋转 90°：新 X=旧 Y，新 Y=-旧 X，Z 不变。
-  AccX_6050 = (ry * inv_acc) - appliedImuCalibration.AccErrorX_6050;
-  AccY_6050 = (-rx * inv_acc) - appliedImuCalibration.AccErrorY_6050;
-  AccZ_6050 = (rz * inv_acc) - appliedImuCalibration.AccErrorZ_6050;
+  AccX_6050 = Units::acceleration((ry * inv_acc) - appliedImuCalibration.AccErrorX_6050);
+  AccY_6050 = Units::acceleration((-rx * inv_acc) - appliedImuCalibration.AccErrorY_6050);
+  AccZ_6050 = Units::acceleration((rz * inv_acc) - appliedImuCalibration.AccErrorZ_6050);
 
-  GyroX_6050 = (rgy * inv_gyr) - appliedImuCalibration.GyroErrorX_6050;
-  GyroY_6050 = (-rgx * inv_gyr) - appliedImuCalibration.GyroErrorY_6050;
-  GyroZ_6050 = (rgz * inv_gyr) - appliedImuCalibration.GyroErrorZ_6050;
+  GyroX_6050 = Units::toRadians((rgy * inv_gyr) - appliedImuCalibration.GyroErrorX_6050);
+  GyroY_6050 = Units::toRadians((-rgx * inv_gyr) - appliedImuCalibration.GyroErrorY_6050);
+  GyroZ_6050 = Units::toRadians((rgz * inv_gyr) - appliedImuCalibration.GyroErrorZ_6050);
 
   // --- C. 应用低通滤波 (保留你原有的 B_accel_6050 参数逻辑) ---
   /*
@@ -463,6 +461,8 @@ void getairdata() {
             candidate.tas = 0.0f;
           }
           airdata = candidate;
+          airdata.aoa = Units::toRadians(candidate.aoa);
+          airdata.aos = Units::toRadians(candidate.aos);
           USBSerial.println(airdata.aoa);
         }
       }
@@ -515,12 +515,12 @@ float B_gyro_6050 = 0.47;  // MPU6050 陀螺仪低通系数。
 // 内置 IMU 的静态校准常量；在线校准结果另存于 calAccGyroData。
 // MPU6050
 
-float AccErrorX_6050 = -0.02;
-float AccErrorY_6050 = -0.01;
-float AccErrorZ_6050 = 0.03;
-float GyroErrorX_6050 = -13.83;
-float GyroErrorY_6050 = -9.41;
-float GyroErrorZ_6050 = 1.48;
+float AccErrorX_6050 = Units::acceleration(-0.02f);
+float AccErrorY_6050 = Units::acceleration(-0.01f);
+float AccErrorZ_6050 = Units::acceleration(0.03f);
+float GyroErrorX_6050 = Units::toRadians(-13.83f);
+float GyroErrorY_6050 = Units::toRadians(-9.41f);
+float GyroErrorZ_6050 = Units::toRadians(1.48f);
 
 
 // 内置 IMU 当前值与一阶低通的上一采样值。
@@ -598,7 +598,7 @@ void IMUinit() {
 // 这是旧内置 IMU 路径，是否调用由当前硬件配置决定。
 void getIMUdata() {
   // 读取内置 IMU 原始值，换算单位、扣除零偏，再做一阶低通。
-  // 加速度单位为 g，角速度为 °/s。
+  // 全局加速度为 m/s²、角速度为 rad/s；标定参数仍为 g、°/s。
   int16_t AcX_6050, AcY_6050, AcZ_6050, GyX_6050, GyY_6050, GyZ_6050;
 
 #if defined USE_MPU6050_I2C
@@ -606,15 +606,15 @@ void getIMUdata() {
                      &GyZ_6050);
 #endif
 
-  // 加速度：按量程系数换算为 g，随后扣除标定零偏。
+  // 加速度：寄存器量程 g 转为 m/s²，标定零偏在读入时同样换算。
 #if defined USE_MPU6050_I2C
-  AccX_6050 = AcX_6050 / ACCEL_SCALE_FACTOR;
-  AccY_6050 = AcY_6050 / ACCEL_SCALE_FACTOR;
-  AccZ_6050 = AcZ_6050 / ACCEL_SCALE_FACTOR;
+  AccX_6050 = Units::acceleration(AcX_6050 / ACCEL_SCALE_FACTOR);
+  AccY_6050 = Units::acceleration(AcY_6050 / ACCEL_SCALE_FACTOR);
+  AccZ_6050 = Units::acceleration(AcZ_6050 / ACCEL_SCALE_FACTOR);
   // MPU6050 加速度零偏校正。
-  AccX_6050 = AccX_6050 - appliedImuCalibration.AccErrorX_6050;
-  AccY_6050 = AccY_6050 - appliedImuCalibration.AccErrorY_6050;
-  AccZ_6050 = AccZ_6050 - appliedImuCalibration.AccErrorZ_6050;
+  AccX_6050 = AccX_6050 - Units::acceleration(appliedImuCalibration.AccErrorX_6050);
+  AccY_6050 = AccY_6050 - Units::acceleration(appliedImuCalibration.AccErrorY_6050);
+  AccZ_6050 = AccZ_6050 - Units::acceleration(appliedImuCalibration.AccErrorZ_6050);
   // MPU6050 加速度一阶低通。
   AccX_6050 = (1.0 - B_accel_6050) * AccX_prev_6050 + B_accel_6050 * AccX_6050;
   AccY_6050 = (1.0 - B_accel_6050) * AccY_prev_6050 + B_accel_6050 * AccY_6050;
@@ -624,15 +624,15 @@ void getIMUdata() {
   AccZ_prev_6050 = AccZ_6050;
 
 #endif
-  // 角速度：按量程系数换算为 °/s，随后扣除标定零偏。
+  // 角速度：寄存器量程 °/s 转为 rad/s，标定零偏在读入时同样换算。
 #if defined USE_MPU6050_I2C
-  GyroX_6050 = GyX_6050 / GYRO_SCALE_FACTOR;
-  GyroY_6050 = GyY_6050 / GYRO_SCALE_FACTOR;
-  GyroZ_6050 = GyZ_6050 / GYRO_SCALE_FACTOR;
+  GyroX_6050 = Units::toRadians(GyX_6050 / GYRO_SCALE_FACTOR);
+  GyroY_6050 = Units::toRadians(GyY_6050 / GYRO_SCALE_FACTOR);
+  GyroZ_6050 = Units::toRadians(GyZ_6050 / GYRO_SCALE_FACTOR);
   // MPU6050 陀螺仪零偏校正。
-  GyroX_6050 = GyroX_6050 - appliedImuCalibration.GyroErrorX_6050;
-  GyroY_6050 = GyroY_6050 - appliedImuCalibration.GyroErrorY_6050;
-  GyroZ_6050 = GyroZ_6050 - appliedImuCalibration.GyroErrorZ_6050;
+  GyroX_6050 = GyroX_6050 - Units::toRadians(appliedImuCalibration.GyroErrorX_6050);
+  GyroY_6050 = GyroY_6050 - Units::toRadians(appliedImuCalibration.GyroErrorY_6050);
+  GyroZ_6050 = GyroZ_6050 - Units::toRadians(appliedImuCalibration.GyroErrorZ_6050);
   // MPU6050 角速度一阶低通。
   GyroX_6050 = (1.0 - B_gyro_6050) * GyroX_prev_6050 + B_gyro_6050 * GyroX_6050;
   GyroY_6050 = (1.0 - B_gyro_6050) * GyroY_prev_6050 + B_gyro_6050 * GyroY_6050;
@@ -764,12 +764,12 @@ void getbarodata() {
   // 读取气压计温度、气压和按标准海平面气压换算的高度。
 #if defined USE_BAROMETER
   // 快速读取原始数据
-  temp = bmp.readTemperature();  // °C
+  temp = bmp.readTemperature() + 273.15f;  // K
   pressure = bmp.readPressure(); // Pa
   // 计算海拔高度(国际标准大气模型)
   filteredAltitude = bmp.readAltitude(1013.25);
   // 输出调试信息
-  USBSerial.printf("Temp: %.1fC | Pressure: %.2fPa | Alt: %.2fm\n", temp, pressure,
+  USBSerial.printf("Temp: %.1fK | Pressure: %.2fPa | Alt: %.2fm\n", temp, pressure,
                 filteredAltitude);
 #endif
 }
@@ -821,15 +821,15 @@ void getRotateSensor1() {
   float angle;
   angleReadValid = angleSensor.readAngle(angle);
   if (!angleReadValid) return; // 保持最后有效角度，屏幕通过状态显示 ERR。
-  relativeAngle_raw = angle;
+  relativeAngle_raw = Units::toRadians(angle);
   const bool reverse = !aircraftIsRight();
-  relativeAngle_ready = MT6701::relativeAngle(angle, relativeAngle_offset, reverse);
+  relativeAngle_ready = Units::toRadians(MT6701::relativeAngle(angle, relativeAngle_offset, reverse));
 }
 
 // 将当前原始转角设为新零点，经统一参数服务延迟合并保存。
 void ResetRotateSensor() {
   if (!angleReadValid) return; // 未连接或读取失败时不覆盖已保存零点。
-  if (!saveParameterValue(ParameterKey::Mt6701Zero, relativeAngle_raw)) {
+  if (!saveParameterValue(ParameterKey::Mt6701Zero, Units::toDegrees(relativeAngle_raw))) {
     USBSerial.println("MT6701 zero change rejected");
     return;
   }
@@ -904,7 +904,7 @@ void initializeAngularAccelerationFilters() {
   gyroDerivFiltZ.set_cutoff_frequency(500, 100);
 }
 
-// 由选定 IMU 的 ang_vel 估计 ang_acc，单位为 °/s²；异常采样间隔时清零输出。
+// 由选定 IMU 的 ang_vel 估计 ang_acc，单位为 rad/s²；异常采样间隔时清零输出。
 void getAngularACC() {
   // 先平滑角速度再差分，最后滤波并限幅，避免差分放大传感器噪声。
   unsigned long now = micros();
@@ -914,35 +914,35 @@ void getAngularACC() {
 
   if (dt_deriv <= 0.0f || dt_deriv > 0.01f) {
     // 首次调用或采样中断后重建历史值，跳过本次角加速度计算。
-    gyroX_filt_prev = gyroDerivFiltX.apply(ang_vel[0]);
-    gyroY_filt_prev = gyroDerivFiltY.apply(ang_vel[1]);
-    gyroZ_filt_prev = gyroDerivFiltZ.apply(ang_vel[2]);
+    gyroX_filt_prev = Units::toRadians(gyroDerivFiltX.apply(Units::toDegrees(ang_vel[0])));
+    gyroY_filt_prev = Units::toRadians(gyroDerivFiltY.apply(Units::toDegrees(ang_vel[1])));
+    gyroZ_filt_prev = Units::toRadians(gyroDerivFiltZ.apply(Units::toDegrees(ang_vel[2])));
     ang_acc[0] = 0.0f;
     ang_acc[1] = 0.0f;
     ang_acc[2] = 0.0f;
     return;
   }
 
-  float gyroX_now = gyroDerivFiltX.apply(ang_vel[0]);
-  float gyroY_now = gyroDerivFiltY.apply(ang_vel[1]);
-  float gyroZ_now = gyroDerivFiltZ.apply(ang_vel[2]);
+  float gyroX_now = gyroDerivFiltX.apply(Units::toDegrees(ang_vel[0]));
+  float gyroY_now = gyroDerivFiltY.apply(Units::toDegrees(ang_vel[1]));
+  float gyroZ_now = gyroDerivFiltZ.apply(Units::toDegrees(ang_vel[2]));
 
-  float dp_raw = (gyroX_now - gyroX_filt_prev) / dt_deriv;
-  float dq_raw = (gyroY_now - gyroY_filt_prev) / dt_deriv;
-  float dr_raw = (gyroZ_now - gyroZ_filt_prev) / dt_deriv;
+  float dp_raw = (gyroX_now - Units::toDegrees(gyroX_filt_prev)) / dt_deriv;
+  float dq_raw = (gyroY_now - Units::toDegrees(gyroY_filt_prev)) / dt_deriv;
+  float dr_raw = (gyroZ_now - Units::toDegrees(gyroZ_filt_prev)) / dt_deriv;
 
-  ang_acc[0] = angularAccFiltX.apply(dp_raw);
-  ang_acc[1] = angularAccFiltY.apply(dq_raw);
-  ang_acc[2] = angularAccFiltZ.apply(dr_raw);
+  ang_acc[0] = Units::toRadians(angularAccFiltX.apply(dp_raw));
+  ang_acc[1] = Units::toRadians(angularAccFiltY.apply(dq_raw));
+  ang_acc[2] = Units::toRadians(angularAccFiltZ.apply(dr_raw));
 
-  gyroX_filt_prev = gyroX_now;
-  gyroY_filt_prev = gyroY_now;
-  gyroZ_filt_prev = gyroZ_now;
+  gyroX_filt_prev = Units::toRadians(gyroX_now);
+  gyroY_filt_prev = Units::toRadians(gyroY_now);
+  gyroZ_filt_prev = Units::toRadians(gyroZ_now);
 
   const float deriv_limit = 3000.0f;
-  ang_acc[0] = constrain(ang_acc[0], -deriv_limit, deriv_limit);
-  ang_acc[1] = constrain(ang_acc[1], -deriv_limit, deriv_limit);
-  ang_acc[2] = constrain(ang_acc[2], -deriv_limit, deriv_limit);
+  ang_acc[0] = Units::toRadians(constrain(Units::toDegrees(ang_acc[0]), -deriv_limit, deriv_limit));
+  ang_acc[1] = Units::toRadians(constrain(Units::toDegrees(ang_acc[1]), -deriv_limit, deriv_limit));
+  ang_acc[2] = Units::toRadians(constrain(Units::toDegrees(ang_acc[2]), -deriv_limit, deriv_limit));
 }
 
 

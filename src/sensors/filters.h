@@ -17,8 +17,8 @@ private:
 };
 
 extern PX4LowPassFilter2p gyroFiltYIndi, gyroFiltXIndi, gyroFiltZIndi;
-// 欧拉角为度；四元数无量纲。
-// 姿态角单位 deg，顺序为滚转/俯仰/偏航。
+// 欧拉角为 rad；四元数无量纲。
+// 姿态角单位 rad，顺序为滚转/俯仰/偏航。
 extern float att[3];
 // Madgwick/外置 IMU 的姿态四元数，顺序 W/X/Y/Z，沿用现有姿态解算约定。
 extern float quat[4];

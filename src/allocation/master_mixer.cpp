@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "control/control_pipeline.h"
 #include "control/control_output.h"
 #include "allocation/master_mixer.h"
@@ -22,9 +23,9 @@ static void mixLegacyMaster()
   const float Phiab_PID = configurationControlOutput.pidOutputs[0], Phiac_PID = configurationControlOutput.pidOutputs[1];
   const float Phibd_PID = configurationControlOutput.pidOutputs[2], Phice_PID = configurationControlOutput.pidOutputs[3];
   const float Phidf_PID = configurationControlOutput.pidOutputs[4], Phieg_PID = configurationControlOutput.pidOutputs[5];
-  const float error_Phiab = configurationControlOutput.angleErrorsDeg[0], error_Phiac = configurationControlOutput.angleErrorsDeg[1];
-  const float error_Phibd = configurationControlOutput.angleErrorsDeg[2], error_Phice = configurationControlOutput.angleErrorsDeg[3];
-  const float error_Phidf = configurationControlOutput.angleErrorsDeg[4], error_Phieg = configurationControlOutput.angleErrorsDeg[5];
+  const float error_Phiab = Units::toDegrees(configurationControlOutput.angleErrors[0]), error_Phiac = Units::toDegrees(configurationControlOutput.angleErrors[1]);
+  const float error_Phibd = Units::toDegrees(configurationControlOutput.angleErrors[2]), error_Phice = Units::toDegrees(configurationControlOutput.angleErrors[3]);
+  const float error_Phidf = Units::toDegrees(configurationControlOutput.angleErrors[4]), error_Phieg = Units::toDegrees(configurationControlOutput.angleErrors[5]);
   // 按单机或编队构型，将姿态控制量分配到各机舵面和油门。
   // 手动模式直接使用归一化遥控指令；舵面归一化中位为 0，油门范围为 0～1。
 

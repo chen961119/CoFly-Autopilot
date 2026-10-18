@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "config/aircraft_config.h"
 #include "config/serial_config.h"
 #include "interface/human_interface.h"
@@ -267,7 +268,7 @@ void displayAttitude() {
   display.print("Relat: ");
   float relativeRoll;
   if (localWingRelativeAngle(relativeRoll)) {
-    display.print(relativeRoll, 1);
+    display.print(Units::toDegrees(relativeRoll), 1);
     display.print((char)247); // 度符号°
   } else {
     display.print("--");
@@ -279,7 +280,7 @@ void displayAttitude() {
   display.fillRect(30, 8, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 8);
   display.print("Roll: ");
-  display.print(att[0], 1);
+  display.print(Units::toDegrees(att[0]), 1);
   display.print((char)247); // 度符号°
 
   // 第三行：俯仰角
@@ -288,7 +289,7 @@ void displayAttitude() {
   display.fillRect(30, 16, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 16);
   display.print("Pitch:");
-  display.print(att[1], 1);
+  display.print(Units::toDegrees(att[1]), 1);
   display.print((char)247);
 
   // 第四行：偏航角速度
@@ -297,7 +298,7 @@ void displayAttitude() {
   display.fillRect(30, 24, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 24);
   display.print("Yaw:  ");
-  display.print(att[2], 1);
+  display.print(Units::toDegrees(att[2]), 1);
   display.print((char)247);
 
   // 图形化指示（简易人工地平仪）

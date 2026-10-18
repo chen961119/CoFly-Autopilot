@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "radio_comm/radio_comm.h"
 #include "control/control_output.h"
 #include "control/control_modes.h"
@@ -33,13 +34,13 @@ void printControlMode(int enabled) {
   const int length = snprintf(text, sizeof(text),
       "\n=== ControlMode #%lu ===\n"
       "currentFlightMode=%d previousFlightMode=%d activePitchController=%d previousPitchController=%d\n"
-      "mixerStrategyCommand=%.3f configurationControlScale=%.3f configurationAngleDeg=%.1f\n"
+      "mixerStrategyCommand=%.3f configurationControlScale=%.3f configurationAngle=%.6f (rad)\n"
       "brakeEnabled=%d controlModeChanged=%d integralControlEnabled=%d\n"
       "=============\n",
       static_cast<unsigned long>(frame + 1), static_cast<int>(currentFlightMode),
       static_cast<int>(previousFlightMode), static_cast<int>(activePitchController),
       static_cast<int>(previousPitchController), mixerStrategyCommand, configurationControlScale,
-      configurationAngleDeg, static_cast<int>(brakeEnabled), static_cast<int>(controlModeChanged),
+      configurationAngle, static_cast<int>(brakeEnabled), static_cast<int>(controlModeChanged),
       static_cast<int>(ControlParameters::integralControlEnabled));
   if (length <= 0 || static_cast<size_t>(length) >= sizeof(text) ||
       USBSerial.availableForWrite() < length) return;
@@ -135,7 +136,7 @@ void printConfigurationData() {
     USBSerial.print(F("phieg:"));
     USBSerial.print(att_G[0] - att_E[0]);
     USBSerial.print(F("phieq:"));
-    USBSerial.print(rollControlOutput.equivalentRollAngleDeg);
+    USBSerial.print(rollControlOutput.equivalentRollAngle);
     USBSerial.print(F("Pb:"));
     USBSerial.print(ang_vel_B[0]);
     USBSerial.print(F("Pc:"));

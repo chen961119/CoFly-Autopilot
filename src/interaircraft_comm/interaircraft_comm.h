@@ -10,7 +10,7 @@ public:
   AircraftCommandLink() = default;
   // 对象绑定一个下游输出并独立限频；链路层级：A=1，B/C=2，D/E=3，F/G=4。
   void configure(Stream *output, Stream *input, unsigned int ownAircraftLevel = 1);
-  // 输入为 PWM 缩放前的逻辑控制输出；角度单位为度。
+  // 输入为 PWM 缩放前的逻辑控制输出；目标角为 rad，线上步长为 0.001 rad。
   bool setCommandLink(unsigned int index, const SlaveCommand &command);
   const SlaveCommand &getCommandLink();
   void sendPreparedChildCommands();
@@ -30,12 +30,13 @@ private:
   // 增删或修改字段时，同步更新 setCommandLink、getCommandLink 和 printReceivedData。
 #pragma pack(push, 1)
   struct CommandPayload {
+    static constexpr float ANGLE_SCALE = 1000.0f;
     uint8_t controlMode = MANUAL_MODE;
     // 每槽位依次为副翼1、副翼2、油门、方向舵、升降舵，int16 定点逻辑量（真实值 ×4096）；副翼和升降舵均下偏为正。
     // 原构造函数的低油门默认值移到载荷初始化，不在构造函数中处理协议。
     int16_t controlOutputs[CHILD_COUNT * 5] = {
         0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0};
-    int16_t pitchAngles[CHILD_COUNT] = {}; // 单位 0.1 度。
+    int16_t pitchAngles[CHILD_COUNT] = {}; // 0.001 rad；范围 [-32.768, 32.767] rad。
   };
 #pragma pack(pop)
   static_assert(std::is_trivially_copyable<CommandPayload>::value,
@@ -89,12 +90,13 @@ private:
   // 修改协议时同步更新 setSensorLink、getSensorLink 和 printReceivedData。
 #pragma pack(push, 1)
   struct SensorPayload {
+    static constexpr float ANGLE_SCALE = 1000.0f;
     bool isLeft = false; // 左链 true（B/D/F），右链 false（C/E/G）。
-    int16_t relativeAngles[CHILD_COUNT] = {}; // 0.1 度，相邻 IMU 滚转角差。
-    int16_t rollRates[CHILD_COUNT] = {};      // 0.1 度/秒。
-    int16_t rollAngles[CHILD_COUNT] = {};     // 0.1 度。
-    int16_t pitchAngles[CHILD_COUNT] = {};    // 0.1 度。
-    int16_t yawAngles[CHILD_COUNT] = {};      // 0.1 度。
+    int16_t relativeAngles[CHILD_COUNT] = {}; // 0.001 rad，相邻 IMU 滚转角差。
+    int16_t rollRates[CHILD_COUNT] = {};      // 0.001 rad/s。
+    int16_t rollAngles[CHILD_COUNT] = {};     // 0.001 rad。
+    int16_t pitchAngles[CHILD_COUNT] = {};    // 0.001 rad。
+    int16_t yawAngles[CHILD_COUNT] = {};      // 0.001 rad。
   };
 #pragma pack(pop)
   static_assert(sizeof(bool) == 1 && sizeof(SensorPayload) == 31, "Sensor wire layout changed");
@@ -128,9 +130,9 @@ void forwardReceivedChildSensors();
 bool isSensorDataFresh(bool left);
 
 // 从相邻机体接收的三轴姿态，供控制器、显示和日志读取。
-// 各机姿态角，单位 deg，顺序滚转/俯仰/偏航。
+// 各机姿态角，单位 rad，顺序滚转/俯仰/偏航。
 extern float att_B[3], att_C[3], att_D[3], att_E[3], att_F[3], att_G[3];
-// 三轴顺序 X/Y/Z，单位 deg/s；当前协议只更新 [0]，Y/Z 未传输且保持 0。
+// 三轴顺序 X/Y/Z，单位 rad/s；当前协议只更新 [0]，Y/Z 未传输且保持 0。
 extern float ang_vel_B[3], ang_vel_C[3], ang_vel_D[3], ang_vel_E[3], ang_vel_F[3], ang_vel_G[3];
 
 // Local downstream joint, derived from the two IMU rolls; never MT6701.

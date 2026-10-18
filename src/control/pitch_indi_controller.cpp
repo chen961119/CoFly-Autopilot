@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "control/pitch_indi_controller.h"
 #include "math/math_constants.h"
 #include "control/control_output.h"
@@ -18,8 +19,8 @@ using namespace ControlParameters;
 // ref=参考值，cmd=命令，f=滤波，hat=估计，dot=时间导数，prev=上一周期，meas=测量。
 //
 // 本文件的符号与单位：
-//   theta_ref_deg、att[1]：俯仰角，deg，抬头为正；att[0] 是滚转角，deg。
-//   ang_vel[1]：q，机体 Y 轴角速度，deg/s；ang_acc[1]：q_dot，deg/s^2。
+//   theta_ref_deg 保持 deg；全局 att 为 rad，读入时转为 deg，抬头为正。
+//   全局 ang_vel 为 rad/s、ang_acc 为 rad/s²；内部计算转回 deg/s、deg/s²。
 //   这里 q 是俯仰角速度，不是四元数，也不是动压；r 是机体 Z 轴角速度。
 //   delta_e_*：升降舵偏角，deg，下偏为正，上偏为负。
 //   当前标定的 indi_pitch_effectiveness < 0：下偏产生负俯仰角加速度。
@@ -69,7 +70,7 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
   if (!initialized)
   {
     // q 滤波器从当前测量稳态开始，避免从零起滤产生人为的角速度误差。
-    q_filter.reset(ang_vel[1]);
+    q_filter.reset(Units::toDegrees(ang_vel[1]));
     // 配平零舵角为0 deg；命令/估计从0开始，物理PWM历史填充配平中位。
     // 这里只假定舵机处于配平点，并没有读取舵面位置传感器。
     for (int i = 0; i < pwm_delay_buffer_length; i++)
@@ -81,7 +82,7 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
     delta_e_cmd_f_prev_deg = 0.0f;
     initialized = true;
   }
-  q_f_deg_s = q_filter.apply(ang_vel[1]);
+  q_f_deg_s = q_filter.apply(Units::toDegrees(ang_vel[1]));
   // 3. 俯仰角目标变化率前馈，单位 deg/s。
   //    对 theta_ref_deg 差分，不是对测量俯仰角差分；dt 为秒。
   //    dt 太小时本次差分置零，目标斜率随后限到 +/-10 deg/s。
@@ -119,23 +120,23 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
   // 4. 角度外环：theta_dot_cmd = 3 * (theta_ref-theta) + theta_ref_dot_f。
   //    固定系数 3.0 的单位为 1/s，表示每差 1 deg 给 3 deg/s 的修正；
   //    后一项让控制器主动跟随移动目标。这一环不使用俯仰 PID 的积分或增益。
-  float e_theta_deg = theta_ref_deg - att[1];
+  float e_theta_deg = theta_ref_deg - Units::toDegrees(att[1]);
   float theta_dot_cmd_deg_s = e_theta_deg * 3.0f + theta_ref_dot_f_deg_s;
   // 欧拉俯仰角变化率不总等于机体 q。按当前坐标关系：
   //   theta_dot = q*cos(phi) - r*sin(phi)
   // 所以 q_ref=(theta_dot_cmd+r_f*sin(phi))/cos(phi)，r_f 来自独立 Z 轴低通。
   // /57.3 将滚转角由 deg 换为 rad；当前式直接除以 cos(phi)，没有最小分母保护。
-  float q_ref_deg_s = (theta_dot_cmd_deg_s + sin(att[0] / 57.3) *
-      r_filter.apply(ang_vel[2])) /cos(att[0] / 57.3);
+  float q_ref_deg_s = (theta_dot_cmd_deg_s + sin(Units::toDegrees(att[0]) / 57.3) *
+      r_filter.apply(Units::toDegrees(ang_vel[2]))) /cos(Units::toDegrees(att[0]) / 57.3);
   // 限制的是机体 q 目标（+/-120 deg/s），不是前面的 +/-10 deg/s 目标斜率。
   q_ref_deg_s = constrain(q_ref_deg_s, -120, 120);
   // 5. 角速度误差转为角加速度参考：q_dot_ref=K_q*(q_ref-q_f)。
   //    q_dot_ref 表示角加速度参考值，与反馈 q_dot_meas 区分。
   //    K_q 单位 1/s；例如默认 25 时，1 deg/s 的误差要求 25 deg/s^2 的修正。
   float q_dot_ref_deg_s2 = indi_pitch_q_gain * (q_ref_deg_s - q_f_deg_s);
-  pitchIndiControlOutput.q_dot_ref_deg_s2 = q_dot_ref_deg_s2;
-  pitchIndiControlOutput.q_ref_deg_s = q_ref_deg_s;
-  pitchIndiControlOutput.q_f_deg_s = q_f_deg_s;
+  pitchIndiControlOutput.q_dot_ref = Units::toRadians(q_dot_ref_deg_s2);
+  pitchIndiControlOutput.q_ref = Units::toRadians(q_ref_deg_s);
+  pitchIndiControlOutput.q_f = Units::toRadians(q_f_deg_s);
   pitchIndiControlOutput.isValid = true;
   // 6. INDI 核心：用实测角加速度作为当前响应，求“还差多少舵偏”。
   //    局部增量模型：q_dot_new ~= q_dot_meas + G_qe*(delta_e_new-delta_e_hat)。
@@ -146,7 +147,7 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
   //    默认 G=-113.65，求得负舵偏增量，即升降舵向上修正，方向为抬头。
   //    0.7 是修正幅度系数，不是积分开关，也不是低通截止频率。
   float delta_delta_e_deg =
-  0.7f * (q_dot_ref_deg_s2 - ang_acc[1]) / indi_pitch_effectiveness;
+  0.7f * (q_dot_ref_deg_s2 - Units::toDegrees(ang_acc[1])) / indi_pitch_effectiveness;
   float delta_e_cmd_deg = delta_e_hat_deg + delta_delta_e_deg;
   // 7. 约束舵面命令。先相对“上次最终命令”按 deg/s 限速，
   //    防止反演误差一次生成过大的动作。delta_e_step_max_deg=deg/s*秒，单位 deg。
@@ -215,9 +216,9 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
   // 9. 发布控制过程量。delta_e_cmd 是命令，delta_e_hat 是模型估计，
   //     正常情况下二者会因延迟和舵机响应不同，不应当作同一个量理解。
   // 角速度目标、反馈及角加速度目标已在步骤 5 发布，不再重复保存一份。
-  pitchIndiControlOutput.q_dot_meas_deg_s2 = ang_acc[1];
-  pitchIndiControlOutput.delta_e_cmd_deg = delta_e_cmd_deg;
-  pitchIndiControlOutput.delta_e_hat_deg = delta_e_hat_deg;
+  pitchIndiControlOutput.q_dot_meas = ang_acc[1];
+  pitchIndiControlOutput.delta_e_cmd = Units::toRadians(delta_e_cmd_deg);
+  pitchIndiControlOutput.delta_e_hat = Units::toRadians(delta_e_hat_deg);
   // 不在控制器内量化到整数 us；混控后统一应用 rev、trim 和最终物理 PWM 限幅。
   pitchIndiControlOutput.indiOutput =
       (pwm_cmd_float_us - pwm_trim_us) / (1000.0f * pwm_channel3_rev);

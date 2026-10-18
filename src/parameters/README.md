@@ -35,6 +35,6 @@
 
 执行器调试：整数 SD 参数 `usb_actuator_output_debug` 默认 0，设为 1 后立即启用 `printActuatorOutput(int enabled)`，以独立的 10 Hz 节流打印本机 `ActuatorOutput[5]`。字段顺序为 ail1、ail2、ele、thro、rudd，单位 us；打印点位于最终限幅、锁定覆盖和舵机写出之后，配置无效时打印本机安全位置。USB 未连接或发送缓冲不足时跳过，不等待发送空间。参数通过既有延迟保存机制持久化。
 
-控制模式调试：整数 SD 参数 `usb_control_mode_debug` 默认 0，设为 1 后立即启用 `printControlMode(int enabled)`，以独立的 10 Hz 节流打印 `initializeInitialControlMode()` 涉及变量的当前值：currentFlightMode、previousFlightMode、activePitchController、previousPitchController、mixerStrategyCommand、configurationControlScale、configurationAngleDeg、brakeEnabled、controlModeChanged，并附加积分参数 integralControlEnabled。FlightMode 数值 0/1 分别表示手动/增稳；PitchController 数值 0/1 分别表示 PID/INDI。USB 未连接或发送缓冲不足时跳过，参数沿用 SD 延迟保存。
+控制模式调试：整数 SD 参数 `usb_control_mode_debug` 默认 0，设为 1 后立即启用 `printControlMode(int enabled)`，以独立的 10 Hz 节流打印 `initializeInitialControlMode()` 涉及变量的当前值：currentFlightMode、previousFlightMode、activePitchController、previousPitchController、mixerStrategyCommand、configurationControlScale、configurationAngle（rad）、brakeEnabled、controlModeChanged，并附加积分参数 integralControlEnabled。FlightMode 数值 0/1 分别表示手动/增稳；PitchController 数值 0/1 分别表示 PID/INDI。USB 未连接或发送缓冲不足时跳过，参数沿用 SD 延迟保存。
 
 积分开关：`integralControlEnabled` 为本机 SD 整数参数，默认 1，仅接受 0/1。0 关闭滚转、俯仰、偏航和构型 PID 积分并清除历史，1 开启积分；修改后下一控制周期生效，使用现有延迟保存机制。该参数不由模式初始化或模式切换覆盖，各机独立设置。

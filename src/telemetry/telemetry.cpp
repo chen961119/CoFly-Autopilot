@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "control/control_output.h"
 #include "telemetry/telemetry.h"
 #include "config/serial_config.h"
@@ -38,7 +39,7 @@ void telemetry() // 主机数传
   configuration_tele[4] = att_F[0] - att_D[0];
   configuration_tele[5] = att_G[0] - att_E[0];
 
-  attitude_tele[0] = rollControlOutput.equivalentRollAngleDeg;
+  attitude_tele[0] = rollControlOutput.equivalentRollAngle;
   attitude_tele[1] = att[1];
 
   //  float anglerand = random(-200000, 200001) / 1000.0;  // 范围 -200.000 ~
@@ -52,7 +53,7 @@ void telemetry() // 主机数传
 
   // 2. 打包相对转角6个 (转换为int16_t 一位小数)
   for (int i = 0; i < 6; i++) {
-    int16_t val = configuration_tele[i] * 10.0f; // 放大10倍保留1位小数
+    int16_t val = Units::toDegrees(configuration_tele[i]) * 10.0f; // 放大10倍保留1位小数
     buffer[pos++] = val & 0xFF;
     checksum += buffer[pos - 1];
     buffer[pos++] = (val >> 8);
@@ -61,7 +62,7 @@ void telemetry() // 主机数传
 
   // 3.打包欧拉角
   for (int i = 0; i < 2; i++) {
-    int16_t val = attitude_tele[i] * 10.0f; // 放大10倍保留1位小数
+    int16_t val = Units::toDegrees(attitude_tele[i]) * 10.0f; // 放大10倍保留1位小数
     buffer[pos++] = val & 0xFF;
     checksum += buffer[pos - 1];
     buffer[pos++] = (val >> 8);

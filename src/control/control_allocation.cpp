@@ -1,3 +1,4 @@
+#include "math/units.h"
 #include "config/serial_config.h"
 #include "control/control_allocation.h"
 #include "sensors/sensor_processing.h"
@@ -101,10 +102,10 @@ void initializeInertiaMatrices(Matrix3f& Ia, Matrix3f& Ib, Matrix3f& Ic, Matrix3
 // 初始化旋转矩阵（严格对应MATLAB）
 // 按当前相对转角生成机体之间绕 x 轴的旋转矩阵；共享角度输入为度。
 void initializeRotationMatrices(Matrix3f& Eab, Matrix3f& Eac, Matrix3f& Ebd, Matrix3f& Ece) {
-    float phiabrad=(att_B[0] - att[0])*0.01745;
-    float phiacrad=(att_C[0] - att[0])*0.01745;
-    float phibdrad=(att_D[0] - att_B[0])*0.01745;
-    float phicerad=(att_E[0] - att_C[0])*0.01745;
+    float phiabrad=(Units::toDegrees(att_B[0]) - Units::toDegrees(att[0]))*0.01745;
+    float phiacrad=(Units::toDegrees(att_C[0]) - Units::toDegrees(att[0]))*0.01745;
+    float phibdrad=(Units::toDegrees(att_D[0]) - Units::toDegrees(att_B[0]))*0.01745;
+    float phicerad=(Units::toDegrees(att_E[0]) - Units::toDegrees(att_C[0]))*0.01745;
     Eab << 1, 0, 0,
            0, cos(phiabrad), sin(phiabrad),
            0, -sin(phiabrad), cos(phiabrad);
@@ -433,7 +434,7 @@ void getpinvBplusmini() {
 
     MatrixXf M = assembleMassMatrix();
 
-    MatrixXf Be = computeBeMatrix(y, (att_B[0] - att[0])*0.01745, (att_C[0] - att[0])*0.01745, (att_D[0] - att_B[0])*0.01745, (att_E[0] - att_C[0])*0.01745);
+    MatrixXf Be = computeBeMatrix(y, (Units::toDegrees(att_B[0]) - Units::toDegrees(att[0]))*0.01745, (Units::toDegrees(att_C[0]) - Units::toDegrees(att[0]))*0.01745, (Units::toDegrees(att_D[0]) - Units::toDegrees(att_B[0]))*0.01745, (Units::toDegrees(att_E[0]) - Units::toDegrees(att_C[0]))*0.01745);
     extractMpi(); //得到Mpi
     MatrixXf Mpi_pinv = Mpi.inverse();  // 实际计算
     getQx();
