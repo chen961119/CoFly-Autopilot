@@ -1,7 +1,7 @@
 #pragma once
 #include <stddef.h>
 
-// Shares the parameter service's bounded USB/P9 RX/TX; never read a port here.
+// Shares the parameter service's bounded USB/X6 RX/TX; never read a port here.
 void handleGroundStationCommand(char *line, char *response, size_t capacity);
 
 enum class GroundStationResult { NotImplemented };

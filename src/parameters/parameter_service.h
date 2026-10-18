@@ -6,7 +6,7 @@ void initializeParameterService(bool sdReady);
 // USB RX/TX, deferred saves and reboot processing; call once per control cycle.
 // SD writes are synchronous.
 void pollParameterService();
-// Same protocol on the P9 UART, with independent RX/TX and listing state.
+// Same protocol on the X6 UART, with independent RX/TX and listing state.
 void pollTelemetryParameterService();
 // True means accepted in RAM; persistence is debounced per medium by 2 seconds.
 bool saveParameterValue(uint16_t id, double value);

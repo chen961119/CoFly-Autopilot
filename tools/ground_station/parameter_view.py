@@ -482,7 +482,7 @@ class ParameterConsole:
                     if parameter.name in self.received_parameters:
                         raise ValueError("参数响应包含重复名称")
                     self.received_parameters[parameter.name] = parameter
-                    # A complete list takes longer over the 57600-baud P9.
+                    # A complete list takes longer over the 57600-baud X6.
                     # Timeout measures silence, not total transfer duration.
                     self.pending["deadline"] = time.monotonic() + 8
                 elif kind == "END" and len(fields) == 1:

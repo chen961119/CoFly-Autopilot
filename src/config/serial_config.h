@@ -33,7 +33,8 @@ inline GdbUsbSerial gdbUsbSerial;
 #define DsmSerial Serial3
 #define StrainSensorSerial Serial7
 #define TelemetrySerial Serial8
-// CUAV P9 factory UART setting; both radio modules must match.
+// 3DR X6 transparent UART preset (8N1, no hardware flow control).
+// Configure both radio UARTs to this baud; this is not the RF air data rate.
 constexpr unsigned long TELEMETRY_BAUD = 57600;
 
 // DSM 与左子机共用 Serial3；应变传感器使用 Serial7。

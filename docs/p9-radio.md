@@ -1,4 +1,6 @@
-# CUAV P9 数传与 CoFly 地面站
+# CUAV P9 数传与 CoFly 地面站（历史记录）
+
+> 当前使用 3DR X6，见 [X6 接入说明](x6-radio.md)。本文仅保留 P9 历史，其供电、驱动和配置命令不适用于 X6。
 
 本版本使用 P9 的透明串口传输，沿用仓库 `tools/ground_station` 的 `GCS` / `PARAM` 文本协议，不需要 MAVLink 或 P9 专用 Arduino 库。USB 直连继续可用；两条链路独立解析请求和发送响应，不转发 USB 调试输出。
 
