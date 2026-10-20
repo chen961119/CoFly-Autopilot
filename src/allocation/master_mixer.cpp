@@ -125,33 +125,35 @@ static void mixLegacyMaster()
         coeac = 0.8;
       }
 
-      coeac = 1.0;
+      // coeac = 1.0;
 
       // 策略1
       if (mixerStrategyCommand > 0.2f)
       {
         commands.slaves[0].aileron1 =
             1.016 * roll_PID + coeab * 1 * Phiab_PID - coeac * 0.68 * Phiac_PID;
-        commands.slaves[0].aileron2 = 0.593 * roll_PID - coeab * 0.3392 * Phiab_PID -
-                        coeac * 0.12 * Phiac_PID;
+        commands.slaves[0].aileron2 = 
+            0.593 * roll_PID - coeac * 0.12 * Phiac_PID - coeab * 0.34 * Phiab_PID;
         commands.slaves[0].throttle = throttleCommand + 0.8 * yawCommand;
         commands.slaves[0].rudder = - yawCommand;
-         // 2机、3机
-
+        
+        // 2机、3机
+        commands.slaves[1].aileron1 =
+            -0.593 * roll_PID + coeab * 0.12 * Phiab_PID + coeac * 0.34 * Phiac_PID;
+        commands.slaves[1].aileron2 =
+            -1.016 * roll_PID - coeac * 1 * Phiac_PID + coeab * 0.68 * Phiab_PID ;
+        commands.slaves[1].throttle = throttleCommand - 0.8 * yawCommand;
+        commands.slaves[1].rudder = - yawCommand;
+        
         commands.local.aileron1 =
             0.1 * roll_PID - coeab * 1.186 * Phiab_PID + coeac * 0.71 * Phiac_PID;
         commands.local.aileron2 =
-            -0.1 * roll_PID - coeab * 0.71 * Phiab_PID + coeac * 1.16 * Phiac_PID;
+            -0.1 * roll_PID + coeac * 1.186 * Phiac_PID- coeab * 0.71 * Phiab_PID ;
         commands.local.elevator = elevatorCommand;
         commands.local.throttle = throttleCommand;
         commands.local.rudder = - yawCommand;
 
-        commands.slaves[1].aileron1 =
-            -0.593 * roll_PID + coeab * 0.12 * Phiab_PID + coeac * 0.34 * Phiac_PID;
-        commands.slaves[1].aileron2 =
-            -1.016 * roll_PID + coeab * 0.68 * Phiab_PID - coeac * 1 * Phiac_PID;
-        commands.slaves[1].throttle = throttleCommand - 0.8 * yawCommand;
-        commands.slaves[1].rudder = - yawCommand;
+        
          // 2机、3机
       }
       // 策略2
