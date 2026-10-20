@@ -57,8 +57,8 @@ void ConfigurationController::update(const float (&targets)[6]) {
   error_Phiab_RATE = Phiab_des_ol - Units::toDegrees(configurationControlOutput.measuredRates[0]);
   integral_Phiab_RATE_il = i_valid > 0.0f ? integral_Phiab_RATE_prev_il + error_Phiab_RATE * dt : 0.0f;
   integral_Phiab_RATE_il =
-  constrain(integral_Phiab_RATE_il, -i_limit,
-      i_limit);
+  constrain(integral_Phiab_RATE_il, -i_limit_FLAP_RATE,
+      i_limit_FLAP_RATE);
   configurationControlOutput.pidOutputs[0] = configurationControlScale * .01 *
   (Kff_FLAP_RATE * Phiab_des_ol + Kp_FLAP_RATE * error_Phiab_RATE +
       i_valid * Ki_FLAP_RATE *
@@ -66,8 +66,8 @@ void ConfigurationController::update(const float (&targets)[6]) {
   error_Phiac_RATE = Phiac_des_ol - Units::toDegrees(configurationControlOutput.measuredRates[1]);
   integral_Phiac_RATE_il = i_valid > 0.0f ? integral_Phiac_RATE_prev_il + error_Phiac_RATE * dt : 0.0f;
   integral_Phiac_RATE_il =
-  constrain(integral_Phiac_RATE_il, -i_limit,
-      i_limit);
+  constrain(integral_Phiac_RATE_il, -i_limit_FLAP_RATE,
+      i_limit_FLAP_RATE);
   configurationControlOutput.pidOutputs[1] = configurationControlScale * .01 *
   (Kff_FLAP_RATE * Phiac_des_ol + Kp_FLAP_RATE * error_Phiac_RATE +
       i_valid * Ki_FLAP_RATE *
@@ -75,8 +75,8 @@ void ConfigurationController::update(const float (&targets)[6]) {
   error_Phibd_RATE = Phibd_des_ol - Units::toDegrees(configurationControlOutput.measuredRates[2]);
   integral_Phibd_RATE_il = i_valid > 0.0f ? integral_Phibd_RATE_prev_il + error_Phibd_RATE * dt : 0.0f;
   integral_Phibd_RATE_il =
-  constrain(integral_Phibd_RATE_il, -i_limit,
-      i_limit);
+  constrain(integral_Phibd_RATE_il, -i_limit_FLAP_RATE,
+      i_limit_FLAP_RATE);
   configurationControlOutput.pidOutputs[2] = configurationControlScale * .01 *
   (Kff_FLAP_RATE * Phibd_des_ol + Kp_FLAP_RATE * error_Phibd_RATE +
       i_valid * Ki_FLAP_RATE *
@@ -84,8 +84,8 @@ void ConfigurationController::update(const float (&targets)[6]) {
   error_Phice_RATE = Phice_des_ol - Units::toDegrees(configurationControlOutput.measuredRates[3]);
   integral_Phice_RATE_il = i_valid > 0.0f ? integral_Phice_RATE_prev_il + error_Phice_RATE * dt : 0.0f;
   integral_Phice_RATE_il =
-  constrain(integral_Phice_RATE_il, -i_limit,
-      i_limit);
+  constrain(integral_Phice_RATE_il, -i_limit_FLAP_RATE,
+      i_limit_FLAP_RATE);
   configurationControlOutput.pidOutputs[3] = configurationControlScale * .01 *
   (Kff_FLAP_RATE * Phice_des_ol + Kp_FLAP_RATE * error_Phice_RATE +
       i_valid * Ki_FLAP_RATE *
@@ -93,8 +93,8 @@ void ConfigurationController::update(const float (&targets)[6]) {
   error_Phidf_RATE = Phidf_des_ol - Units::toDegrees(configurationControlOutput.measuredRates[4]);
   integral_Phidf_RATE_il = i_valid > 0.0f ? integral_Phidf_RATE_prev_il + error_Phidf_RATE * dt : 0.0f;
   integral_Phidf_RATE_il =
-  constrain(integral_Phidf_RATE_il, -i_limit,
-      i_limit);
+  constrain(integral_Phidf_RATE_il, -i_limit_FLAP_RATE,
+      i_limit_FLAP_RATE);
   configurationControlOutput.pidOutputs[4] = configurationControlScale * .01 *
   (Kff_FLAP_RATE * Phidf_des_ol + Kp_FLAP_RATE * error_Phidf_RATE +
       i_valid * Ki_FLAP_RATE *
@@ -102,8 +102,8 @@ void ConfigurationController::update(const float (&targets)[6]) {
   error_Phieg_RATE = Phieg_des_ol - Units::toDegrees(configurationControlOutput.measuredRates[5]);
   integral_Phieg_RATE_il = i_valid > 0.0f ? integral_Phieg_RATE_prev_il + error_Phieg_RATE * dt : 0.0f;
   integral_Phieg_RATE_il =
-  constrain(integral_Phieg_RATE_il, -i_limit,
-      i_limit);
+  constrain(integral_Phieg_RATE_il, -i_limit_FLAP_RATE,
+      i_limit_FLAP_RATE);
   configurationControlOutput.pidOutputs[5] = configurationControlScale * .01 *
   (Kff_FLAP_RATE * Phieg_des_ol + Kp_FLAP_RATE * error_Phieg_RATE +
       i_valid * Ki_FLAP_RATE *

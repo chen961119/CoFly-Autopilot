@@ -29,7 +29,7 @@ void initializeInitialControlMode() {
   previousFlightMode = MANUAL_MODE;
   activePitchController = PitchController::PID;
   previousPitchController = PitchController::PID;
-  mixerStrategyCommand = 0.0f;
+  mixerStrategyCommand = 1.0f;
   configurationControlScale = 1.0f;
   configurationAngle = 0.0f;
   brakeEnabled = false;

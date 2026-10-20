@@ -65,8 +65,8 @@ void RollPidController::update(float rollTarget, bool enabled) {
   error_roll = rollTarget - roll_eq;
   integral_roll_ol = i_valid > 0.0f ? integral_roll_prev_ol + error_roll * dt : 0.0f;
   integral_roll_ol =
-  constrain(integral_roll_ol, -i_limit,
-      i_limit);
+  constrain(integral_roll_ol, -i_limit_roll_angle,
+      i_limit_roll_angle);
   if (ModeChange == 1)
   {
     integral_roll_ol = 0;
@@ -107,8 +107,8 @@ void RollPidController::update(float rollTarget, bool enabled) {
   error_roll = roll_des_ol - Rollrate;
   integral_roll_il = i_valid > 0.0f ? integral_roll_prev_il + error_roll * dt : 0.0f;
   integral_roll_il =
-  constrain(integral_roll_il, -i_limit,
-      i_limit);
+  constrain(integral_roll_il, -i_limit_roll_rate,
+      i_limit_roll_rate);
   if (ModeChange == 1)
   {
     integral_roll_il = 0;

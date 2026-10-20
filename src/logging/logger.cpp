@@ -238,6 +238,10 @@ namespace
     LOG_FIELD(pitchIndiControlOutput.delta_e_hat);
     LOG_FIELD(rollDampingControlOutput.dampingCommand);
     LOG_FIELD(yawRateControlOutput.pidOutput);
+    LOG_FIELD(yawRateControlOutput.proportionalTerm);
+    LOG_FIELD(yawRateControlOutput.integralTerm);
+    LOG_FIELD(yawRateControlOutput.derivativeTerm);
+    LOG_FIELD(yawRateControlOutput.feedforwardTerm);
     LOG_FIELD(throttleControlOutput.throttleCommand);
     LOG_FIELD(throttleControlOutput.airspeedTarget);
     LOG_FIELD(throttleControlOutput.filteredAirspeed);

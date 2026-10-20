@@ -3,7 +3,7 @@
 
 // 总数量是编译期配置，可直接作为数组长度；同一构型各机共用固件，仅编号进参数表。
 #ifndef COFLY_AIRCRAFT_COUNT
-#define COFLY_AIRCRAFT_COUNT 3
+#define COFLY_AIRCRAFT_COUNT 1
 #endif
 static_assert(COFLY_AIRCRAFT_COUNT == 1 || COFLY_AIRCRAFT_COUNT == 3 ||
                   COFLY_AIRCRAFT_COUNT == 4 || COFLY_AIRCRAFT_COUNT == 5 ||

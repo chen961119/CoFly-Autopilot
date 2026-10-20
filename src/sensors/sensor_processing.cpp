@@ -180,11 +180,11 @@ void getIMUdata_EXT() {
 
         else if (buf[1] == 0x51) { // 加速度数据
           Acc_X_EXT =
-              ((int16_t)(buf[3] << 8) | buf[2]) / 32768.0f * 16.0f * 9.8f;
+              ((int16_t)(buf[3] << 8) | buf[2]) / 32768.0f * 16.0f * Units::acceleration(1.0f);
           Acc_Y_EXT =
-              ((int16_t)(buf[5] << 8) | buf[4]) / 32768.0f * 16.0f * 9.8f;
+              ((int16_t)(buf[5] << 8) | buf[4]) / 32768.0f * 16.0f * Units::acceleration(1.0f);
           Acc_Z_EXT =
-              ((int16_t)(buf[7] << 8) | buf[6]) / 32768.0f * 16.0f * 9.8f;
+              ((int16_t)(buf[7] << 8) | buf[6]) / 32768.0f * 16.0f * Units::acceleration(1.0f);
           // USBSerial.print("A:");
           // USBSerial.println(Acc_X_EXT);
           // USBSerial.print("A:"); USBSerial.print(ax,1); USBSerial.print(",");

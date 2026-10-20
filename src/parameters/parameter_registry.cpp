@@ -93,7 +93,13 @@ const FlightParameter *flightParameterTable(size_t &count) {
        "Debug", "Received sensor fields USB/X6 log: 0 off, 1 on", ParameterStorage::SD,
        ParameterEffect::Immediate},
       {29, "k_Clp", &k_Clp, 0, 10, "Control", "Roll damping gain"},
-      {30, "i_limit", &i_limit, 0, 1000, "Control", "Controller integral limit"},
+      // 原公共 i_limit（ID 30）已移除；新名称缺项时使用各环默认值。
+      {68, "i_limit_roll_angle", &i_limit_roll_angle, 0, 1000, "Attitude", "Roll angle error integral limit (before Ki)"},
+      {69, "i_limit_roll_rate", &i_limit_roll_rate, 0, 1000, "Attitude", "Roll rate error integral limit (before Ki)"},
+      {70, "i_limit_pitch_angle", &i_limit_pitch_angle, 0, 1000, "Attitude", "Pitch angle error integral limit (before Ki)"},
+      {71, "i_limit_pitch_rate", &i_limit_pitch_rate, 0, 1000, "Attitude", "Pitch rate error integral limit (before Ki)"},
+      {72, "i_limit_yaw_rate", &i_limit_yaw_rate, 0, 1000, "Attitude", "Yaw rate I output limit (after Ki)"},
+      {73, "i_limit_FLAP_RATE", &i_limit_FLAP_RATE, 0, 1000, "Configuration", "Relative rate error integral limit (before Ki; all six pairs)"},
       {31, "maxRoll", &maxRoll, 0, 180, "Control", "Maximum roll command (deg or deg/s)"},
       {32, "maxPitch", &maxPitch, 0, 180, "Control", "Maximum pitch command (deg or deg/s)"},
       // 同样保留 maxYaw 存储键，参数含义和内部变量均为最大偏航角速度。
@@ -164,7 +170,7 @@ const FlightParameter *flightParameterTable(size_t &count) {
        "Cruise airspeed for coordinated yaw (m/s)", ParameterStorage::SD,
        ParameterEffect::Immediate},
       {ParameterKey::IntegralControlEnabled, "integralControlEnabled", &integralControlEnabled,
-       0, 1, "Control", "PID integral: 0 off (clear history), 1 on", ParameterStorage::SD,
+       0, 1, "Control", "Roll/pitch/config/airspeed integral: 0 off, 1 on; yaw independent", ParameterStorage::SD,
        ParameterEffect::Immediate},
       {61, "airspeed_control_enabled", &airspeed_control_enabled, 0, 1, "Airspeed",
        "Stabilized throttle: 0 passthrough, 1 airspeed PI"},

@@ -15,7 +15,7 @@ static void mixLegacyMaster()
   const float elevatorCommand = manual ? -manualControlOutput.pitchCommand :
       (activePitchController == PitchController::INDI ?
        pitchIndiControlOutput.indiOutput :
-       -pitchPidControlOutput.pidOutput);
+       - pitchPidControlOutput.pidOutput);
   const float yawCommand = manual ? manualControlOutput.yawCommand : yawRateControlOutput.pidOutput;
   const float throttleCommand = manual ? manualControlOutput.throttleCommand : throttleControlOutput.throttleCommand;
   const float roll_PID_lpf = rollControlOutput.filteredPidOutput;

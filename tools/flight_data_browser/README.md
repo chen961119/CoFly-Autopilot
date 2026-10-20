@@ -29,6 +29,8 @@ macOS/Linux 使用 `python3 -m venv tools/flight_data_browser/.venv`，后续解
 
 相同文件、大小、修改时间和读取选项不变时直接复用内存。文件读取在后台执行，其他窗口操作仍可使用；清空后未完成的旧任务不会重新填入界面。
 
+偏航调参可搜索 `yawRateControlOutput`，对比 `proportionalTerm`、`integralTerm`、`derivativeTerm`、`feedforwardTerm` 和 `pidOutput`。四个分项均为已乘增益的混控尺度控制量，I 项已经限幅，四项之和为总输出；偏航控制未启用时均记录为 0。新字段按表头读取，旧日志不需要补列。
+
 ## 命令行与复用
 
 以下命令在本目录的环境中执行；把 `python` 换成 `.venv/Scripts/python.exe`（Windows）或 `.venv/bin/python`（macOS/Linux）。

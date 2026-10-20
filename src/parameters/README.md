@@ -43,6 +43,8 @@ EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均
 
 控制模式调试：整数 SD 参数 `usb_control_mode_debug` 默认 0，设为 1 后立即启用 `printControlMode(int enabled)`，以独立的 10 Hz 节流打印 `initializeInitialControlMode()` 涉及变量的当前值：currentFlightMode、previousFlightMode、activePitchController、previousPitchController、mixerStrategyCommand、configurationControlScale、configurationAngle（rad）、brakeEnabled、controlModeChanged，并附加积分参数 integralControlEnabled。FlightMode 数值 0/1 分别表示手动/增稳；PitchController 数值 0/1 分别表示 PID/INDI。USB 与 X6 数传独立发送，忙时跳过该链路，参数沿用 SD 延迟保存。
 
-积分开关：`integralControlEnabled` 为本机 SD 整数参数，默认 1，仅接受 0/1。0 关闭滚转、俯仰、偏航和构型 PID 积分并清除历史，1 开启积分；修改后下一控制周期生效，使用现有延迟保存机制。该参数不由模式初始化或模式切换覆盖，各机独立设置。
+积分开关：`integralControlEnabled` 为本机 SD 整数参数，默认 1，仅接受 0/1。0 关闭滚转、俯仰、构型和空速积分并清除历史，1 开启积分；偏航积分独立，不受此开关控制，设 `Ki_yaw_rate=0` 时清除偏航 I 项。修改后下一控制周期生效，使用现有延迟保存机制。该参数不由模式初始化或模式切换覆盖，各机独立设置。
+
+积分限幅：`i_limit_roll_angle`、`i_limit_roll_rate`、`i_limit_pitch_angle`、`i_limit_pitch_rate`、`i_limit_FLAP_RATE` 限制对应控制环乘 Ki 之前的误差积分，默认 45；`i_limit_yaw_rate` 限制乘 Ki 后的 I 项输出，默认 0.1。六项均为 float32 SD 参数，允许范围 0～1000，限制范围为各自参数的正负值，下一控制周期生效，并使用现有延迟保存机制。六路构型角速度环共用 `i_limit_FLAP_RATE`，积分历史各自独立。旧公共 `i_limit` 已移除，加载时跳过，新项缺失时使用各自默认值，迁移保存时写入新项并移除旧项。偏航的新控制律直接相加 FF、P、I、D，不再整体乘 0.573；原有同名增益和 `i_limit_yaw_rate` 已保存值仍会恢复，不自动换算，需要按新尺度检查实际参数。空速 PI 仍独立限制最终 I 项为 ±0.3。
 
 Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊断（含命令链、传感器链及 `debug_print` 函数）均同时提供给 USB 与 Serial8/X6，不依赖 USB 在线。诊断先组装完整帧，再交给对应会话的非阻塞发送游标，每周期最多发送 64 字节；等待中的命令、参数列表和存储通知优先，诊断不会插入协议回复中间。链路忙时独立丢弃新诊断帧，数传带宽不足时不保证完整采样率。

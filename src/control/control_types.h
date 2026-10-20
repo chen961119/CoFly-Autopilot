@@ -55,6 +55,11 @@ struct RollControlOutput {
 
 struct YawRateControlOutput {
   float pidOutput = 0; // 偏航角速度 PID 控制量，供后续混控分配（当前实际执行器为油门差动）。
+  // 已乘对应增益的控制分量；四项之和等于 pidOutput，未启用时均为 0。
+  float proportionalTerm = 0;
+  float integralTerm = 0; // 乘 Ki 后限幅的 I 项。
+  float derivativeTerm = 0;
+  float feedforwardTerm = 0;
 };
 
 struct ThrottleControlOutput {

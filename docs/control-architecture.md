@@ -40,7 +40,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 `ControlTargets` 只保存目标；模式、策略和刹车开关独立存储。主机分配完成后，`generateSlaveCommand()` 才初始化当周期从机俯仰目标、叠加滚转/构型策略修正，并原位整理从机分配和发送命令。手动交联先读取未缩放的从机副翼，再执行副翼缩放与刹车叠加，不使用上一周期分配。
 
-俯仰直接读取 `targets.pitch`，没有 mixer 反馈到下一周期的中央机俯仰修正缓存。偏航为机体 Z 轴角速度闭环：`YawRatePidController` 将目标与协调转弯前馈相加后，与 `ang_vel_filtered[2]` 比较，发布 `yawRateControlOutput.pidOutput`；传感器和显示中的 yaw 仍为角度。内部增益使用 `Kp_yaw_rate` 等名称，持久化键保留旧名称。实装偏航使用油门差动，rudder 字段继续保留在通用五路接口中。
+俯仰直接读取 `targets.pitch`，没有 mixer 反馈到下一周期的中央机俯仰修正缓存。偏航为机体 Z 轴角速度闭环：`YawRatePidController` 接收 rad/s 目标和 rad 滚转/俯仰目标，协调转弯项为 `g/V_cruise*tan(rollTarget)*cos(pitchTarget)`，叠加后与 `ang_vel_filtered[2]` 比较。FF、P、I、D 各自乘增益后直接相加，不再整体乘 0.573；I 项更新为 `I_prev + Ki*error*dt`，再限幅至 `±i_limit_yaw_rate`。发布 `yawRateControlOutput.pidOutput` 以及 `proportionalTerm`、`integralTerm`、`derivativeTerm`、`feedforwardTerm`，后四项之和等于总输出，未启用时五项均为 0，全部进入 SD 日志。内部增益使用 `Kp_yaw_rate` 等名称，持久化键保留旧名称。实装偏航使用油门差动，rudder 字段继续保留在通用五路接口中。
 
 ## 模式、策略和状态
 
@@ -48,7 +48,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 仅有手动（通信编码 0）和增稳（编码 1）两种模式。主机 CH5 大于 0 时为手动，其余位置为增稳；从机使用接收的 `mode`。本机 SD 参数 `pitch_controller` 选择增稳俯仰算法：0 PID、1 INDI，默认 1；各机独立配置，下一周期生效，不通过机间帧同步算法。
 
-积分由本机 SD 整数参数 `integralControlEnabled` 独立控制，默认 1；0 时关闭并清历史。模式或俯仰算法变化触发相应 PID 状态准备和 INDI 重置，INDI 以当前俯仰目标作为差分起点；构型积分不因模式切换统一清零。手动不启用俯仰闭环，INDI 模式不计算未使用的俯仰 PID。
+滚转、俯仰、构型和空速积分由本机 SD 整数参数 `integralControlEnabled` 控制，默认 1；0 时关闭并清历史。偏航积分独立，不受此开关控制；`Ki_yaw_rate=0` 时清除偏航 I 项。模式或俯仰算法变化触发相应 PID 状态准备和 INDI 重置，INDI 以当前俯仰目标作为差分起点；构型积分不因模式切换统一清零。偏航 `prepare()` 清除切换前积分并重建微分起点，随后 `update()` 在切换当周期即从零开始累加 `Ki*error*dt` 并限幅；首次启用、切换或重新启用的首个周期 D 项为 0。手动不启用俯仰闭环，INDI 模式不计算未使用的俯仰 PID。
 
 主机当前固定 `mixerStrategyCommand=1`、`configurationControlScale=1`。代码中的策略 2/3 不等于已接入遥控切换。CH7 选择构型角 10°/0°/−10°，左右目标交替取反；CH8 小于等于 0.2 时启用刹车。构型测量使用相邻 IMU 滚转差，MT6701 只用于测量记录，见 [固件指南](firmware-guide.md#传感器与统一测量接口)。
 

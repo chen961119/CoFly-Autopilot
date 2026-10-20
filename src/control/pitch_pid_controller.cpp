@@ -21,8 +21,8 @@ void PitchPidController::update(float pitchTarget, bool enabled) {
   error_pitch = pitchTarget - Units::toDegrees(att[1]);
   integral_pitch_ol = i_valid > 0.0f ? integral_pitch_prev_ol + error_pitch * dt : 0.0f;
   integral_pitch_ol =
-  constrain(integral_pitch_ol, -i_limit,
-      i_limit);
+  constrain(integral_pitch_ol, -i_limit_pitch_angle,
+      i_limit_pitch_angle);
   if (ModeChange == 1)
   {
     integral_pitch_ol = 0;
@@ -39,8 +39,8 @@ void PitchPidController::update(float pitchTarget, bool enabled) {
   error_pitch = pitch_des_ol - Units::toDegrees(ang_vel_filtered[1]);
   integral_pitch_il = i_valid > 0.0f ? integral_pitch_prev_il + error_pitch * dt : 0.0f;
   integral_pitch_il =
-  constrain(integral_pitch_il, -i_limit,
-      i_limit);
+  constrain(integral_pitch_il, -i_limit_pitch_rate,
+      i_limit_pitch_rate);
   if (ModeChange == 1)
   {
     integral_pitch_il = 0;

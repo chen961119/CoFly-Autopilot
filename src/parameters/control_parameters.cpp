@@ -2,11 +2,17 @@
 //#include "config/flight_config.h"
 
 namespace ControlParameters {
-int32_t integralControlEnabled = 1; // SD 参数，下一周期生效；关闭时清除 PID 积分历史。
+int32_t integralControlEnabled = 1; // SD 参数；控制滚转/俯仰/构型/空速积分，偏航积分独立。
 int32_t pitch_controller = 1; // 保留原默认 INDI 选择，用于增稳模式。
 float Trim_pitch_angle = 3.0;
 float k_Clp = 0.05;
-float i_limit = 45.0;        // 积分项限幅，防止长时间误差导致指令过大。
+// 滚转/俯仰/构型沿用原公共 i_limit 的误差积分限幅；偏航改为限制 I 项输出。
+float i_limit_roll_angle = 45.0f;
+float i_limit_roll_rate = 45.0f;
+float i_limit_pitch_angle = 45.0f;
+float i_limit_pitch_rate = 45.0f;
+float i_limit_yaw_rate = 0.1f; // 乘 Ki 后的积分控制量上限。
+float i_limit_FLAP_RATE = 45.0f; // 六路构型角速度环使用同一组构型参数。
 float maxRoll = 80.0;        // 最大滚转期望；角度模式为 °，角速度模式为 °/s。
 float maxPitch = 60.0;       // 最大俯仰期望；单位随控制模式变化。
 float maxYawRate = 160.0;        // 最大偏航角速度期望，单位 °/s。
@@ -49,8 +55,8 @@ float Kff_yaw_rate = 0.03;
 float Kff_FLAP_RATE = 0.1;
 float Kp_FLAP_RATE = 0.2;     // 0.09
 float Ki_FLAP_RATE = 0.20;    // 0.15
-float Kp_yaw_rate = 0.2;           // 偏航角速度比例增益。
-float Ki_yaw_rate = 0.05;          // 偏航角速度积分增益。
+float Kp_yaw_rate = 0.1;           // 偏航角速度比例增益。
+float Ki_yaw_rate = 0.03;          // 偏航角速度积分增益。
 float Kd_yaw_rate = 0.00000;       // 偏航角速度微分增益；当前设为零。
 float roll_pid_lpf_fc = 7.0f; // 7hz指令滤波
 float pitch_des_local_rate_lpf_fc = 5.0f; // INDI 目标角差分前馈的一阶低通截止频率，Hz；非正值直通，不是 q 反馈截止频率。
