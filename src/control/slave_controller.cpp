@@ -10,6 +10,7 @@
 void runSlaveController() {
   auto &controllers = controlControllers();
   controllers.pitchPid.prepare(ControlParameters::integralControlEnabled != 0, controlModeChanged);
+  controllers.rollDamping.update();
   if (controlModeChanged) controllers.pitchIndi.reset(Units::toDegrees(targets.pitch));
 
   const bool stabilized = isStabilizedMode(currentFlightMode);

@@ -4,9 +4,8 @@
 
 enum class PitchController { PID = 0, INDI = 1 };
 
-// 主机手动模式：roll/pitch/yawRate 为 ±1，由混控直接读取。
-// 增稳模式：roll/pitch 为角度（rad），yawRate 为偏航角速度（rad/s），不是偏航角。
-// 从机接收的 pitch 始终为俯仰角（rad）；throttle 保持 0～1。
+// 所有模式：roll/pitch 为角度（rad），yawRate 为偏航角速度（rad/s），throttle 为 0～1。
+// 从机接收的 pitch 同样为 rad；主机遥控直通量另存于 manual_input。
 struct ControlTargets {
   float roll = 0, pitch = 0, yawRate = 0, throttle = 0;
   float configuration[6] = {}; // 构型角目标（rad），顺序 AB、AC、BD、CE、DF、EG。
@@ -27,7 +26,7 @@ struct IndiPitchControlOutput {
   float q_ref = 0; // q_ref：机体俯仰角速度参考值，rad/s，不是欧拉俯仰角变化率。
   float q_f = 0; // q_f：控制器专用低通后的机体俯仰角速度反馈，rad/s。
   bool isValid = false; // 本周期是否完成有效 INDI 控制计算。
-  float indiOutput = 0; // 通道3通常为模式0：下偏正、0=配平、±1=端点；模式1则是0..1绝对位置。
+  float indiOutput = 0; // 模式0：抬头正、0=配平的归一化俯仰控制量，mixer取负后使用；不是角加速度。模式1为-1..0。
   float q_dot_meas = 0; // q_dot：传感器层给出的俯仰角加速度反馈，rad/s^2，已差分滤波。
   float delta_e_cmd = 0; // 限速、一次低通及通道3范围限幅后的命令舵偏，rad，下偏为正。
   float delta_e_hat = 0; // 延迟及一阶舵机模型更新后的舵偏估计，rad，下偏为正；不是实测舵角。

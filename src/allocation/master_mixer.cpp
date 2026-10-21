@@ -1,7 +1,6 @@
 #include "math/units.h"
 #include "control/control_pipeline.h"
 #include "control/control_output.h"
-#include "control/command_generation.h"
 #include "allocation/master_mixer.h"
 #include "config/aircraft_config.h"
 #include "math/math_utils.h"
@@ -11,14 +10,14 @@ static void mixLegacyMaster()
 {
 
   const bool manual = currentFlightMode == MANUAL_MODE;
-  const float roll_PID = manual ? targets.roll : rollControlOutput.pidOutput;
-  // 手动/PID为抬头正的控制意图；INDI已在出口转换为下偏正的混控逻辑量。
-  const float elevatorCommand = manual ? -targets.pitch :
+  const float roll_PID = manual ? manual_input[0] : rollControlOutput.pidOutput;
+  // 手动/PID/INDI均为抬头正的控制意图；在分配入口取负，转换为下偏正的舵面量。
+  const float elevatorCommand = manual ? -manual_input[1] :
       (activePitchController == PitchController::INDI ?
-       pitchIndiControlOutput.indiOutput :
+       -pitchIndiControlOutput.indiOutput :
        - pitchPidControlOutput.pidOutput);
-  const float yawCommand = manual ? targets.yawRate : yawRateControlOutput.pidOutput;
-  const float throttleCommand = manual ? targets.throttle : throttleControlOutput.throttleCommand;
+  const float yawCommand = manual ? manual_input[3] : yawRateControlOutput.pidOutput;
+  const float throttleCommand = manual ? manual_input[2] : throttleControlOutput.throttleCommand;
   const float roll_PID_lpf = rollControlOutput.filteredPidOutput;
   const float roll_PID_dot_lpf = rollControlOutput.filteredPidOutputDerivative;
   const float Phiab_PID = configurationControlOutput.pidOutputs[0], Phiac_PID = configurationControlOutput.pidOutputs[1];
@@ -149,7 +148,7 @@ static void mixLegacyMaster()
         commands.local.aileron1 =
             0.1 * roll_PID - coeab * 1.186 * Phiab_PID + coeac * 0.71 * Phiac_PID;
         commands.local.aileron2 =
-            -0.1 * roll_PID + coeac * 1.186 * Phiac_PID- coeab * 0.71 * Phiab_PID ;
+            -0.1 * roll_PID + coeac * 1.186 * Phiac_PID - coeab * 0.71 * Phiab_PID ;
         commands.local.elevator = elevatorCommand;
         commands.local.throttle = throttleCommand;
         commands.local.rudder = - yawCommand;
@@ -170,7 +169,7 @@ static void mixLegacyMaster()
             throttleCommand + keeppositive(+1.2 * yawCommand) + keeppositive(0.4 * roll_PID);
         commands.slaves[0].rudder = - yawCommand;
          // 2机、3机
-        commands.slaves[0].elevator = 0.0;
+        // commands.slaves[0].elevator = 0.0;
 
         commands.local.aileron1 =
             0.1 * roll_PID - coeab * 1.0 * Phiab_PID + coeac * 0.65 * Phiac_PID;
@@ -188,7 +187,7 @@ static void mixLegacyMaster()
             throttleCommand + keeppositive(-1.2 * yawCommand) + keeppositive(-0.4 * roll_PID);
         commands.slaves[1].rudder = - yawCommand;
          // 2机、3机
-        commands.slaves[1].elevator = 0.0;
+        // commands.slaves[1].elevator = 0.0;
       }
       else
       {

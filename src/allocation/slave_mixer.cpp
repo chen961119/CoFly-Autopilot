@@ -6,13 +6,14 @@
 #include "control/control_pipeline.h"
 
 void mixSlaveCommands() {
-  controlControllers().rollDamping.update();
+
   commands.local = {};
+  // 上级贡献已为下偏正；本机PID/INDI为抬头正，选用时取负转换为舵面量。
   const float elevator = currentFlightMode == MANUAL_MODE ? slaveCommand.masterContribution.elevator :
       (activePitchController == PitchController::INDI ?
-       pitchIndiControlOutput.indiOutput :
+       -pitchIndiControlOutput.indiOutput :
        -pitchPidControlOutput.pidOutput);
   // 交联只在从分配生成；主机升降舵前馈不重复作为本机俯仰贡献。
-  commands.local.aileron1 = commands.local.aileron2 = -elevator / 15.0f + rollDampingControlOutput.dampingCommand;
-  if (isStabilizedMode(currentFlightMode)) commands.local.elevator = elevator;
+  commands.local.aileron1 = commands.local.aileron2 = -elevator / 20.0f + rollDampingControlOutput.dampingCommand;
+  commands.local.elevator = currentFlightMode == MANUAL_MODE ? 0.0f : elevator;
 }

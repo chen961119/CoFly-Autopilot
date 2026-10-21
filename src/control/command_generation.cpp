@@ -5,38 +5,20 @@
 #include "control/control_modes.h"
 #include "config/aircraft_config.h"
 #include <cmath>
-#include "parameters/control_parameters.h"
-using namespace ControlParameters;
 
 ControlTargets targets{};
 SlaveControlTargets slaveTargets[CONTROL_AIRCRAFT_SLOTS]{};
 SlaveCommand slaveCommands[CONTROL_AIRCRAFT_SLOTS]{};
 
-// 分配与日志仍使用角度参考；不再保存重复的全局目标。
-float targetRollDegrees() {
-  return aircraftId() == 1 && currentFlightMode == MANUAL_MODE ? targets.roll * maxRoll : Units::toDegrees(targets.roll);
-}
-
-float targetPitchDegrees() {
-  return aircraftId() == 1 && currentFlightMode == MANUAL_MODE
-      ? targets.pitch * maxPitch + Trim_pitch_angle : Units::toDegrees(targets.pitch);
-}
-
-// yawRate 目标的统一角速度尺度，单位 deg/s；手动归一化输入按最大偏航角速度换算。
-float targetYawRateDegreesPerSec() {
-  return aircraftId() == 1 && currentFlightMode == MANUAL_MODE ? targets.yawRate * maxYawRate : Units::toDegrees(targets.yawRate);
-}
-
-
 // 根据本周期运动目标和原始分配结果生成从机目标、作动器贡献和待发送命令。
 void generateSlaveCommand() {
   for (unsigned i = 0; i < CONTROL_AIRCRAFT_SLOTS; ++i) {
-    slaveTargets[i].pitch = i < static_cast<unsigned>(aircraftCount() - 1) ? Units::toRadians(targetPitchDegrees()) : 0;
+    slaveTargets[i].pitch = i < static_cast<unsigned>(aircraftCount() - 1) ? targets.pitch : 0;
     slaveCommands[i] = {};
   }
 
-  const float roll = targetRollDegrees();
-  const float rollCommand = currentFlightMode == MANUAL_MODE ? targets.roll : rollControlOutput.pidOutput;
+  const float roll = Units::toDegrees(targets.roll);
+  const float rollCommand = currentFlightMode == MANUAL_MODE ? manual_input[0] : rollControlOutput.pidOutput;
   const bool strategy1 = mixerStrategyCommand > 0.2f;
   const bool strategy2 = mixerStrategyCommand < 0.2f && mixerStrategyCommand > -0.2f;
   if (aircraftCount() == 3) {
@@ -94,8 +76,9 @@ void generateSlaveCommand() {
     ActuatorCommand &child = commands.slaves[i];
     // 手动交联先读取原始副翼值，再原位缩放，避免把刹车和缩放计入交联。
     if (currentFlightMode == MANUAL_MODE) {
-      child.elevator = commands.local.elevator -
-          0.5f * (child.aileron1 + child.aileron2) / 2;
+      // child.elevator = commands.local.elevator -
+      //     0.5f * (child.aileron1 + child.aileron2) / 2;
+      child.elevator = commands.local.elevator;
     }
     child.aileron1 = child.aileron1 + brakeOffset;
     child.aileron2 = child.aileron2 + brakeOffset;

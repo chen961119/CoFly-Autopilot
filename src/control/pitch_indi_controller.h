@@ -2,7 +2,7 @@
 #include "control/control_types.h"
 #include "sensors/filters.h"
 // 单机俯仰 INDI：保存跨周期状态，使用全局姿态/角速度/角加速度和 dt 计算。
-// 内部用物理PWM计算；出口indiOutput与既有mixer同尺度，可直接作为elevator。
+// 内部用物理PWM计算；模式0的indiOutput为抬头正归一化控制量，mixer取负后作为elevator。
 class PitchIndiController {
 public:
   PitchIndiController();

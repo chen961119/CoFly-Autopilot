@@ -3,7 +3,7 @@
 // 飞控入口：仅编排初始化与每周期任务；各模块的状态和实现留在对应模块中。
 
 #include "actuators/actuator_output.h"
-#include "control/control_allocation.h"
+#include "allocation/control_allocation.h"
 #include "control/control_modes.h"
 #include "control/control_pipeline.h"
 #include "sensors/filters.h"
@@ -65,10 +65,8 @@ void setup() {
 void loop() {
 
   updateFlightClock();
-
   updateInertialSensors();
   getairspeed();
-  printAirspeed(airspeedDebugSetting());
   getRotateSensor1();
   ProcessButtonState();
   displayAttitude();
@@ -77,8 +75,7 @@ void loop() {
   if (!aircraftConfigurationValid() || parameterRebootRequired()) {
     setFlightLocked(true);
     commandSafeActuatorPositions();
-    printActuatorOutput(actuatorOutputDebugSetting());
-    printControlMode(controlModeDebugSetting());
+    runDebugPrints();
     pollParameterService();
     telemetry();
     loopRate(500);
@@ -91,8 +88,7 @@ void loop() {
   convertControlCommandsToPWM();
   prepareActuatorCommands();
   applyAndTransmitActuatorCommands();
-  printActuatorOutput(actuatorOutputDebugSetting());
-  printControlMode(controlModeDebugSetting());
+  runDebugPrints();
 
   logFlightData();
 

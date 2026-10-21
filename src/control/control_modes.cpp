@@ -18,6 +18,7 @@ float configurationControlScale = 1.0f;
 float configurationAngle = 0.0f;
 bool brakeEnabled = false;
 bool controlModeChanged = false;
+float manual_input[4]{};
 
 bool isStabilizedMode(FlightMode mode) {
   return mode == STABILIZE_MODE;
@@ -34,6 +35,7 @@ void initializeInitialControlMode() {
   configurationAngle = 0.0f;
   brakeEnabled = false;
   controlModeChanged = false;
+  for (float &input : manual_input) input = 0.0f;
 }
 
 void prepareControlMode() {
@@ -51,16 +53,17 @@ void prepareControlMode() {
       targets.configuration[i] = i % 2 == 0 ? configurationAngle : -configurationAngle;
     brakeEnabled = radio_channel8_normalized <= 0.2f;
 
-    // 主机每周期根据遥控输入更新运动目标和构型目标。
-    targets.throttle = 0.5f * (constrain(radio_channel3_normalized, -1.0f, 1.0f) + 1.0f);
-    targets.roll = constrain(radio_channel1_normalized, -1.0f, 1.0f);
-    targets.pitch = constrain(radio_channel2_normalized, -1.0f, 1.0f);
-    targets.yawRate = constrain(radio_channel4_normalized, -1.0f, 1.0f);
-    if (currentFlightMode != MANUAL_MODE) {
-      targets.roll *= Units::toRadians(ControlParameters::maxRoll);
-      targets.pitch = Units::toRadians(targets.pitch * ControlParameters::maxPitch + ControlParameters::Trim_pitch_angle);
-      targets.yawRate *= Units::toRadians(ControlParameters::maxYawRate);
-    }
+    // 遥控直通量与物理目标分开保存，切换模式不改变各字段的尺度。
+    manual_input[0] = constrain(radio_channel1_normalized, -1.0f, 1.0f);
+    manual_input[1] = constrain(radio_channel2_normalized, -1.0f, 1.0f);
+    manual_input[2] = 0.5f * (constrain(radio_channel3_normalized, -1.0f, 1.0f) + 1.0f);
+    manual_input[3] = constrain(radio_channel4_normalized, -1.0f, 1.0f);
+
+    // 主机每周期生成同一尺度的目标；手动混控只读取 manual_input。
+    targets.roll = manual_input[0] * Units::toRadians(ControlParameters::maxRoll);
+    targets.pitch = Units::toRadians(manual_input[1] * ControlParameters::maxPitch + ControlParameters::Trim_pitch_angle);
+    targets.yawRate = manual_input[3] * Units::toRadians(ControlParameters::maxYawRate);
+    targets.throttle = manual_input[2];
   } else {
     // 从机：由所在侧命令链发布模式、俯仰目标和上级作动器贡献。
     receiveCommandData();

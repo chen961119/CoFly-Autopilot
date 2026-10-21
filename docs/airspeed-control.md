@@ -8,7 +8,7 @@
 
 当前 `runMasterController()` 只按增稳模式传入控制器的 `enabled`，没有把飞行锁定条件传入。因此锁定时仍可能运行 PI、更新滤波和积累积分；输出层将本机实际 PWM 强制设为 `pwm_channel4_trim`。不能将“锁定输出安全位置”理解为“空速环已停止或积分已清零”。身份无效或有待重启参数时，主循环会提前返回，不执行该次控制更新。
 
-遥控归一化输入 -1～1 在准备目标时转换为 `targets.throttle=(radio_channel3_normalized+1)/2`。油门目标、手动基础油门和 PI 基础油门使用 0～1；混控差动叠加后可超出该范围，机间协议传输这个混控结果，最终由各机 PWM 输出层限幅。令 `u=targets.throttle`，闭环激活时的目标和基础输出为：
+遥控归一化输入 -1～1 在准备目标时转换为 `manual_input[2]=(radio_channel3_normalized+1)/2`，并赋给 `targets.throttle`。手动混控直接读取 `manual_input[2]`，增稳油门控制器读取 `targets.throttle`。油门目标、手动基础油门和 PI 基础油门使用 0～1；混控差动叠加后可超出该范围，机间协议传输这个混控结果，最终由各机 PWM 输出层限幅。令 `u=targets.throttle`，闭环激活时的目标和基础输出为：
 
 ```text
 V_target = airspeed_min + u * (airspeed_max - airspeed_min)

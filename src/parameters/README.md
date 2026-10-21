@@ -48,3 +48,23 @@ EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均
 积分限幅：`i_limit_roll_angle`、`i_limit_roll_rate`、`i_limit_pitch_angle`、`i_limit_pitch_rate`、`i_limit_FLAP_RATE` 限制对应控制环乘 Ki 之前的误差积分，默认 45；`i_limit_yaw_rate` 限制乘 Ki 后的 I 项输出，默认 0.1。六项均为 float32 SD 参数，允许范围 0～1000，限制范围为各自参数的正负值，下一控制周期生效，并使用现有延迟保存机制。六路构型角速度环共用 `i_limit_FLAP_RATE`，积分历史各自独立。旧公共 `i_limit` 已移除，加载时跳过，新项缺失时使用各自默认值，迁移保存时写入新项并移除旧项。偏航的新控制律直接相加 FF、P、I、D，不再整体乘 0.573；原有同名增益和 `i_limit_yaw_rate` 已保存值仍会恢复，不自动换算，需要按新尺度检查实际参数。空速 PI 仍独立限制最终 I 项为 ±0.3。
 
 Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊断（含命令链、传感器链及 `debug_print` 函数）均同时提供给 USB 与 Serial8/X6，不依赖 USB 在线。诊断先组装完整帧，再交给对应会话的非阻塞发送游标，每周期最多发送 64 字节；等待中的命令、参数列表和存储通知优先，诊断不会插入协议回复中间。链路忙时独立丢弃新诊断帧，数传带宽不足时不保证完整采样率。
+
+`debug_print` 中所有打印函数均接收 `int enabled=0`，仅参数为 1 时打印；各函数独立按 10 Hz 节流。主循环在最终执行器输出（或安全位置输出）之后调用 `runDebugPrints()`，读取下表中的本机 SD 整数参数。所有开关默认 0、仅接受 0/1、立即生效并沿用 SD 延迟保存；地面站动态读取参数表，无需为新开关增加固定界面项。
+
+| SD 参数 | 打印入口 / 内容 |
+| --- | --- |
+| `usb_actuator_output_debug` | `printActuatorOutput`，五路最终 PWM |
+| `usb_control_mode_debug` | `printControlMode`，控制模式与算法选择 |
+| `usb_airspeed_debug` | `printAirspeed`，空速及采样诊断 |
+| `usb_radio_debug` | `printRadioData`，遥控 PWM |
+| `usb_desired_state_debug` | `printDesiredState`，物理目标 |
+| `usb_configuration_debug` | `printConfigurationData`，IMU 构型角与角速度 |
+| `usb_pid_debug` | `printPIDoutput`，PID 输出 |
+| `usb_servo_commands_debug` | `printServoCommands`，执行器 PWM 的简要格式 |
+| `usb_loop_rate_debug` | `printLoopRate`，周期 dt（μs） |
+| `usb_gyro_debug` | `printGyroData`，角速度（rad/s） |
+| `usb_accel_debug` | `printAccelData`，加速度（m/s²） |
+| `usb_attitude_debug` | `printRollPitchYaw`，姿态角（rad） |
+| `usb_quaternion_debug` | `printQuaternion`，四元数 |
+
+`printLocalThrottle` 及旧参数 `usb_throttle_debug`（内部 ID 28）已删除，查看实际油门输出使用 `usb_actuator_output_debug`。旧 SD 文件中的删除项按现有迁移流程跳过，新项缺失时保持默认 0，迁移保存时移除旧项并补齐新项。

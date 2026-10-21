@@ -150,8 +150,8 @@ void AircraftCommandLink::printReceivedData(int enabled) {
   DiagnosticFrame output;
   output.printf("\n=== 帧#%lu ===\n", static_cast<unsigned long>(++receivedFrameCount));
   output.printf("controlMode: %u\n", static_cast<unsigned>(commandPayload.controlMode));
-  output.print("controlOutputs (int16, scale=4096): ");
-  for (int16_t value : commandPayload.controlOutputs) output.printf("%d ", static_cast<int>(value));
+  output.print("controlOutputs ([-1,1]): ");
+  for (int16_t value : commandPayload.controlOutputs) output.printf("%d ", static_cast<int>(value/CONTROL_OUTPUT_SCALE));
   output.print("\npitchAngles (deg): ");
   for (int16_t value : commandPayload.pitchAngles)
     output.printf("%.3f ", Units::toDegrees(value / CommandPayload::ANGLE_SCALE));

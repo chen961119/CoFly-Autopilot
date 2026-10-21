@@ -211,7 +211,8 @@ namespace
     LOG_FIELD(controlModeChanged);
 
 
-    // 6. 直接记录 targets 原值，手动/增稳模式的尺度约定见 ControlTargets。
+    // 6. 主机遥控直通输入与物理目标；targets 的单位不随模式变化。
+    LOG_ARRAY(manual_input);
     LOG_FIELD(targets.roll);
     LOG_FIELD(targets.pitch);
     LOG_FIELD(targets.yawRate);

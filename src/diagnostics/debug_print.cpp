@@ -13,18 +13,51 @@
 #include "sensors/sensor_processing.h"
 #include <stdio.h>
 
-// 旧诊断函数共用节流时间戳；执行器和油门打印独立计时。
-static unsigned long print_counter = 0;
-
 namespace {
 int32_t actuator_output_debug = 0;
 int32_t control_mode_debug = 0;
 int32_t airspeed_debug = 0;
+int32_t radio_debug = 0;
+int32_t desired_state_debug = 0;
+int32_t configuration_debug = 0;
+int32_t pid_output_debug = 0;
+int32_t servo_commands_debug = 0;
+int32_t loop_rate_debug = 0;
+int32_t gyro_debug = 0;
+int32_t accel_debug = 0;
+int32_t attitude_debug = 0;
+int32_t quaternion_debug = 0;
 }
 
 int32_t &actuatorOutputDebugSetting() { return actuator_output_debug; }
 int32_t &controlModeDebugSetting() { return control_mode_debug; }
 int32_t &airspeedDebugSetting() { return airspeed_debug; }
+int32_t &radioDebugSetting() { return radio_debug; }
+int32_t &desiredStateDebugSetting() { return desired_state_debug; }
+int32_t &configurationDebugSetting() { return configuration_debug; }
+int32_t &pidOutputDebugSetting() { return pid_output_debug; }
+int32_t &servoCommandsDebugSetting() { return servo_commands_debug; }
+int32_t &loopRateDebugSetting() { return loop_rate_debug; }
+int32_t &gyroDebugSetting() { return gyro_debug; }
+int32_t &accelDebugSetting() { return accel_debug; }
+int32_t &attitudeDebugSetting() { return attitude_debug; }
+int32_t &quaternionDebugSetting() { return quaternion_debug; }
+
+void runDebugPrints() {
+  printActuatorOutput(actuatorOutputDebugSetting());
+  printControlMode(controlModeDebugSetting());
+  printAirspeed(airspeedDebugSetting());
+  printRadioData(radioDebugSetting());
+  printDesiredState(desiredStateDebugSetting());
+  printConfigurationData(configurationDebugSetting());
+  printPIDoutput(pidOutputDebugSetting());
+  printServoCommands(servoCommandsDebugSetting());
+  printLoopRate(loopRateDebugSetting());
+  printGyroData(gyroDebugSetting());
+  printAccelData(accelDebugSetting());
+  printRollPitchYaw(attitudeDebugSetting());
+  printQuaternion(quaternionDebugSetting());
+}
 
 void printAirspeed(int enabled) {
   static uint32_t last = 0;
@@ -90,26 +123,12 @@ void printActuatorOutput(int enabled) {
   ++frame;
 }
 
-// 输出上级接收的油门逻辑控制量。
-static int32_t throttle_debug = 0;
-int32_t &localThrottleDebugSetting() { return throttle_debug; }
-void printLocalThrottle() {
+// 输出遥控各通道 PWM。
+void printRadioData(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  static unsigned long last = 0;
-  if (throttle_debug == 0 || micros() - last < 100000UL) return;
-  last = micros();
-  AircraftCommandLink *link = aircraftIsLeft() ? CommandLinks::left : CommandLinks::right;
-  const float throttle = aircraftId() != 1 && link
-      ? link->getCommandLink().masterContribution.throttle : -0.5f;
-  output.printf("[THROTTLE] parent_received=%d control=%.6f\n",
-                hasReceivedCommandData() ? 1 : 0, throttle);
-  output.send();
-}
-
-// 按共享时间戳节流输出遥控各通道 PWM。
-void printRadioData() {
-  DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F(" CH1:"));
     output.print(radio_channel1_raw);
@@ -127,10 +146,12 @@ void printRadioData() {
   output.send();
 }
 
-// 按共享时间戳节流输出油门与三轴期望状态。
-void printDesiredState() {
+// 输出油门与三轴物理目标。
+void printDesiredState(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("targets.throttle:"));
     output.print(targets.throttle);
@@ -145,9 +166,11 @@ void printDesiredState() {
 }
 
 // 输出相邻机体夹角或原始姿态差，以及各子机滚转角速度。
-void printConfigurationData() {
+void printConfigurationData(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("phiab:"));
     output.print(att_B[0] - att[0]);
@@ -180,9 +203,11 @@ void printConfigurationData() {
 }
 
 // 输出各轴与构型控制器的 PID 结果，供串口调试。
-void printPIDoutput() {
+void printPIDoutput(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("roll_PID:"));
     output.print(rollControlOutput.pidOutput);
@@ -203,9 +228,11 @@ void printPIDoutput() {
 }
 
 // 输出各执行器 PWM 指令，供串口调试。
-void printServoCommands() {
+void printServoCommands(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("A_ail1:"));
     output.print(ActuatorOutput[0]);
@@ -226,9 +253,11 @@ void printServoCommands() {
 }
 
 // 输出主循环时间间隔 dt，单位为 μs；本函数不直接计算频率。
-void printLoopRate() {
+void printLoopRate(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("dt:"));
     output.println(dt * 1000000.0); // 一个微秒microsecons=1/1000000s
@@ -237,10 +266,12 @@ void printLoopRate() {
 }
 
 
-// 输出内置 IMU 三轴角速度，单位为 °/s。
-void printGyroData() {
+// 输出三轴角速度，单位为 rad/s。
+void printGyroData(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("ang_vel[0]:")); output.print(ang_vel[0]);
     output.print(F(" ang_vel[1]:")); output.print(ang_vel[1]);
@@ -250,10 +281,12 @@ void printGyroData() {
 }
 
 
-// 输出内置 IMU 三轴加速度，单位为 g。
-void printAccelData() {
+// 输出三轴加速度，单位为 m/s²。
+void printAccelData(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("acc[0]:")); output.print(acc[0]);
     output.print(F(" acc[1]:")); output.print(acc[1]);
@@ -262,14 +295,12 @@ void printAccelData() {
   output.send();
 }
 
-
-
-
-
-// 输出当前姿态解算的滚转、俯仰和偏航角，单位为度。
-void printRollPitchYaw() {
+// 输出当前姿态解算的滚转、俯仰和偏航角，单位为 rad。
+void printRollPitchYaw(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("roll:"));
     output.print(att[0]);
@@ -283,9 +314,11 @@ void printRollPitchYaw() {
 
 
 // 输出姿态估计使用的四元数分量。
-void printQuaternion() {
+void printQuaternion(int enabled) {
+  if (enabled != 1) return;
+  static uint32_t print_counter = 0;
   DiagnosticFrame output;
-  if (current_time - print_counter > 10000) {
+  if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
     output.print(F("quat[0]: "));
     output.print(quat[0]);

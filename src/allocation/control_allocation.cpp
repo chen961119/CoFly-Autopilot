@@ -1,6 +1,6 @@
 #include "math/units.h"
 #include "config/serial_config.h"
-#include "control/control_allocation.h"
+#include "allocation/control_allocation.h"
 #include "sensors/sensor_processing.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 

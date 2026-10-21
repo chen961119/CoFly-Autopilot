@@ -14,7 +14,7 @@ using namespace ControlParameters;
 //
 // 一次 update 的计算链：
 //   theta_ref_deg -> theta_dot_cmd_deg_s -> q_ref_deg_s -> q_dot_ref_deg_s2
-//   -> delta_delta_e_deg -> delta_e_cmd_deg -> indiOutput（下偏为正的归一化量）。
+//   -> delta_delta_e_deg -> delta_e_cmd_deg -> indiOutput（抬头为正的归一化俯仰控制量）。
 //   q_dot_ref 是虚拟控制量（目标俯仰角加速度）；delta_delta_e 是 Delta(delta_e)，即舵偏增量。
 // 命名采用 INDI 文献常用符号，工程后缀规则和旧名对照见 docs/indi-variable-naming.md。
 // ref=参考值，cmd=命令，f=滤波，hat=估计，dot=时间导数，prev=上一周期，meas=测量。
@@ -26,7 +26,8 @@ using namespace ControlParameters;
 //   delta_e_*：升降舵偏角，deg，下偏为正，上偏为负。
 //   当前标定的 indi_pitch_effectiveness < 0：下偏产生负俯仰角加速度。
 //   pwm_*_us：内部物理PWM，us，用于命令换算和延迟队列。
-//   indiOutput：按通道模式逆映射；模式 0 为有符号贡献，模式 1 为 0..1 绝对位置。
+//   indiOutput：通道逆映射后取负；模式 0 为抬头正的有符号控制量，不是角加速度。
+//   模式 1 取负后为 -1..0，不具备以配平为零的有符号语义；当前升降舵应使用模式 0。
 //   参数对应：K_q = indi_pitch_q_gain，G_qe = indi_pitch_effectiveness。
 //   K_q 单位 1/s，G_qe 单位 (deg/s^2)/deg；参数存储名和参数值保持原约定。
 //
@@ -220,8 +221,9 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
   pitchIndiControlOutput.q_dot_meas = ang_acc[1];
   pitchIndiControlOutput.delta_e_cmd = Units::toRadians(delta_e_cmd_deg);
   pitchIndiControlOutput.delta_e_hat = Units::toRadians(delta_e_hat_deg);
+  // 出口取负以统一为抬头正；主/从 mixer 选用时再取负，恢复下偏正的舵面坐标。
   // 不在控制器内量化到整数 us；混控后统一应用 rev、trim 和最终物理 PWM 限幅。
   pitchIndiControlOutput.indiOutput =
-      actuatorPwmToCommand(pwm_cmd_float_us, pwm_channel3_rev,
+      -actuatorPwmToCommand(pwm_cmd_float_us, pwm_channel3_rev,
           pwm_servo3_min_us, pwm_channel3_trim, pwm_servo3_max_us, pwm_channel3_mode);
 }

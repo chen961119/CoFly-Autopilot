@@ -31,7 +31,8 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 | 对象 | 含义与尺度 |
 | --- | --- |
-| `targets` / `ControlTargets` | 主机手动时 roll/pitch/yawRate 为 ±1，混控及从机命令生成直接读取；增稳时 roll/pitch 为 rad、yawRate 为 rad/s；throttle 为 0～1 |
+| `targets` / `ControlTargets` | 所有模式下 roll/pitch 为 rad、yawRate 为 rad/s、throttle 为 0～1 |
+| `manual_input[0..3]` | 主机遥控直通输入，顺序为 roll/pitch/throttle/yaw；roll/pitch/yaw 为 -1～1，throttle 为 0～1 |
 | `targets.configuration[6]` | 构型角目标，deg，顺序 AB、AC、BD、CE、DF、EG |
 | `slaveTargets[0..5]` | B～G 的俯仰角目标，始终为 deg；A 单独存储 |
 | `commands.local` / `commands.slaves[0..5]` | 本机和 B～G 的 `ActuatorCommand`，五路逻辑控制偏移 |
@@ -54,7 +55,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 ## 逻辑坐标、交联与融合
 
-`ActuatorCommand` 不含本机 PWM 参数；当前舵面命令为 -1～1，油门命令为 0～1。五路均直接调用同一个 PWM 映射函数，mode=0 接收 -1～1，将 -1/0/+1 映射到 min/trim/max；mode=1 接收 0～1，将 0/0.5/1 映射到 min/两端中点/max，trim 仅为安全位置。调用方必须匹配模式的输入范围，因此当前舵面使用 mode=0、油门使用 mode=1；映射函数不再单独识别油门或转换范围。融合结果允许超出标准范围，最终在物理 PWM 层限幅。副翼和升降舵均以下偏为正。手动俯仰和 PID 仍以抬头控制作用为正，在主/从 mixer 选用结果时取反；INDI 出口使用同一模式的逆变换。模式 1 的 INDI 出口为绝对位置 0～1，中位为 0.5，不能直接当作原有有符号增量参与交联和前馈融合；当前升降舵控制与混控应保持 mode=0。
+`ActuatorCommand` 不含本机 PWM 参数；当前舵面命令为 -1～1，油门命令为 0～1。五路均直接调用同一个 PWM 映射函数，mode=0 接收 -1～1，将 -1/0/+1 映射到 min/trim/max；mode=1 接收 0～1，将 0/0.5/1 映射到 min/两端中点/max，trim 仅为安全位置。调用方必须匹配模式的输入范围，因此当前舵面使用 mode=0、油门使用 mode=1；映射函数不再单独识别油门或转换范围。融合结果允许超出标准范围，最终在物理 PWM 层限幅。副翼和升降舵均以下偏为正。手动俯仰、PID 和 INDI 统一以抬头控制作用为正，在主/从 mixer 选用结果时取反。INDI 内部仍以下偏正计算舵偏与 PWM，仅在出口逆映射后取负；交联、前馈、通信及融合的方向均不变。模式 1 的 INDI 出口取负后为 -1～0、中点为 -0.5，不具备有符号俯仰控制量语义；当前升降舵控制与混控应保持 mode=0。
 
 主机保留构型相关固定系数、副翼 0.4 缩放和刹车；本机升降舵到两路副翼的补偿均为 `-elevator/15`。主机第一路另加滚转阻尼，第二路减阻尼。从机两路均为 `-elevator/15 + damping`。两者的阻尼分配不同，不能把 PWM 同号直接解释为舵面同向。
 
@@ -64,7 +65,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 | --- | --- | --- | --- |
 | 手动 | 完整手动指令 | 0 | 上级手动指令 |
 | 增稳 PID | 主机前馈 | `-pitchPidControlOutput.pidOutput` | 本机闭环 + 前馈 |
-| 增稳 INDI | 主机前馈 | `pitchIndiControlOutput.indiOutput` | 本机闭环 + 前馈 |
+| 增稳 INDI | 主机前馈 | `-pitchIndiControlOutput.indiOutput` | 本机闭环 + 前馈 |
 
 副翼、油门、方向舵同样通过加法融合。融合函数只相加，不再运行控制律、交联或 PWM 映射。三机策略 3 的直接升降舵前馈在下偏正坐标中为 B=`-0.2R-0.01Rdot`、C=`+0.2R+0.01Rdot`，R 为滚转控制输出低通值；策略 1/2 前馈为 0。每周期清空分配，避免跨策略保留旧前馈。
 

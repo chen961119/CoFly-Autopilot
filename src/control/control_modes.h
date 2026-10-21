@@ -8,6 +8,8 @@ extern PitchController activePitchController;
 extern PitchController previousPitchController;
 extern SlaveCommand slaveCommand;
 extern bool controlModeChanged;
+// 主机遥控直通输入：[roll, pitch, throttle, yaw]；[0/1/3] 为 -1..1，[2] 为 0..1。
+extern float manual_input[4];
 // 主机读取遥控模式；从机接收上级命令；共同准备本机俯仰算法和模式状态。
 extern float mixerStrategyCommand;
 extern float configurationControlScale; // 构型控制输出系数，固定为 1.0f。

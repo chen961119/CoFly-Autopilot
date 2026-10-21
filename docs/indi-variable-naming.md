@@ -26,10 +26,10 @@
 | `q_dot_meas` | 用于增量反演的 `ang_acc[1]`，已由传感器层差分滤波 |
 | `delta_e_cmd` | 限速、一次低通及通道3范围限幅后的命令舵偏 |
 | `delta_e_hat` | 本周期推进舵机模型后的舵偏估计 |
-| `indiOutput` | 下偏正的逻辑控制量，0 为对应映射模式的零点、±1 为相应方向端点，供 mixer 直接使用 |
+| `indiOutput` | 模式0下为抬头正的归一化俯仰控制量，0 为配平，±1 为相应方向端点；主/从 mixer 取负后转换为下偏正舵面量，不是角加速度 |
 | `isValid` | 本周期是否完成有效控制计算 |
 
-旧日志字段 `desiredRateDegPerSec`、`desiredAngularAccelerationDegPerSec2`、`commandedElevatorDeflectionDeg` 分别对应上述 `q_ref`、`q_dot_ref`、`delta_e_cmd` 字段。旧 `elevatorPwmUs` / `pwm_cmd_us` 是整数物理 PWM，不能直接按 `indiOutput` 的尺度读取；短暂采用两端归一化的历史版本也使用过 `indiOutput` 名称，读取历史日志必须区分固件版本。
+旧日志字段 `desiredRateDegPerSec`、`desiredAngularAccelerationDegPerSec2`、`commandedElevatorDeflectionDeg` 分别对应上述 `q_ref`、`q_dot_ref`、`delta_e_cmd` 字段。自 2026-10-22 本次修改起，日志字段 `indiOutput` 从下偏正改为抬头正，数值与此前版本互为相反数；`delta_e_cmd`、`delta_e_hat` 仍为下偏正，物理输出不变。旧 `elevatorPwmUs` / `pwm_cmd_us` 是整数物理 PWM，不能直接按 `indiOutput` 的尺度读取；短暂采用两端归一化的历史版本也使用过 `indiOutput` 名称，读取历史日志必须区分固件版本。
 
 ## 控制律与处理顺序
 
@@ -54,7 +54,7 @@ delta_e_cmd      = delta_e_hat + delta_delta_e
 2. 按通道3物理端点推导的角度范围限幅，在角度域低通一次，再按同一范围限幅。
 3. 反算浮点物理 PWM，并按通道3范围限幅；控制器内不量化为整数 μs。
 4. 将物理 PWM 写入 `pwm_delay_buffer_us`；读取延迟命令，换算舵角并推进一阶舵机模型。
-5. 将限幅后的本机 PWM 转换为 `indiOutput`，供主/从 mixer 直接读取。
+5. 将限幅后的本机 PWM 逆映射并取负，发布抬头正的 `indiOutput`；主/从 mixer 选用时再取负，恢复下偏正的舵面量。交联、前馈、通信、融合及最终 PWM 映射均使用恢复后的舵面坐标。
 
 增量公式使用进入本次更新时的 `delta_e_hat`；发布的 `delta_e_hat` 是模型更新后的值，供下次反演使用。目标变化率前馈不等于含角度误差修正的 `theta_dot_cmd`。`q_f` 和 `q_dot_meas` 使用两条既有滤波路径，不能假定完全时间对齐。
 
@@ -66,10 +66,13 @@ delta_e_cmd      = delta_e_hat + delta_delta_e
 delta_e    = (PWM-C) * s*k
 PWM        = C + delta_e/(s*k)
 span       = PWM >= C ? pwm_servo3_max_us-C : C-pwm_servo3_min_us
-indiOutput = span > 0 ? s*(PWM-C)/span : 0
+indiOutput = span > 0 ? -s*(PWM-C)/span : 0
+elevator   = -indiOutput
 ```
 
 C 是绝对 PWM，对应 0°。物理 PWM 到舵角仍使用同一个 k，与最终输出映射互逆。模式 0 要求 min≤trim≤max，逻辑量按中位两侧分别归一化。模式 1 接收 0～1，不使用 trim，逆变换先求 `u=(PWM-min)/(max-min)`，再按方向返回 `rev<0 ? 1-u : u`；物理中点对应 0.5，trim 仅为安全位置。零行程逆变换返回 0。例如范围 1200～1700 μs、trim=1500、rev=1 时，模式 0 的 -1/0/+1 对应 1200/1500/1700 μs，模式 1 的 0/0.5/1 对应 1200/1450/1700 μs；rev=-1 时两端交换。当前升降舵的手动/PID、交联和前馈融合使用有符号贡献，因此通道3应保持 mode=0；仅修改映射参数不会将整套混控转换为绝对位置坐标。
+
+模式 1 的 `actuatorPwmToCommand()` 返回 0～1 绝对位置，INDI 出口取负后为 -1～0、中点为 -0.5，不具备模式 0 的抬头正有符号语义；mixer 再次取负仅恢复原绝对位置，不解决现有交联/融合对有符号贡献的要求。
 
 角度上下限由两个物理 PWM 端点分别换算再排序，兼容 rev=-1。不再使用独立截距、舵角上下限或 INDI PWM 上下限；删除参数的兼容处理见 [参数迁移](parameter-storage.md#格式与介质迁移)。最终物理输出仍按 [固件指南](firmware-guide.md#执行器映射与方向迁移) 处理融合贡献、rev、trim 和限幅。
 

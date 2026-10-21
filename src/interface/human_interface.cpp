@@ -2,7 +2,7 @@
 #include "config/aircraft_config.h"
 #include "config/serial_config.h"
 #include "interface/human_interface.h"
-#include "control/control_allocation.h"
+#include "allocation/control_allocation.h"
 #include "system/flight_clock.h"
 #include <Adafruit_SSD1306.h>
 #include "logging/logger.h"

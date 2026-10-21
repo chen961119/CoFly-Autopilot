@@ -19,7 +19,7 @@ void runMasterController()
   controllers.yawRate.prepare(controlModeChanged);
   controllers.configuration.prepare(integralEnabled);
   controllers.pitchPid.prepare(integralEnabled, controlModeChanged);
-  if (controlModeChanged) controllers.pitchIndi.reset(targetPitchDegrees());
+  if (controlModeChanged) controllers.pitchIndi.reset(Units::toDegrees(targets.pitch));
 
   const bool stabilized = isStabilizedMode(currentFlightMode);
   controllers.roll.update(Units::toDegrees(targets.roll), stabilized);
