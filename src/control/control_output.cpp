@@ -1,6 +1,5 @@
 #include "control/control_output.h"
 
-ManualControlOutput manualControlOutput{};
 RollControlOutput rollControlOutput{};
 PitchPidControlOutput pitchPidControlOutput{};
 IndiPitchControlOutput pitchIndiControlOutput{};

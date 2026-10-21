@@ -36,7 +36,7 @@ void generateSlaveCommand() {
   }
 
   const float roll = targetRollDegrees();
-  const float rollCommand = currentFlightMode == MANUAL_MODE ? manualControlOutput.rollCommand : rollControlOutput.pidOutput;
+  const float rollCommand = currentFlightMode == MANUAL_MODE ? targets.roll : rollControlOutput.pidOutput;
   const bool strategy1 = mixerStrategyCommand > 0.2f;
   const bool strategy2 = mixerStrategyCommand < 0.2f && mixerStrategyCommand > -0.2f;
   if (aircraftCount() == 3) {
@@ -97,8 +97,8 @@ void generateSlaveCommand() {
       child.elevator = commands.local.elevator -
           0.5f * (child.aileron1 + child.aileron2) / 2;
     }
-    child.aileron1 = child.aileron1 * 0.4f + brakeOffset;
-    child.aileron2 = child.aileron2 * 0.4f + brakeOffset;
+    child.aileron1 = child.aileron1 + brakeOffset;
+    child.aileron2 = child.aileron2 + brakeOffset;
   }
   for (unsigned i = 0; i < CONTROL_AIRCRAFT_SLOTS; ++i) {
     slaveCommands[i].mode = currentFlightMode;

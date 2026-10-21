@@ -3,6 +3,7 @@
 
 // Internal lookup keys, never written to SD or EEPROM.
 namespace ParameterKey {
+constexpr uint16_t ActuatorTrimFirst = 53;
 constexpr uint16_t IntegralControlEnabled = 60;
 constexpr uint16_t AircraftId = 1001;
 constexpr uint16_t ImuAccErrorX6050 = 1101;
@@ -23,6 +24,8 @@ constexpr uint16_t UsbAirspeedDebug = 1305;
 // Five consecutive min/max pairs, channel 1 through channel 5.
 constexpr uint16_t ActuatorPwmFirst = 1501;
 constexpr uint16_t ActuatorPwmLast = 1510;
+constexpr uint16_t ActuatorModeFirst = 1511;
+constexpr uint16_t ActuatorModeLast = 1515;
 constexpr uint16_t ImuOffsetFirst = ImuAccErrorX6050;
 constexpr uint16_t ImuOffsetLast = ImuGyroErrorZ6050;
 constexpr unsigned ImuOffsetCount = 6;

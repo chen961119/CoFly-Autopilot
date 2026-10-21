@@ -11,7 +11,7 @@ public:
   // enabled=false 只清空发布结果，不推进内部状态；切换时的历史重置由 reset 负责。
   void update(float theta_ref_deg, bool enabled);
 private:
-  // 延迟队列可容纳本周期和之前63个周期的浮点物理PWM，初始化为1500+trim。
+  // 延迟队列保存浮点物理 PWM，初始化为映射零点（模式 0 为 trim，模式 1 为端点中点）。
   static constexpr int pwm_delay_buffer_length = 64;
   // 是否已用零舵角初始化队列、舵偏估计及命令历史。
   bool initialized = false;

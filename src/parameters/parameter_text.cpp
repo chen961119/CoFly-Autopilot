@@ -2,6 +2,10 @@
 #include <stdio.h>
 
 namespace ParameterText {
+bool validAircraftMetadata(uint32_t aircraftCount, uint32_t aircraftId) {
+  return (aircraftCount == 1 || aircraftCount == 3 || aircraftCount == 4 ||
+          aircraftCount == 5 || aircraftCount == 7) && aircraftId <= aircraftCount;
+}
 uint32_t checksum(const uint8_t *data, size_t size) {
   uint32_t value = UINT32_MAX;
   for (size_t i = 0; i < size; ++i) {
@@ -28,13 +32,38 @@ bool line(const uint8_t *data, size_t available, size_t &offset, char *out, size
 bool header(const uint8_t *data, size_t available, View &view) {
   size_t offset = 0;
   char text[PARAMETER_RECORD_BUFFER_SIZE];
-  if (!line(data, available, offset, text, sizeof(text)) || strcmp(text, VERSION))
+  if (!line(data, available, offset, text, sizeof(text)))
+    return false;
+  const bool v8 = !strcmp(text, LEGACY_VERSION);
+  // Both older layouts are readable and rewritten with a single-line header.
+  const bool legacy = v8 || !strcmp(text, VERSION);
+  uint32_t aircraftCount = 0, aircraftId = 0;
+  if (!legacy) {
+    constexpr char prefix[] = "COFLY_PARAMS AIRCRAFT_COUNT=";
+    if (strncmp(text, prefix, sizeof(prefix) - 1))
+      return false;
+    char *total = text + sizeof(prefix) - 1;
+    char *identity = strstr(total, " AIRCRAFT_ID=");
+    if (!identity)
+      return false;
+    *identity = '\0';
+    if (!ParameterRecord::parseUnsigned(total, aircraftCount) ||
+        !ParameterRecord::parseUnsigned(identity + 13, aircraftId))
+      return false;
+  } else if (!v8) {
+    if (!line(data, available, offset, text, sizeof(text)) || strncmp(text, "AIRCRAFT_COUNT=", 15) ||
+        !ParameterRecord::parseUnsigned(text + 15, aircraftCount) ||
+        !line(data, available, offset, text, sizeof(text)) || strncmp(text, "AIRCRAFT_ID=", 12) ||
+        !ParameterRecord::parseUnsigned(text + 12, aircraftId))
+      return false;
+  }
+  if (!v8 && !validAircraftMetadata(aircraftCount, aircraftId))
     return false;
   uint32_t rows;
   if (!line(data, available, offset, text, sizeof(text)) || strncmp(text, "COUNT=", 6) ||
       !ParameterRecord::parseUnsigned(text + 6, rows) || rows > MAX_ROWS)
     return false;
-  view = {rows, offset, 0};
+  view = {rows, offset, 0, aircraftCount, aircraftId, legacy};
   for (size_t i = 0; i < rows; ++i)
     if (!line(data, available, offset, text, sizeof(text)))
       return false;
@@ -91,10 +120,13 @@ bool valid(const uint8_t *data, size_t available, View &view) {
   }
   return offset == footer;
 }
-size_t begin(uint8_t *data, size_t capacity, size_t rows) {
-  if (rows > MAX_ROWS)
+size_t begin(uint8_t *data, size_t capacity, size_t rows,
+             uint32_t aircraftCount, uint32_t aircraftId) {
+  if (rows > MAX_ROWS || !validAircraftMetadata(aircraftCount, aircraftId))
     return 0;
-  const int n = snprintf(reinterpret_cast<char *>(data), capacity, "%s\nCOUNT=%u\n", VERSION,
+  const int n = snprintf(reinterpret_cast<char *>(data), capacity,
+                         "%s AIRCRAFT_COUNT=%u AIRCRAFT_ID=%u\nCOUNT=%u\n", VERSION,
+                         static_cast<unsigned>(aircraftCount), static_cast<unsigned>(aircraftId),
                          static_cast<unsigned>(rows));
   return n > 0 && static_cast<size_t>(n) < capacity ? n : 0;
 }

@@ -35,7 +35,7 @@ private:
     // 每槽位依次为副翼1、副翼2、油门、方向舵、升降舵，int16 定点逻辑量（真实值 ×4096）；副翼和升降舵均下偏为正。
     // 原构造函数的低油门默认值移到载荷初始化，不在构造函数中处理协议。
     int16_t controlOutputs[CHILD_COUNT * 5] = {
-        0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0, 0, 0, -2048, 0, 0};
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int16_t pitchAngles[CHILD_COUNT] = {}; // 0.001 rad；范围 [-32.768, 32.767] rad。
   };
 #pragma pack(pop)
@@ -44,7 +44,7 @@ private:
   static constexpr size_t FRAME_SIZE = HEADER_SIZE + sizeof(CommandPayload) + CHECKSUM_SIZE;
   CommandPayload commandPayload{};
   // 解码结果与链路对象同寿命，getCommandLink() 返回其稳定引用。
-  SlaveCommand parsedCommand{MANUAL_MODE, {}, {0, 0, 0, -0.5f, 0}};
+  SlaveCommand parsedCommand{MANUAL_MODE, {}, {0, 0, 0, 0, 0}};
   static_assert(sizeof(int16_t) == 2 && sizeof(CommandPayload) == 37, "Command wire layout changed");
 
   bool dataReceived = false;

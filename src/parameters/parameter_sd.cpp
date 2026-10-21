@@ -1,5 +1,7 @@
 #include "parameters/parameter_sd.h"
 #include "parameters/parameter_text.h"
+#include "parameters/parameter_keys.h"
+#include "config/aircraft_config.h"
 #include <SD.h>
 #include <string.h>
 
@@ -39,7 +41,8 @@ bool readParameterFile(const char *path, double *values, bool *needsMigration = 
   for (size_t i = 0; i < count; ++i)
     if (table[i].storage == ParameterStorage::SD)
       ++sdCount;
-  if (needsMigration && view.rows != sdCount)
+  if (needsMigration && (view.rows != sdCount || view.legacy ||
+                         view.aircraftCount != static_cast<uint32_t>(aircraftCount())))
     *needsMigration = true;
   size_t offset = view.records;
   for (size_t row = 0; row < view.rows; ++row) {
@@ -68,6 +71,11 @@ bool readParameterFile(const char *path, double *values, bool *needsMigration = 
       --parsedStats.defaultsUsed;
     }
   }
+  if (needsMigration)
+    for (size_t i = 0; i < count; ++i)
+      if (table[i].id == ParameterKey::AircraftId &&
+          view.aircraftId != static_cast<uint32_t>(values[i]))
+        *needsMigration = true;
   if (stats)
     *stats = parsedStats;
   return true;
@@ -82,10 +90,14 @@ bool sameSDValues(const double *a, const double *b) {
 
 bool writeSnapshot(const char *path, const double *values) {
   size_t sdCount = 0;
-  for (size_t i = 0; i < count; ++i)
+  uint32_t identity = 0;
+  for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::SD)
       ++sdCount;
-  size_t used = ParameterText::begin(fileData, sizeof(fileData), sdCount);
+    if (table[i].id == ParameterKey::AircraftId)
+      identity = static_cast<uint32_t>(values[i]);
+  }
+  size_t used = ParameterText::begin(fileData, sizeof(fileData), sdCount, aircraftCount(), identity);
   if (!used)
     return false;
   for (size_t i = 0; i < count; ++i) {

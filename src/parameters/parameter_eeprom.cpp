@@ -1,5 +1,7 @@
 #include "parameters/parameter_eeprom.h"
 #include "parameters/parameter_text.h"
+#include "parameters/parameter_keys.h"
+#include "config/aircraft_config.h"
 #include <EEPROM.h>
 
 namespace {
@@ -56,7 +58,7 @@ bool initializeEEPROMParameters() {
       memcpy(current, next, SIZE);
       active = 1;
     } else {
-      if (!memcmp(current, "COFLY_PARAMS_", 13) || !memcmp(next, "COFLY_PARAMS_", 13))
+      if (!memcmp(current, "COFLY_PARAMS", 12) || !memcmp(next, "COFLY_PARAMS", 12))
         state = "CORRUPT";
       return false;
     }
@@ -94,12 +96,16 @@ bool saveEEPROMParameters(const FlightParameter *table, size_t count, const doub
     return false;
   memset(next, 0, SIZE);
   size_t rows = 0;
+  uint32_t identity = 0;
   // Count first, since the text COUNT field is variable width.
-  for (size_t i = 0; i < count; ++i)
+  for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::EEPROM ||
         (!sdVerified && hasEEPROMMigrationSource(table[i])))
       ++rows;
-  size_t used = ParameterText::begin(next, SIZE, rows);
+    if (table[i].id == ParameterKey::AircraftId)
+      identity = static_cast<uint32_t>(values[i]);
+  }
+  size_t used = ParameterText::begin(next, SIZE, rows, aircraftCount(), identity);
   if (!used)
     return false;
   for (size_t i = 0; i < count; ++i) {

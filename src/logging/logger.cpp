@@ -219,10 +219,6 @@ namespace
     LOG_ARRAY(targets.configuration);
 
     // 7. 各控制器输出，顺序与 control_output.h 的声明一致。
-    LOG_FIELD(manualControlOutput.rollCommand);
-    LOG_FIELD(manualControlOutput.pitchCommand);
-    LOG_FIELD(manualControlOutput.yawCommand);
-    LOG_FIELD(manualControlOutput.throttleCommand);
     LOG_FIELD(rollControlOutput.pidOutput);
     LOG_FIELD(rollControlOutput.filteredPidOutput);
     LOG_FIELD(rollControlOutput.filteredPidOutputDerivative);

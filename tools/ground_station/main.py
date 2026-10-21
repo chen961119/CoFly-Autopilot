@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, font, messagebox
 
 from parameter_view import ParameterConsole
+from parameter_file import SUPPORTED_FILE_VERSIONS
 from station_protocol import MODES, decode_fields
 from wing_geometry import ORDERS, configuration_ready, aircraft_attitudes, wing_surfaces, project_wing
 from auto_connect import FlightControllerDetector
@@ -411,7 +412,7 @@ class GroundStation(ParameterConsole):
             self.calibration_radio_button.configure(state=self.radio_calibrate_button.cget("state"))
             self.read_button.configure(state="normal" if idle else "disabled")
             self.parameter_read.configure(state="normal" if idle else "disabled")
-            files_ready = idle and bool(self.parameters) and self.parameter_file_version == "COFLY_PARAMS_V8"
+            files_ready = idle and bool(self.parameters) and self.parameter_file_version in SUPPORTED_FILE_VERSIONS
             self.parameter_load_file.configure(state="normal" if files_ready else "disabled")
             self.parameter_save_file.configure(state="normal" if files_ready else "disabled")
             self.probe_button.configure(state="normal" if idle else "disabled")

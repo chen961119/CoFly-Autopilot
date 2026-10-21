@@ -26,7 +26,7 @@
 | `q_dot_meas` | 用于增量反演的 `ang_acc[1]`，已由传感器层差分滤波 |
 | `delta_e_cmd` | 限速、一次低通及通道3范围限幅后的命令舵偏 |
 | `delta_e_hat` | 本周期推进舵机模型后的舵偏估计 |
-| `indiOutput` | 下偏正的逻辑控制偏移，1 对应 1000 μs，供 mixer 直接使用 |
+| `indiOutput` | 下偏正的逻辑控制量，0 为对应映射模式的零点、±1 为相应方向端点，供 mixer 直接使用 |
 | `isValid` | 本周期是否完成有效控制计算 |
 
 旧日志字段 `desiredRateDegPerSec`、`desiredAngularAccelerationDegPerSec2`、`commandedElevatorDeflectionDeg` 分别对应上述 `q_ref`、`q_dot_ref`、`delta_e_cmd` 字段。旧 `elevatorPwmUs` / `pwm_cmd_us` 是整数物理 PWM，不能直接按 `indiOutput` 的尺度读取；短暂采用两端归一化的历史版本也使用过 `indiOutput` 名称，读取历史日志必须区分固件版本。
@@ -60,16 +60,16 @@ delta_e_cmd      = delta_e_hat + delta_delta_e
 
 ## 配平零点与线性换算
 
-令 C=`PWM_CENTER_US+pwm_channel3_trim`，s=`pwm_channel3_rev`（±1），k=`indi_pitch_pwm_to_deg_k`（正值，deg/μs）：
+令 C 为通道3的零舵角 PWM：mode=0 时为 `pwm_channel3_trim`，mode=1 时为 `(pwm_servo3_min_us+pwm_servo3_max_us)/2`。s=`pwm_channel3_rev`（±1），k=`indi_pitch_pwm_to_deg_k`（正值，deg/μs）。模式 0 的换算为：
 
 ```text
 delta_e    = (PWM-C) * s*k
 PWM        = C + delta_e/(s*k)
-indiOutput = (PWM-C)/(1000*s)
-delta_e    = indiOutput * 1000*k
+span       = PWM >= C ? pwm_servo3_max_us-C : C-pwm_servo3_min_us
+indiOutput = span > 0 ? s*(PWM-C)/span : 0
 ```
 
-C 对应 0°。上下偏使用同一个 1000*k 系数，不按两侧行程分段归一化。trim 改变零点，rev 适配安装方向，通道上下限只改变可达范围。例如通道范围 1000～2000 μs、trim=0 时，逻辑范围约为 ±0.5；trim=50、rev=1 时约为 [-0.55,0.45]。
+C 是绝对 PWM，对应 0°。物理 PWM 到舵角仍使用同一个 k，与最终输出映射互逆。模式 0 要求 min≤trim≤max，逻辑量按中位两侧分别归一化。模式 1 接收 0～1，不使用 trim，逆变换先求 `u=(PWM-min)/(max-min)`，再按方向返回 `rev<0 ? 1-u : u`；物理中点对应 0.5，trim 仅为安全位置。零行程逆变换返回 0。例如范围 1200～1700 μs、trim=1500、rev=1 时，模式 0 的 -1/0/+1 对应 1200/1500/1700 μs，模式 1 的 0/0.5/1 对应 1200/1450/1700 μs；rev=-1 时两端交换。当前升降舵的手动/PID、交联和前馈融合使用有符号贡献，因此通道3应保持 mode=0；仅修改映射参数不会将整套混控转换为绝对位置坐标。
 
 角度上下限由两个物理 PWM 端点分别换算再排序，兼容 rev=-1。不再使用独立截距、舵角上下限或 INDI PWM 上下限；删除参数的兼容处理见 [参数迁移](parameter-storage.md#格式与介质迁移)。最终物理输出仍按 [固件指南](firmware-guide.md#执行器映射与方向迁移) 处理融合贡献、rev、trim 和限幅。
 
@@ -83,6 +83,6 @@ C 对应 0°。上下偏使用同一个 1000*k 系数，不按两侧行程分段
 
 舵偏估计只包含本机 INDI 命令，未包含之后从机融合加入的主机升降舵前馈，也未反馈融合后的最终通道饱和或锁定输出。因此 `delta_e_hat` 不是最终舵面的完整估计，更不是实测舵角。
 
-例如 rev=1、trim=0、k=0.090909，本机目标与运动反馈均为零时，INDI 可保持输出和估计均为零；若主机持续加入 +0.1 前馈，最终 PWM 为 1600 μs，按标定对应约 +9.09° 命令舵角，模型仍可为 0°。前馈只叠加一次，差别来自模型输入范围。
+例如通道范围 1000～2000 μs、rev=1、trim=1500、k=0.090909，本机目标与运动反馈均为零时，INDI 可保持输出和估计均为零；若主机持续加入 +0.1 前馈，最终 PWM 为 1550 μs，按标定对应约 +4.55° 命令舵角，模型仍可为 0°。前馈只叠加一次，差别来自模型输入范围。
 
 当前运动学计算直接除以 cos(phi)，未增加最小分母保护；在线改变 trim/rev/k 也不等同于实际舵面重新标定。边界收缩时物理范围约束可能优先于相邻周期限速。历史数值检查的范围与证据状态见 [研究与历史](archive/CONTROL_ARCHITECTURE_ANALYSIS.md#历史检查的证据边界)，不能由软件换算正确推断实机稳定性。

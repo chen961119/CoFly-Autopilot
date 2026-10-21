@@ -6,6 +6,7 @@
 #include "system/flight_clock.h"
 #include "sensors/sensor_processing.h"
 #include "config/flight_config.h"
+#include "actuators/actuator_pwm_mapping.h"
 using namespace ControlParameters;
 
 // 单机俯仰 INDI（Incremental Nonlinear Dynamic Inversion，增量非线性动态逆）。
@@ -25,14 +26,13 @@ using namespace ControlParameters;
 //   delta_e_*：升降舵偏角，deg，下偏为正，上偏为负。
 //   当前标定的 indi_pitch_effectiveness < 0：下偏产生负俯仰角加速度。
 //   pwm_*_us：内部物理PWM，us，用于命令换算和延迟队列。
-//   indiOutput：与既有mixer一致的逻辑偏移，下偏为正，1对应1000 us，不按两端分别缩放。
+//   indiOutput：按通道模式逆映射；模式 0 为有符号贡献，模式 1 为 0..1 绝对位置。
 //   参数对应：K_q = indi_pitch_q_gain，G_qe = indi_pitch_effectiveness。
 //   K_q 单位 1/s，G_qe 单位 (deg/s^2)/deg；参数存储名和参数值保持原约定。
 //
-// 配平 PWM = PWM_CENTER_US + pwm_channel3_trim，对应舵偏 0 deg。
-// delta_e = (PWM - 配平PWM) * rev * k = 逻辑偏移 * 1000 * k。
-// 仅在控制器出口计算 indiOutput=(PWM-配平PWM)/(1000*rev)，mixer直接使用。
-// 因而上下偏都满足 delta_e=indiOutput*1000*k，线性系数一致。
+// 模式 0 的零舵角 PWM=trim；模式 1 的零舵角 PWM=(min+max)/2。
+// delta_e = (PWM - 配平PWM) * rev * k，角度标定仍使用同一个物理斜率。
+// 当前交联/前馈融合使用有符号贡献，通道3应保持模式0；模式1不自动转换整套混控坐标。
 
 PitchIndiController::PitchIndiController() {
   // 本对象独立的二阶低通：q 反馈截止 40 Hz，Z 轴耦合项截止 100 Hz。
@@ -60,7 +60,8 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
   float q_f_deg_s = 0.0f;
   // 2. 只从通道3的物理范围、配平中位和rev推导角度范围，不另设INDI边界参数。
   //    物理PWM始终以配平中位为零舵角；rev=-1时两个角度端点的顺序会反转。
-  const float pwm_trim_us = PWM_CENTER_US + pwm_channel3_trim;
+  const float pwm_trim_us = actuatorNeutralPwm(pwm_servo3_min_us, pwm_channel3_trim,
+      pwm_servo3_max_us, pwm_channel3_mode);
   const float delta_e_at_pwm_min_deg =
       (pwm_servo3_min_us - pwm_trim_us) * pwm_channel3_rev * indi_pitch_pwm_to_deg_k;
   const float delta_e_at_pwm_max_deg =
@@ -221,5 +222,6 @@ void PitchIndiController::update(float theta_ref_deg, bool enabled) {
   pitchIndiControlOutput.delta_e_hat = Units::toRadians(delta_e_hat_deg);
   // 不在控制器内量化到整数 us；混控后统一应用 rev、trim 和最终物理 PWM 限幅。
   pitchIndiControlOutput.indiOutput =
-      (pwm_cmd_float_us - pwm_trim_us) / (1000.0f * pwm_channel3_rev);
+      actuatorPwmToCommand(pwm_cmd_float_us, pwm_channel3_rev,
+          pwm_servo3_min_us, pwm_channel3_trim, pwm_servo3_max_us, pwm_channel3_mode);
 }

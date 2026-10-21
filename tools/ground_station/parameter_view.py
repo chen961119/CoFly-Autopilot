@@ -16,7 +16,7 @@ try:
 except ImportError as exc:
     raise SystemExit("缺少 pySerial。请运行：python -m pip install -r requirements.txt") from exc
 from protocol import ReplyFramer, parameter_from_fields, validate_edit, format_value
-from parameter_file import FILE_LIMIT, FILE_VERSION, CrcMismatchError, encode_sd_file, decode_sd_file
+from parameter_file import FILE_LIMIT, SUPPORTED_FILE_VERSIONS, CrcMismatchError, encode_sd_file, decode_sd_file
 
 MAX_PARAMETERS = 512
 
@@ -374,7 +374,7 @@ class ParameterConsole:
             self.status.set(f"保存电脑文件失败：{exc}")
 
     def load_parameters_from_file(self):
-        if not self.connected or self.pending or self.file_import is not None or self.parameter_file_version != FILE_VERSION or getattr(self, "gcs_pending", None):
+        if not self.connected or self.pending or self.file_import is not None or self.parameter_file_version not in SUPPORTED_FILE_VERSIONS or getattr(self, "gcs_pending", None):
             self.status.set("请先连接飞控并读取完整参数")
             return
         path = filedialog.askopenfilename(title="从电脑读取 SD 参数并应用到飞控",
@@ -416,7 +416,7 @@ class ParameterConsole:
             return
         if not importing["queue"]:
             self.file_import = None
-            self.status.set(f"文件导入完成：已确认应用 {importing['done']} 项 SD 参数，{importing.get('pending_save', 0)} 项等待合并保存，{importing['ram_only']} 项仅内存生效；SD 仅在锁定且最后变动满 2 秒后保存")
+            self.status.set(f"文件导入完成：已确认应用 {importing['done']} 项 SD 参数，{importing.get('pending_save', 0)} 项等待合并保存，{importing['ram_only']} 项仅内存生效；SD 在最后变动满 2 秒后保存，解锁时也可保存")
             self._update_controls()
             return
         name, value = importing["queue"].popleft()
@@ -525,7 +525,7 @@ class ParameterConsole:
                     self.file_import["pending_save"] = self.file_import.get("pending_save", 0) + (saved == "PENDING")
                     self.file_import["acked"] = True
                 outcome = {"SAVED": f"{self.parameters[name].storage} 无待保存变动",
-                           "PENDING": ("内存已更新，等待合并保存到 SD（仅在锁定且最后变动满 2 秒后）"
+                           "PENDING": ("内存已更新，等待合并保存到 SD（最后变动满 2 秒后，解锁时也可保存）"
                                        if self.parameters[name].storage == "SD" else
                                        "等待合并保存到 EEPROM（最后变动后 2 秒）"),
                            "RAM_ONLY": "内存已生效，未持久保存；重启可能恢复旧值"}[saved]

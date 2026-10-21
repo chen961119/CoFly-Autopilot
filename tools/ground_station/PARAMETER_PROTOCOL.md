@@ -4,7 +4,7 @@
 
 当前注册 111 项参数，协议和固件服务最多支持 512 项。表格显示类型、范围和存储位置；双击当前值编辑，Enter 提交、Esc 取消。只读状态和生效方式仍保留在协议元数据中。浮点值采用能恢复 float32 的普通十进制，不使用科学计数法；整数拒绝小数、指数形式及 int32 溢出。列标题支持排序。
 
-参数通过验证后先修改 RAM（重启参数修改的是待启动设置），返回 `OK / PENDING`。每种介质最后一次实际变动后等待 2 秒合并保存；相同值不重置计时，改回原值也作为一次 RAM 变动，仍到期保存，不与已保存值比较。身份、校准和 EEPROM 参数要求锁定；重启参数变动立即提示重启并禁止解锁。保存失败保留 RAM 值，每 2 秒重试，通过异步 `STORAGE` 通知结果。手动修改零偏立即使内存校准无效。USB 断开后继续保存；保存前断电可能丢失修改。地面站重启命令先强制保存，失败则拒绝重启。完整 IMU 校准整组更新 RAM 后共用两秒延迟保存；全部校准字段必须位于同一介质。命令超时表示接收结果未确认，需重新读取，不自动重发 SET。
+参数通过验证后先修改 RAM（重启参数修改的是待启动设置），返回 `OK / PENDING`。每种介质最后一次实际变动后等待 2 秒合并保存；相同值不重置计时，改回原值也作为一次 RAM 变动，仍到期保存，不与已保存值比较。普通 SD 参数在锁定或解锁时均可修改并到期保存；EEPROM 参数修改和专用校准流程要求锁定；重启参数变动立即提示重启并禁止解锁。保存失败保留 RAM 值，每 2 秒重试，通过异步 `STORAGE` 通知结果。手动修改零偏立即使内存校准无效。USB 断开后继续保存；保存前断电可能丢失修改。地面站重启命令先强制保存，失败则拒绝重启。完整 IMU 校准整组更新 RAM 后共用两秒延迟保存；全部校准字段必须位于同一介质。命令超时表示接收结果未确认，需重新读取，不自动重发 SET。
 
 ## 请求与回复
 
@@ -20,7 +20,7 @@ PARAM HELP
 回复中 `\t` 代表实际制表符：
 
 ```text
-@COFLY\t1\tBEGIN\tCOFLY_PARAMS_V8\t74\tSD_READY\tLOADED\t57\t17\t0\t27
+@COFLY\t1\tBEGIN\tCOFLY_PARAMS\t74\tSD_READY\tLOADED\t57\t17\t0\t27
 @COFLY\t1\tVALUE\tKp_roll_angle\tfloat\t0.25\t0\t10\tAttitude\tRoll angle P\tSD\tIMMEDIATE\tEDITABLE
 @COFLY\t1\tVALUE\taircraft_id\tint\t0\t0\t3\tAircraft\tIdentity\tEEPROM\tREBOOT\tEDITABLE
 ...其余参数...
@@ -32,7 +32,7 @@ PARAM HELP
 @COFLY\t3\tERROR\tLOCK_REQUIRED\tLock aircraft before changing identity or calibration
 ```
 
-`BEGIN` 的首字段为固定文件版本 `COFLY_PARAMS_V8`，不再包含板卡或宏配置名称；三个统计字段依次为所选 SD 文件的匹配项、未匹配项和跳过旧项。未匹配项可能来自 EEPROM 或默认值。最后一字段为固件参数名称上限（默认 27），电脑按此上限校验导出名称，不填充字段。SD 和 USB 回复不再携带代次。
+`BEGIN` 的首字段为固定文件标识 `COFLY_PARAMS`，不包含板卡或宏配置名称；三个统计字段依次为所选 SD 文件的匹配项、未匹配项和跳过旧项。未匹配项可能来自 EEPROM 或默认值。最后一字段为固件参数名称上限（默认 27），电脑按此上限校验导出名称，不填充字段。SD 和 USB 回复不再携带代次。
 
 `VALUE` 为名称、类型、当前/待启动值、最小值、最大值、分组、说明、`SD|EEPROM`、`IMMEDIATE|REBOOT`、`EDITABLE|READ_ONLY`。电脑端仍支持以前未携带后三项元数据的格式。
 
@@ -42,21 +42,21 @@ PARAM HELP
 
 ## 文件与运行成本
 
-SD 主文件 `params.cfg`、回退文件 `params_backup.cfg`、EEPROM 槽与电脑文件均使用同一 V8 ASCII/LF 文本容器：
+SD 主文件 `params.cfg`、回退文件 `params_backup.cfg`、EEPROM 槽与电脑文件均使用同一 ASCII/LF 文本容器：
 
 ```text
-COFLY_PARAMS_V8
+COFLY_PARAMS AIRCRAFT_COUNT=3 AIRCRAFT_ID=2
 COUNT=2
 gain:float=0.25
 pwm_rev:int=-1
 CRC32=xxxxxxxx
 ```
 
-记录为 `name:float=value` 或 `name:int=value`，末尾 LF，没有名称补零或持久化 NUL。float32 使用可原样恢复数值的最短普通十进制；头部仅有固定版本和数量，不带 ID、代次、板卡名称及额外完成标记。CRC 尾部 15 字节，覆盖之前全部文本。
+记录为 `name:float=value` 或 `name:int=value`，末尾 LF，没有名称补零或持久化 NUL。float32 使用可原样恢复数值的最短普通十进制；第一行以空格分隔 `COFLY_PARAMS`、`AIRCRAFT_COUNT`、`AIRCRAFT_ID`，第二行为 `COUNT`；飞机总数来自编译配置，编号来自保存快照中的 `aircraft_id`（0 表示未配置）。飞机元数据只记录来源，导入时不会据此改变目标身份或编译数量；不带内部参数 ID、代次、板卡名称及额外完成标记。CRC 尾部 15 字节，覆盖之前全部文本。
 
 名称上限默认 27，每条占用随名称和数值变化，不再有固定偏移。EEPROM 主备槽各 2048 字节，有效文本不超过 2047 字节；SD 文件缓冲 103168 字节，文件须小于该容量，全表最多 512 项。均主数据优先、失败回退备份；写入前备份旧主数据，从备份恢复则直接修复主数据。
 
-电脑导入允许在其他检查通过后确认 CRC 不匹配；固件读取介质仍严格校验 CRC。V7 二进制和其他版本的旧文本不读取，升级后需重新生成文件并设置、校准。详见存储说明。
+电脑导入允许在其他检查通过后确认 CRC 不匹配；固件读取介质仍严格校验 CRC。旧 `COFLY_PARAMS_V8` 文本及此前飞机信息分三行的文本仍可读取，飞控自动迁移、电脑重新导出时生成新格式；V7 二进制和其他旧格式不读取。详见存储说明。
 
 参数服务静态预留 512 项缓存，SD 文件缓冲由记录兼容长度自动推导；参数名默认上限 27，可在 `src/parameters/parameter_storage_config.h` 配置为 1～128，地面站兼容到 128 字符。控制运算直接读取 RAM 变量；USB 每轮最多接收 64 字节或发送一行。2 秒等待不阻塞主循环；到期保存、CRC、读回校验仍同步执行，会延长该控制周期。本版尚未真机验证最坏周期。
 

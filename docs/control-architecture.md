@@ -19,7 +19,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 | --- | --- | --- |
 | 模式与主机目标 | `src/control/control_modes.cpp` | 遥控或接收命令 → 模式、`targets`、上级贡献 |
 | 主机控制 | `src/control/master_controller.cpp` | 目标与测量 → 各控制器输出 |
-| 主机分配 | `src/allocation/master_mixer.cpp` | 控制器输出 → 本机最终指令、从机原始分配 |
+| 主机分配 | `src/allocation/master_mixer.cpp` | 手动目标或增稳控制器输出 → 本机最终指令、从机原始分配 |
 | 从机目标与发送命令 | `src/control/command_generation.cpp` | 当周期主分配 → `slaveTargets[]`、`slaveCommands[]` |
 | 从机控制 | `src/control/slave_controller.cpp` | 本机俯仰目标与测量 → PID 或 INDI 输出 |
 | 从机分配 | `src/allocation/slave_mixer.cpp` | 本机俯仰或手动贡献 → 本机交联/阻尼与闭环贡献 |
@@ -31,7 +31,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 | 对象 | 含义与尺度 |
 | --- | --- |
-| `targets` / `ControlTargets` | 主机手动时 roll/pitch/yawRate 为 ±1，手动控制器除以 2；增稳时 roll/pitch 为 deg、yawRate 为 deg/s；throttle 始终为 0～1 |
+| `targets` / `ControlTargets` | 主机手动时 roll/pitch/yawRate 为 ±1，混控及从机命令生成直接读取；增稳时 roll/pitch 为 rad、yawRate 为 rad/s；throttle 为 0～1 |
 | `targets.configuration[6]` | 构型角目标，deg，顺序 AB、AC、BD、CE、DF、EG |
 | `slaveTargets[0..5]` | B～G 的俯仰角目标，始终为 deg；A 单独存储 |
 | `commands.local` / `commands.slaves[0..5]` | 本机和 B～G 的 `ActuatorCommand`，五路逻辑控制偏移 |
@@ -54,7 +54,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 ## 逻辑坐标、交联与融合
 
-`ActuatorCommand` 的 1 对应 1000 μs 逻辑偏移，不含机械中位、rev 或 trim；油门沿用现有控制尺度。副翼和升降舵均以下偏为正，0 为逻辑中位。手动俯仰和 PID 仍以抬头控制作用为正，在主/从 mixer 选用结果时取反；INDI 出口 `indiOutput` 已为下偏正逻辑量，直接使用。
+`ActuatorCommand` 不含本机 PWM 参数；当前舵面命令为 -1～1，油门命令为 0～1。五路均直接调用同一个 PWM 映射函数，mode=0 接收 -1～1，将 -1/0/+1 映射到 min/trim/max；mode=1 接收 0～1，将 0/0.5/1 映射到 min/两端中点/max，trim 仅为安全位置。调用方必须匹配模式的输入范围，因此当前舵面使用 mode=0、油门使用 mode=1；映射函数不再单独识别油门或转换范围。融合结果允许超出标准范围，最终在物理 PWM 层限幅。副翼和升降舵均以下偏为正。手动俯仰和 PID 仍以抬头控制作用为正，在主/从 mixer 选用结果时取反；INDI 出口使用同一模式的逆变换。模式 1 的 INDI 出口为绝对位置 0～1，中位为 0.5，不能直接当作原有有符号增量参与交联和前馈融合；当前升降舵控制与混控应保持 mode=0。
 
 主机保留构型相关固定系数、副翼 0.4 缩放和刹车；本机升降舵到两路副翼的补偿均为 `-elevator/15`。主机第一路另加滚转阻尼，第二路减阻尼。从机两路均为 `-elevator/15 + damping`。两者的阻尼分配不同，不能把 PWM 同号直接解释为舵面同向。
 

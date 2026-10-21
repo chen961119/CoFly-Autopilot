@@ -1,6 +1,7 @@
 #include "math/units.h"
 #include "control/control_pipeline.h"
 #include "control/control_output.h"
+#include "control/command_generation.h"
 #include "allocation/master_mixer.h"
 #include "config/aircraft_config.h"
 #include "math/math_utils.h"
@@ -10,14 +11,14 @@ static void mixLegacyMaster()
 {
 
   const bool manual = currentFlightMode == MANUAL_MODE;
-  const float roll_PID = manual ? manualControlOutput.rollCommand : rollControlOutput.pidOutput;
+  const float roll_PID = manual ? targets.roll : rollControlOutput.pidOutput;
   // 手动/PID为抬头正的控制意图；INDI已在出口转换为下偏正的混控逻辑量。
-  const float elevatorCommand = manual ? -manualControlOutput.pitchCommand :
+  const float elevatorCommand = manual ? -targets.pitch :
       (activePitchController == PitchController::INDI ?
        pitchIndiControlOutput.indiOutput :
        - pitchPidControlOutput.pidOutput);
-  const float yawCommand = manual ? manualControlOutput.yawCommand : yawRateControlOutput.pidOutput;
-  const float throttleCommand = manual ? manualControlOutput.throttleCommand : throttleControlOutput.throttleCommand;
+  const float yawCommand = manual ? targets.yawRate : yawRateControlOutput.pidOutput;
+  const float throttleCommand = manual ? targets.throttle : throttleControlOutput.throttleCommand;
   const float roll_PID_lpf = rollControlOutput.filteredPidOutput;
   const float roll_PID_dot_lpf = rollControlOutput.filteredPidOutputDerivative;
   const float Phiab_PID = configurationControlOutput.pidOutputs[0], Phiac_PID = configurationControlOutput.pidOutputs[1];
@@ -727,13 +728,13 @@ void mixMasterCommands() {
 
   mixLegacyMaster();
   const float brakeOffset = ::brakeEnabled ? 0.1f : 0.0f;
-  result.aileron1 = commands.local.aileron1 * 0.4f + brakeOffset;
-  result.aileron2 = commands.local.aileron2 * 0.4f + brakeOffset;
+  result.aileron1 = commands.local.aileron1 + brakeOffset;
+  result.aileron2 = commands.local.aileron2 + brakeOffset;
   result.throttle = commands.local.throttle;
   result.rudder = commands.local.rudder;
   result.elevator = commands.local.elevator;
   // 主机交联属于主分配；输出转换层不再叠加。
-  const float compensation = -result.elevator / 15.0f;
+  const float compensation = - result.elevator / 20.0f;
   result.aileron1 += compensation + rollDampingControlOutput.dampingCommand;
   result.aileron2 += compensation - rollDampingControlOutput.dampingCommand;
 

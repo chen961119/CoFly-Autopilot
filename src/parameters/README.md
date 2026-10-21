@@ -9,7 +9,7 @@
 | `parameter_keys.h` | 固件内部查询编号；编号不进入持久化文件 |
 | `parameter_storage_config.h` | 名称、记录缓冲、参数数量上限及 EEPROM 槽地址/大小 |
 | `parameter_record.h/.cpp` | 单条 `name:type=value` 编解码和精确 float32 文本转换 |
-| `parameter_text.h/.cpp` | SD/EEPROM 共用的 V8 文本容器、记录计数和 CRC32 校验 |
+| `parameter_text.h/.cpp` | SD/EEPROM 共用的 `COFLY_PARAMS` 文本容器（含飞机总数、编号）、记录计数和 CRC32 校验 |
 | `parameter_sd.h/.cpp` | SD 主文件与备份的读取、保存、读回校验及恢复 |
 | `parameter_eeprom.h/.cpp` | EEPROM 主槽与备份槽的读取、保存、校验及恢复 |
 | `parameter_save_debounce.h` | 每种介质独立的 2 秒延迟保存与失败重试计时 |
@@ -19,21 +19,21 @@
 
 添加或调整参数时，优先修改 `parameter_registry.cpp`。修改每行的 `storage` 可选择 SD 或 EEPROM；IMU 校准组必须整体使用同一介质。控制参数默认值在 `control_parameters.cpp`，飞机身份和传感器变量仍由对应硬件模块持有。
 
-EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均可修改。参数修改先更新 RAM；实际发生变化时，将对应介质标为 dirty，并重置该介质的 2 秒计时。同值写入不重置计时。EEPROM 到期保存当前完整快照；SD 还要求飞机处于锁定状态，解锁期间保留 dirty 和计时，上锁后已到期则在下一次轮询保存，否则等剩余时间。解锁期间即使请求强制刷新也不写 SD。失败保留 dirty 并在 2 秒后重试，SD 重试同样要求锁定。重启命令要求锁定并强制保存待写数据。重启生效参数一旦变化，重启提示与禁止解锁状态保持至设备重启。专用 IMU/遥控校准流程仍要求锁定。
+EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均可修改。参数修改先更新 RAM；实际发生变化时，将对应介质标为 dirty，并重置该介质的 2 秒计时。同值写入不重置计时。EEPROM 与 SD 均在到期后保存当前完整快照；SD 在解锁时也会保存，强制刷新同样可写入。失败保留 dirty 并在 2 秒后重试，SD 重试不受锁定状态限制。重启命令要求锁定并强制保存待写数据。重启生效参数一旦变化，重启提示与禁止解锁状态保持至设备重启。专用 IMU/遥控校准流程仍要求锁定。
 
-本次整理不改变 V8 文本格式或 USB 协议。PC 地面站的匹配实现位于 `tools/ground_station/parameter_file.py`。存储格式、容量和迁移行为详见 [参数存储说明](../../docs/parameter-storage.md)。
+新文件第一行以空格分隔 `COFLY_PARAMS`、`AIRCRAFT_COUNT` 与 `AIRCRAFT_ID`，第二行记录参数条数，CRC 覆盖整个头部；兼容加载原 V8 及飞机信息分三行的文本并迁移保存。USB `BEGIN` 的文件标识同步更新，其他参数记录和读写命令不变。PC 地面站的匹配实现位于 `tools/ground_station/parameter_file.py`。存储格式、容量和迁移行为详见 [参数存储说明](../../docs/parameter-storage.md)。
 
 固件使用 `pio run -e teensy41 -e teensy41_debug` 构建。参数服务与 EEPROM 主备故障测试已完成验证；按项目要求，测试脚本在验证后删除。
 
 八路遥控归一化参数为 `RC1_MIN/MAX/TRIM/REV/DZ` 至 `RC8_MIN/MAX/TRIM/REV/DZ`，直接绑定 `radio_comm` 的参数，全部位于 SD，可通过普通参数读写接口修改。
 
-五路执行器软件限幅为整数 SD 参数 `pwm_servo1_min_us/max_us` 至 `pwm_servo5_min_us/max_us`，默认每路 1000～2000 us。锁定或解锁时均可修改，立即生效，仅在锁定时延迟保存；每路要求驱动范围内的 min <= max。通道3同时用于 INDI 舵角边界推导；锁定输出仍使用 1500+trim。旧 SD 文件缺项时补默认值，已存上下限倒置时整组恢复默认并迁移保存。
+五路执行器软件限幅为整数 SD 参数 `pwm_servo1_min_us/max_us` 至 `pwm_servo5_min_us/max_us`，默认每路 1000～2000 us。`pwm_channel1_mode` 至 `pwm_channel5_mode` 默认均为 0：模式 0 接收 -1～1，按 min/绝对 trim/max 三点插值；模式 1 接收 0～1，按 min/max 两点插值。五路统一调用 `actuatorCommandToPwm`，调用方负责匹配范围；当前舵面应使用 mode=0，油门必须设置并保存 mode=1，不再有油门专用转换函数。模式 0 要求 min<=trim<=max，模式 1 的 trim 仅为安全位置、可在解锁范围外（仍需在驱动范围内）。锁定或解锁时均可修改并立即生效，最后变动满 2 秒后保存；行程每周期使用当前参数，不缓存。各路锁定输出均直接使用绝对 trim（默认 1500）；普通单向电调可设置油门 mode=1、trim=1000。旧 SD 文件缺少模式时补默认 0，因此油门模式须核对；已存上下限倒置或模式 0 中位越界时整组限值恢复默认并迁移保存。旧相对偏置 trim 须按 1500+旧值手动转换后保存，不自动迁移。
 
 本机俯仰算法由整数 SD 参数 `pitch_controller` 选择：0 PID、1 INDI，默认 1；增稳模式使用此选择，修改下一周期生效。各机独立设置，原 `TESTINDI` 宏已移除。控制历史状态由 `control/` 下各控制器对象持有，模式切换由 `control/control_modes.cpp` 管理。
 
 `V_cruise` 为 float32 SD 参数，默认 13 m/s，允许范围 0.1～100 m/s。偏航协调转弯计算直接读取该参数，修改后下一控制周期生效；通过现有参数保存/加载流程持久化，旧文件缺少该项时保留默认值。
 
-增稳空速 PI 使用独立的 `airspeed_control_enabled`、`airspeed_min/max`、`throttle_cruise`、`Kp_airspeed`、`Ki_airspeed` 和 `airspeed_lpf_hz` SD 参数；默认启用。范围、回退和调参说明见 [简单空速控制](../../docs/airspeed-control.md)。
+增稳空速 PI 使用独立的 `airspeed_control_enabled`、`airspeed_min/max`、`throttle_cruise`、`Kp_airspeed`、`Ki_airspeed` 和 `airspeed_lpf_hz` SD 参数；源码默认关闭（0），设为 1 后启用。范围、回退和调参说明见 [简单空速控制](../../docs/airspeed-control.md)。
 
 执行器调试：整数 SD 参数 `usb_actuator_output_debug` 默认 0，设为 1 后立即启用 `printActuatorOutput(int enabled)`，以独立的 10 Hz 节流打印本机 `ActuatorOutput[5]`。字段顺序为 ail1、ail2、ele、thro、rudd，单位 us；打印点位于最终限幅、锁定覆盖和舵机写出之后，配置无效时打印本机安全位置。USB 与 X6 数传独立发送，忙时跳过该链路，不等待发送空间。参数通过既有延迟保存机制持久化。
 

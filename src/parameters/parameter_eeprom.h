@@ -2,7 +2,7 @@
 #include "parameters/parameter_registry.h"
 
 // EEPROM 0..127 is unused; retain slot addresses for current-format snapshots.
-// Fixed 2048-byte primary/backup slots at 128 and 2176. Shared ASCII V8
+// Fixed 2048-byte primary/backup slots at 128 and 2176. Shared ASCII
 // header/records/CRC; capacity depends on actual name and numeric text lengths.
 bool initializeEEPROMParameters();
 bool readEEPROMParameter(const FlightParameter &parameter, double &value);

@@ -127,10 +127,6 @@ bool flushMedium(ParameterStorage medium) {
   auto &pending = medium == ParameterStorage::SD ? sdSave : eeSave;
   if (!pending.dirty)
     return true;
-  // Live SD edits stay pending until locked, including explicit flush requests.
-  // Deferring is not a failed save: preserve the debounce timer and notices.
-  if (medium == ParameterStorage::SD && !isFlightLocked())
-    return false;
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
   const bool success = persist(candidate, medium);
@@ -142,7 +138,7 @@ bool flushMedium(ParameterStorage medium) {
 void pollParameterSaves() {
   if (eeSave.due(millis()))
     flushMedium(ParameterStorage::EEPROM);
-  if (isFlightLocked() && sdSave.due(millis()))
+  if (sdSave.due(millis()))
     flushMedium(ParameterStorage::SD);
 }
 
@@ -372,7 +368,8 @@ void initializeParameterService(bool sdReady) {
   const bool loadedSD = ParameterSD::load(candidate, needsMigration, loadStats);
   if (!loadedSD)
     memcpy(candidate, defaults, count * sizeof(double));
-  // Individual SD values may be in range while a min/max pair is reversed.
+  // Individual SD values may be in range while a min/max pair is reversed
+  // or a servo center falls outside its endpoints.
   // Restore the PWM-limit group only; retain all other compatible parameters.
   if (!validActuatorPwmParameters(table, count, candidate)) {
     for (size_t i = 0; i < count; ++i)

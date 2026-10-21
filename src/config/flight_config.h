@@ -1,12 +1,10 @@
 #pragma once
 
-// PWM 逻辑中位统一为 1500 μs；机械中位由各路 trim 修正。
-constexpr int PWM_CENTER_US = 1500;
 
 // 各通道软件上下限为 SD 参数 pwm_servo1_min_us/max_us 至 pwm_servo5_min_us/max_us，
 // 声明与默认值见 parameters/control_parameters.h/.cpp。
 
-// 驱动范围独立于软件限幅，覆盖全部合法锁定位置（1500 + trim）。
+// 驱动范围独立于软件限幅，覆盖全部合法锁定位置（绝对 trim）。
 constexpr int PWM_SERVO_ATTACH_MIN_US = 1000;
 constexpr int PWM_SERVO_ATTACH_MAX_US = 2000;
 constexpr bool validActuatorPwmLimits(int minimum, int maximum) {

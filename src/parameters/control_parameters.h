@@ -67,7 +67,10 @@ extern int32_t pwm_servo3_min_us, pwm_servo3_max_us;
 extern int32_t pwm_servo4_min_us, pwm_servo4_max_us;
 extern int32_t pwm_servo5_min_us, pwm_servo5_max_us;
 
-// 执行器方向和本机安装偏置，供控制、输出与日志模块共享。
+// 映射模式决定输入范围：0 接收 -1..1，按 min/trim/max；1 接收 0..1，按 min/max。
+extern int32_t pwm_channel1_mode, pwm_channel2_mode, pwm_channel3_mode, pwm_channel4_mode,
+    pwm_channel5_mode;
+// 执行器方向和绝对 trim（us）；模式 1 的 trim 仅用于上电、锁定及异常回退。
 extern int32_t pwm_channel1_rev, pwm_channel2_rev, pwm_channel3_rev, pwm_channel4_rev,
     pwm_channel5_rev;
 extern float pwm_channel1_trim, pwm_channel2_trim, pwm_channel3_trim, pwm_channel4_trim,

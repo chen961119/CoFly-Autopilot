@@ -28,6 +28,5 @@ void runMasterController()
                               stabilized, integralEnabled, dt);
   controllers.pitchPid.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::PID);
   controllers.pitchIndi.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::INDI);
-  controllers.manual.update(targets);
   controllers.configuration.update(targets.configuration);
 }

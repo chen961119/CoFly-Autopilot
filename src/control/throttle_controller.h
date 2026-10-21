@@ -2,7 +2,7 @@
 
 class ThrottleController {
 public:
-  // 油门杆 0～1；空速 m/s；dt 秒。仅主机在增稳且解锁时启用闭环。
+  // 油门杆 0～1；空速 m/s；dt 秒。主机按增稳模式传入 enabled，不包含锁定判断。
   void update(float throttleTarget, float measuredAirspeed, bool feedbackValid,
               bool enabled, bool integralEnabled, float dt);
 

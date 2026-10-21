@@ -3,7 +3,7 @@
 
 namespace ControlParameters {
 int32_t integralControlEnabled = 1; // SD 参数；控制滚转/俯仰/构型/空速积分，偏航积分独立。
-int32_t pitch_controller = 1; // 保留原默认 INDI 选择，用于增稳模式。
+int32_t pitch_controller = 0; // 保留原默认 PID 选择，用于增稳模式。
 float Trim_pitch_angle = 3.0;
 float k_Clp = 0.05;
 // 滚转/俯仰/构型沿用原公共 i_limit 的误差积分限幅；偏航改为限制 I 项输出。
@@ -15,7 +15,7 @@ float i_limit_yaw_rate = 0.1f; // 乘 Ki 后的积分控制量上限。
 float i_limit_FLAP_RATE = 45.0f; // 六路构型角速度环使用同一组构型参数。
 float maxRoll = 80.0;        // 最大滚转期望；角度模式为 °，角速度模式为 °/s。
 float maxPitch = 60.0;       // 最大俯仰期望；单位随控制模式变化。
-float maxYawRate = 160.0;        // 最大偏航角速度期望，单位 °/s。
+float maxYawRate = 40.0;        // 最大偏航角速度期望，单位 °/s。
 float V_cruise = 13.0f;      // 巡航空速（m/s）。
 int32_t airspeed_control_enabled = 0;
 float airspeed_min = 8.0f;
@@ -37,7 +37,7 @@ float B_loop_FLAP = 0.0;
 // INDI 的 q、dq 抬头为正；升降舵偏角 delta_e 下偏为正，单位 deg。
 float indi_pitch_q_gain = 25.0f;           // 单位 1/s；dq_des = Kq * (q_des - q_filtered)。
 float indi_pitch_effectiveness = -113.65f; // 局部舵效 G，单位 (deg/s^2)/deg；负值表示下偏使俯仰角加速度减小。
-// 配平PWM=1500+本机trim，对应0 deg；delta_e=(PWM-配平PWM)*rev*k=indiOutput*1000*k，上下偏同一系数。
+// 零舵角 PWM：模式 0 为 trim，模式 1 为端点中点；delta_e=(PWM-零点)*rev*k。
 float indi_pitch_pwm_to_deg_k = 0.090909f; // 正斜率大小，deg/us；安装方向由本机rev承担，不包含在k中。
 float indi_pitch_servo_delay_s = 0.03f; // 估计模型的纯延迟，s；按当前 dt 换算并取最近整数周期，最多 63 周期。
 float indi_pitch_servo_tau_s = 0.015f;  // 估计模型的一阶时间常数，s；延迟后的命令还需经过此响应过程。
@@ -64,29 +64,3 @@ float roll_pid_dot_lpf_fc = 10.0f; // 先给个截止频率参数，后面可调
 } // namespace ControlParameters
 
 // PWM——OUTPUT
-
-// 本机 SD 保存的软件输出范围；驱动 attach 范围仍由 flight_config.h 定义。
-int32_t pwm_servo1_min_us = 1000;
-int32_t pwm_servo1_max_us = 2000;
-int32_t pwm_servo2_min_us = 1000;
-int32_t pwm_servo2_max_us = 2000;
-int32_t pwm_servo3_min_us = 1000;
-int32_t pwm_servo3_max_us = 2000;
-int32_t pwm_servo4_min_us = 1000;
-int32_t pwm_servo4_max_us = 2000;
-int32_t pwm_servo5_min_us = 1000;
-int32_t pwm_servo5_max_us = 2000;
-
-int32_t pwm_channel1_rev = -1;
-int32_t pwm_channel2_rev = 1;
-int32_t pwm_channel3_rev = 1;
-int32_t pwm_channel4_rev = 1;
-int32_t pwm_channel5_rev = 1;
-
-// 本机安装偏置（μs），默认零；开机从本机 SD 卡恢复。
-// trim 不随 rev 反向，各机在各自 USB 参数表中校准并保存。
-float pwm_channel1_trim = 0;
-float pwm_channel2_trim = 0;
-float pwm_channel3_trim = 0;
-float pwm_channel4_trim = 0;
-float pwm_channel5_trim = 0;

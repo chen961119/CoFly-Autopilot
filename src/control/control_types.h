@@ -4,9 +4,9 @@
 
 enum class PitchController { PID = 0, INDI = 1 };
 
-// 主机手动模式：roll/pitch/yawRate 为 ±1，控制器除以 2。
+// 主机手动模式：roll/pitch/yawRate 为 ±1，由混控直接读取。
 // 增稳模式：roll/pitch 为角度（rad），yawRate 为偏航角速度（rad/s），不是偏航角。
-// 从机接收的 pitch 始终为俯仰角（rad）；throttle 始终为 0～1。
+// 从机接收的 pitch 始终为俯仰角（rad）；throttle 保持 0～1。
 struct ControlTargets {
   float roll = 0, pitch = 0, yawRate = 0, throttle = 0;
   float configuration[6] = {}; // 构型角目标（rad），顺序 AB、AC、BD、CE、DF、EG。
@@ -27,15 +27,10 @@ struct IndiPitchControlOutput {
   float q_ref = 0; // q_ref：机体俯仰角速度参考值，rad/s，不是欧拉俯仰角变化率。
   float q_f = 0; // q_f：控制器专用低通后的机体俯仰角速度反馈，rad/s。
   bool isValid = false; // 本周期是否完成有效 INDI 控制计算。
-  float indiOutput = 0; // 既有混控尺度：0=配平零舵角，1=1000 us逻辑偏移，下偏为正；上下偏统一系数1000*k。
+  float indiOutput = 0; // 通道3通常为模式0：下偏正、0=配平、±1=端点；模式1则是0..1绝对位置。
   float q_dot_meas = 0; // q_dot：传感器层给出的俯仰角加速度反馈，rad/s^2，已差分滤波。
   float delta_e_cmd = 0; // 限速、一次低通及通道3范围限幅后的命令舵偏，rad，下偏为正。
   float delta_e_hat = 0; // 延迟及一阶舵机模型更新后的舵偏估计，rad，下偏为正；不是实测舵角。
-};
-
-struct ManualControlOutput {
-  float rollCommand = 0, pitchCommand = 0, yawCommand = 0; // 手动控制意图，遥控输入除以 2；pitch 正值要求抬头。
-  float throttleCommand = 0; // 手动油门指令，范围 0～1。
 };
 
 struct PitchPidControlOutput {
@@ -43,7 +38,7 @@ struct PitchPidControlOutput {
 };
 
 struct RollDampingControlOutput {
-  float dampingCommand = 0; // 归一化滚转阻尼指令：1 对应 1000 us 的逻辑控制偏移。
+  float dampingCommand = 0; // 归一化滚转阻尼指令：与舵面命令相加，最终按本机两侧行程映射。
 };
 
 struct RollControlOutput {
@@ -79,9 +74,10 @@ struct ConfigurationControlOutput {
   float measuredRates[6] = {}; // rad/s； 相连两机的滚转角速度之差。
 };
 
-// 统一的逻辑控制偏移：1 对应 1000 us，不含中位、安装 rev 或 trim。
+// 舵面逻辑量为 -1..1，油门为 0..1；不含本机 PWM 参数，混控贡献可超过标准范围。
 // aileron1、aileron2 和 elevator 均以舵面下偏为正；elevator 不是俯仰角。
-// 保留旧油门尺度；它不是新定义的推力物理量。
+// 每路 mode=0 接收 -1..1 并使用 min/trim/max，mode=1 接收 0..1 并使用 min/max。
+// 当前舵面控制输出匹配 mode=0，油门输出匹配 mode=1；调用方负责匹配输入范围。
 struct ActuatorCommand {
   float aileron1 = 0, aileron2 = 0, elevator = 0, throttle = 0, rudder = 0;
 };

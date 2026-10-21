@@ -11,9 +11,9 @@ FlightMode currentFlightMode = MANUAL_MODE;
 FlightMode previousFlightMode = MANUAL_MODE;
 PitchController activePitchController = PitchController::PID;
 PitchController previousPitchController = PitchController::PID;
-SlaveCommand slaveCommand{MANUAL_MODE, {}, {0, 0, 0, -0.5f, 0}};
+SlaveCommand slaveCommand{MANUAL_MODE, {}, {0, 0, 0, 0, 0}};
 
-float mixerStrategyCommand = 0.0f;
+float mixerStrategyCommand = 1.0f;
 float configurationControlScale = 1.0f;
 float configurationAngle = 0.0f;
 bool brakeEnabled = false;
