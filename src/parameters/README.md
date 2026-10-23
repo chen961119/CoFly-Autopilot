@@ -6,7 +6,7 @@
 | --- | --- |
 | `control_parameters.h/.cpp` | 控制参数的 RAM 变量与默认值，控制算法直接读取 |
 | `parameter_registry.h/.cpp` | 参数类型、范围、名称、变量绑定、存储介质、生效方式及访问权限 |
-| `parameter_keys.h` | 固件内部查询编号；编号不进入持久化文件 |
+| `parameter_indices.h` | 初始化时按名称缓存飞机身份、PWM、IMU 和遥控校准的表下标 |
 | `parameter_storage_config.h` | 名称、记录缓冲、参数数量上限及 EEPROM 槽地址/大小 |
 | `parameter_record.h/.cpp` | 单条 `name:type=value` 编解码和精确 float32 文本转换 |
 | `parameter_text.h/.cpp` | SD/EEPROM 共用的 `COFLY_PARAMS` 文本容器（含飞机总数、编号）、记录计数和 CRC32 校验 |
@@ -18,6 +18,8 @@
 | `parameter_service.h/.cpp` | 初始化、参数修改校验、RAM 更新、保存调度、校准组提交和 USB 协议 |
 
 添加或调整参数时，优先修改 `parameter_registry.cpp`。修改每行的 `storage` 可选择 SD 或 EEPROM；IMU 校准组必须整体使用同一介质。控制参数默认值在 `control_parameters.cpp`，飞机身份和传感器变量仍由对应硬件模块持有。
+
+名称是参数唯一标识，注册表不再维护数字编号。内部成组校验和校准在初始化时按名称解析并缓存下标，后续直接访问；单项保存接口为 `saveParameterValue(name, value)`。注册表行可自由重排，不改变校验或存储语义。地面站默认沿用固件返回的注册表顺序；RC 和 PWM 各通道按 min、trim、max 相邻排列，再列方向、模式等项，参数名称和值不变。遥控校准协议仍按 MIN/MAX/TRIM/REV 传值，与界面排列无关。
 
 EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均可修改。参数修改先更新 RAM；实际发生变化时，将对应介质标为 dirty，并重置该介质的 2 秒计时。同值写入不重置计时。EEPROM 与 SD 均在到期后保存当前完整快照；SD 在解锁时也会保存，强制刷新同样可写入。失败保留 dirty 并在 2 秒后重试，SD 重试不受锁定状态限制。重启命令要求锁定并强制保存待写数据。重启生效参数一旦变化，重启提示与禁止解锁状态保持至设备重启。专用 IMU/遥控校准流程仍要求锁定。
 
@@ -67,4 +69,4 @@ Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊�
 | `usb_attitude_debug` | `printRollPitchYaw`，姿态角（rad） |
 | `usb_quaternion_debug` | `printQuaternion`，四元数 |
 
-`printLocalThrottle` 及旧参数 `usb_throttle_debug`（内部 ID 28）已删除，查看实际油门输出使用 `usb_actuator_output_debug`。旧 SD 文件中的删除项按现有迁移流程跳过，新项缺失时保持默认 0，迁移保存时移除旧项并补齐新项。
+`printLocalThrottle` 及旧参数 `usb_throttle_debug` 已删除，查看实际油门输出使用 `usb_actuator_output_debug`。旧 SD 文件中的删除项按现有迁移流程跳过，新项缺失时保持默认 0，迁移保存时移除旧项并补齐新项。

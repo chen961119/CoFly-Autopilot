@@ -1,14 +1,15 @@
 #pragma once
 #include <stdint.h>
 #include <string.h>
-#include "parameters/parameter_keys.h"
+
+constexpr unsigned IMU_CALIBRATION_OFFSET_COUNT = 6;
 
 // Fingerprint of the complete calibration group, independent of storage medium.
 inline int32_t imuCalibrationFingerprint(const float *offsets, int32_t model) {
   uint32_t hash = 2166136261u;
-  for (unsigned i = 0; i <= ParameterKey::ImuOffsetCount; ++i) {
+  for (unsigned i = 0; i <= IMU_CALIBRATION_OFFSET_COUNT; ++i) {
     uint32_t bits;
-    if (i < ParameterKey::ImuOffsetCount)
+    if (i < IMU_CALIBRATION_OFFSET_COUNT)
       memcpy(&bits, offsets + i, 4);
     else
       memcpy(&bits, &model, 4);

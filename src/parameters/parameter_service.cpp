@@ -4,7 +4,7 @@
 #include "config/aircraft_config.h"
 #include "parameters/imu_calibration_integrity.h"
 #include "parameters/parameter_eeprom.h"
-#include "parameters/parameter_keys.h"
+#include "parameters/parameter_indices.h"
 #include "parameters/parameter_registry.h"
 #include "parameters/actuator_parameter_validation.h"
 #include "parameters/parameter_save_debounce.h"
@@ -30,6 +30,7 @@ bool eepromLoaded[MAX_PARAMETERS];
 
 const FlightParameter *table;
 size_t count;
+ParameterIndices indices;
 bool storageReady;
 bool rebootRequired = false;
 enum class StorageNotice { None, Saved, Failed };
@@ -86,23 +87,16 @@ void formatValue(size_t index, double value, char *text, size_t capacity) {
   ParameterRecord::formatValue(table[index], value, text, capacity);
 }
 
-size_t parameterIndex(uint16_t key) {
-  size_t i = 0;
-  while (i < count && table[i].id != key)
-    ++i;
-  return i;
-}
-
 bool retireMigratedSources(const double *values) {
   for (size_t i = 0; i < count; ++i)
     if (table[i].storage == ParameterStorage::SD && hasEEPROMMigrationSource(table[i]))
-      return saveEEPROMParameters(table, count, values, true);
+      return saveEEPROMParameters(values, true);
   return true;
 }
 
 bool persist(const double *values, ParameterStorage medium) {
   if (medium == ParameterStorage::EEPROM)
-    return saveEEPROMParameters(table, count, values);
+    return saveEEPROMParameters(values);
   if (!ParameterSD::save(values))
     return false;
   loadState = "SAVED";
@@ -169,14 +163,13 @@ SaveResult saveOne(size_t index, double value) {
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
   candidate[index] = value;
-  if (!validActuatorPwmParameters(table, count, candidate))
+  if (!validActuatorPwmParameters(table, count, candidate, indices.actuators))
     return SaveResult::Rejected;
-  const size_t idIndex = parameterIndex(ParameterKey::AircraftId);
+  const size_t idIndex = indices.aircraftId;
   if (idIndex < count && !validAircraftConfiguration(candidate[idIndex]))
     return SaveResult::Rejected;
-  const bool calibrationOffset = table[index].id >= ParameterKey::ImuOffsetFirst &&
-                                 table[index].id <= ParameterKey::ImuOffsetLast;
-  const size_t marker = parameterIndex(ParameterKey::ImuCalibrationValid);
+  const bool calibrationOffset = indices.isImuOffset(index);
+  const size_t marker = indices.imuValid;
   if (calibrationOffset && marker == count)
     return SaveResult::Rejected;
   if (table[index].read() == value)
@@ -258,9 +251,7 @@ void ParameterSession::handleCommand(char *line) {
                static_cast<unsigned>(loadStats.defaultsUsed),
                static_cast<unsigned>(loadStats.skipped), static_cast<unsigned>(MAX_PARAMETER_NAME));
   } else if (!strcmp(tokens[1], "SET") && tokenCount == 5) {
-    size_t index = 0;
-    while (index < count && strcmp(tokens[3], table[index].name))
-      ++index;
+    const size_t index = findParameterIndex(table, count, tokens[3]);
     if (index == count) {
       error(id, "UNKNOWN_PARAMETER", "Parameter not registered");
       return;
@@ -311,31 +302,28 @@ void initializeParameterService(bool sdReady) {
     return;
   }
   for (size_t i = 0; i < count; ++i) {
-    if (!table[i].id || !validParameterName(table[i].name) ||
+    if (!validParameterName(table[i].name) ||
         !validValue(i, table[i].defaultValue)) {
       count = 0;
       return;
     }
     for (size_t j = 0; j < i; ++j)
-      if (table[j].id == table[i].id || !strcmp(table[j].name, table[i].name)) {
+      if (!strcmp(table[j].name, table[i].name)) {
         count = 0;
         return;
       }
   }
-  if (parameterIndex(ParameterKey::AircraftId) == count ||
-      parameterIndex(ParameterKey::ImuCalibrationValid) == count) {
+  if (!indices.initialize(table, count)) {
     count = 0;
+    storageReady = false;
     return;
   }
   // A complete calibration is stored in one snapshot. Moving the whole group
   // between SD and EEPROM is supported; splitting it across media is not.
-  const auto calibrationStorage = table[parameterIndex(ParameterKey::ImuCalibrationValid)].storage;
-  // Offset keys and metadata keys form separate ranges; validate every member.
-  for (unsigned member = 0; member < ParameterKey::ImuOffsetCount + 3; ++member) {
-    const uint16_t key = member < ParameterKey::ImuOffsetCount
-        ? ParameterKey::ImuOffsetFirst + member
-        : ParameterKey::ImuCalibrationValid + member - ParameterKey::ImuOffsetCount;
-    const size_t index = parameterIndex(key);
+  const auto calibrationStorage = table[indices.imuValid].storage;
+  // Cached positions remain valid regardless of registry row order.
+  for (unsigned member = 0; member < IMU_CALIBRATION_OFFSET_COUNT + 3; ++member) {
+    const size_t index = indices.imuMember(member);
     if (index == count || table[index].storage != calibrationStorage) {
       USBSerial.printf("[PARAM] IMU calibration parameters must share one storage medium\n");
       count = 0;
@@ -345,7 +333,7 @@ void initializeParameterService(bool sdReady) {
   }
   loadState = "DEFAULTS";
   loadStats = {0, count, 0};
-  const bool haveEEPROM = initializeEEPROMParameters();
+  const bool haveEEPROM = initializeEEPROMParameters(table, count);
   for (size_t i = 0; i < count; ++i) {
     defaults[i] = table[i].defaultValue;
     eepromLoaded[i] = readEEPROMParameter(table[i], defaults[i]);
@@ -356,7 +344,7 @@ void initializeParameterService(bool sdReady) {
   }
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].defaultValue;
-  if (!validActuatorPwmParameters(table, count, candidate)) {
+  if (!validActuatorPwmParameters(table, count, candidate, indices.actuators)) {
     count = 0;
     storageReady = false;
     return;
@@ -371,9 +359,9 @@ void initializeParameterService(bool sdReady) {
   // Individual SD values may be in range while a min/max pair is reversed
   // or a servo center falls outside its endpoints.
   // Restore the PWM-limit group only; retain all other compatible parameters.
-  if (!validActuatorPwmParameters(table, count, candidate)) {
+  if (!validActuatorPwmParameters(table, count, candidate, indices.actuators)) {
     for (size_t i = 0; i < count; ++i)
-      if (table[i].id >= ParameterKey::ActuatorPwmFirst && table[i].id <= ParameterKey::ActuatorPwmLast)
+      if (indices.isActuatorLimit(i))
         candidate[i] = table[i].defaultValue;
     needsMigration = true;
     USBSerial.printf("[PARAM] Invalid actuator PWM limits; restored default limits\n");
@@ -382,39 +370,36 @@ void initializeParameterService(bool sdReady) {
   for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::EEPROM && eepromLoaded[i])
       candidate[i] = defaults[i];
-    if (table[i].id >= ParameterKey::ImuOffsetFirst &&
-        table[i].id <= ParameterKey::ImuCalibrationChecksum && !eepromLoaded[i] &&
+    if (indices.isImuCalibration(i) && !eepromLoaded[i] &&
         !ParameterSD::hasRecord(i))
       completeCalibration = false;
-    if (table[i].id >= ParameterKey::ImuOffsetFirst &&
-        table[i].id <= ParameterKey::ImuCalibrationChecksum &&
+    if (indices.isImuCalibration(i) &&
         table[i].storage == ParameterStorage::SD && !ParameterSD::hasRecord(i) &&
         !hasEEPROMMigrationSource(table[i]))
       completeCalibration = false;
   }
-  const size_t calibrationMarker = parameterIndex(ParameterKey::ImuCalibrationValid);
+  const size_t calibrationMarker = indices.imuValid;
   if (completeCalibration) {
-    float offsets[ParameterKey::ImuOffsetCount];
-    for (unsigned i = 0; i < ParameterKey::ImuOffsetCount; ++i)
-      offsets[i] = candidate[parameterIndex(ParameterKey::ImuOffsetFirst + i)];
-    if (candidate[parameterIndex(ParameterKey::ImuCalibrationChecksum)] !=
-        imuCalibrationFingerprint(offsets,
-                                  candidate[parameterIndex(ParameterKey::ImuCalibrationModel)]))
+    float offsets[IMU_CALIBRATION_OFFSET_COUNT];
+    for (unsigned i = 0; i < IMU_CALIBRATION_OFFSET_COUNT; ++i)
+      offsets[i] = candidate[indices.imuOffsets[i]];
+    if (candidate[indices.imuChecksum] !=
+        imuCalibrationFingerprint(offsets, candidate[indices.imuModel]))
       completeCalibration = false;
   }
   if (!completeCalibration && calibrationMarker < count)
     candidate[calibrationMarker] = 0;
-  const size_t idIndex = parameterIndex(ParameterKey::AircraftId);
+  const size_t idIndex = indices.aircraftId;
   if (table[idIndex].storage == ParameterStorage::SD && !ParameterSD::hasRecord(idIndex) &&
       !hasEEPROMMigrationSource(table[idIndex]))
     candidate[idIndex] = 0;
   if (!validAircraftConfiguration(candidate[idIndex])) {
     candidate[idIndex] = 0;
   }
-  const bool eeSaved = saveEEPROMParameters(table, count, candidate);
+  const bool eeSaved = saveEEPROMParameters(candidate);
   if (!eeSaved) {
     candidate[idIndex] = 0;
-    candidate[parameterIndex(ParameterKey::ImuCalibrationValid)] = 0;
+    candidate[indices.imuValid] = 0;
     loadState = "EEPROM_ERROR";
   }
   for (size_t i = 0; i < count; ++i)
@@ -438,8 +423,8 @@ void initializeParameterService(bool sdReady) {
                    aircraftName(), aircraftCount());
 }
 
-bool saveParameterValue(uint16_t id, double value) {
-  return saveOne(parameterIndex(id), value) != SaveResult::Rejected;
+bool saveParameterValue(const char *name, double value) {
+  return saveOne(findParameterIndex(table, count, name), value) != SaveResult::Rejected;
 }
 bool saveRadioCalibrationParameters(const char *const *values) {
   if (!table || !count || !storageReady || !values || !isFlightLocked() || !radioInputValid())
@@ -448,7 +433,7 @@ bool saveRadioCalibrationParameters(const char *const *values) {
   for (unsigned channel = 0; channel < 4; ++channel) {
     double group[4];
     for (unsigned field = 0; field < 4; ++field) {
-      const size_t index = parameterIndex(1401 + channel * 5 + field);
+      const size_t index = indices.radioCalibration[channel][field];
       if (index == count || table[index].readOnly || table[index].storage != ParameterStorage::SD ||
           !parseValue(index, values[channel * 4 + field], group[field])) return false;
       candidate[index] = group[field];
@@ -483,15 +468,14 @@ bool saveImuCalibrationParameters(const float *offsets) {
     return false;
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
-  for (unsigned j = 0; j < ParameterKey::ImuOffsetCount; ++j) {
-    const size_t i = parameterIndex(ParameterKey::ImuOffsetFirst + j);
+  for (unsigned j = 0; j < IMU_CALIBRATION_OFFSET_COUNT; ++j) {
+    const size_t i = indices.imuOffsets[j];
     if (i == count || !validValue(i, offsets[j]))
       return false;
     candidate[i] = offsets[j];
   }
-  const size_t marker = parameterIndex(ParameterKey::ImuCalibrationValid),
-               model = parameterIndex(ParameterKey::ImuCalibrationModel),
-               fingerprint = parameterIndex(ParameterKey::ImuCalibrationChecksum);
+  const size_t marker = indices.imuValid, model = indices.imuModel,
+               fingerprint = indices.imuChecksum;
   if (marker == count || model == count || fingerprint == count)
     return false;
   candidate[model] = 1;

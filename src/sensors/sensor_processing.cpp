@@ -1,6 +1,5 @@
 #include "math/units.h"
 #include "parameters/parameter_service.h"
-#include "parameters/parameter_keys.h"
 #include "parameters/imu_calibration_integrity.h"
 #include "config/aircraft_config.h"
 #include "config/serial_config.h"
@@ -714,7 +713,7 @@ void calculate_IMU_error() {
 
   const CalibrationAccGyroData measured = calAccGyroData;
   calAccGyroData = old;
-  float offsets[ParameterKey::ImuOffsetCount];
+  float offsets[IMU_CALIBRATION_OFFSET_COUNT];
   static_assert(sizeof(measured) == sizeof(offsets), "Calibration field layout changed");
   memcpy(offsets, &measured, sizeof(offsets));
   if (!validImuOffsets(measured) || !saveImuCalibrationParameters(offsets)) {
@@ -816,7 +815,7 @@ void getRotateSensor1() {
 // 将当前原始转角设为新零点，经统一参数服务延迟合并保存。
 void ResetRotateSensor() {
   if (!angleReadValid) return; // 未连接或读取失败时不覆盖已保存零点。
-  if (!saveParameterValue(ParameterKey::Mt6701Zero, Units::toDegrees(relativeAngle_raw))) {
+  if (!saveParameterValue("mt6701_zero", Units::toDegrees(relativeAngle_raw))) {
     USBSerial.println("MT6701 zero change rejected");
     return;
   }
@@ -827,7 +826,7 @@ void ResetRotateSensor() {
 
 // 验证已恢复的惯性传感器校准参数。
 void loadImuCalibration() {
-  float offsets[ParameterKey::ImuOffsetCount]; memcpy(offsets,&calAccGyroData,sizeof(offsets));
+  float offsets[IMU_CALIBRATION_OFFSET_COUNT]; memcpy(offsets,&calAccGyroData,sizeof(offsets));
   imuCalibrationReady = imuCalibrationValidParameter == 1 &&
       imuCalibrationModelParameter == 1 && validImuOffsets(calAccGyroData) &&
       imuCalibrationChecksumParameter == imuCalibrationFingerprint(offsets,imuCalibrationModelParameter);

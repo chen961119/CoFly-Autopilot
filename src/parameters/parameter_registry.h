@@ -24,7 +24,6 @@ inline bool validParameterName(const char *name, size_t limit = MAX_PARAMETER_NA
 // Parameter descriptors bind directly to live module variables.
 // Bounds are input validation limits, not verified flight tuning ranges.
 struct FlightParameter {
-  uint16_t id; // Internal key for module lookup; persistent records store names.
   const char *name;
   float *value;
   double minimum;
@@ -36,15 +35,15 @@ struct FlightParameter {
   ParameterEffect effect;
   double defaultValue;
   bool readOnly;
-  FlightParameter(uint16_t key, const char *n, float *v, double lo, double hi, const char *g,
+  FlightParameter(const char *n, float *v, double lo, double hi, const char *g,
                   const char *d, ParameterStorage s = ParameterStorage::SD,
                   ParameterEffect e = ParameterEffect::Immediate, bool ro = false)
-      : id(key), name(n), value(v), minimum(lo), maximum(hi), group(g), description(d), storage(s),
+      : name(n), value(v), minimum(lo), maximum(hi), group(g), description(d), storage(s),
         effect(e), defaultValue(*v), readOnly(ro) {}
-  FlightParameter(uint16_t key, const char *n, int32_t *v, double lo, double hi, const char *g,
+  FlightParameter(const char *n, int32_t *v, double lo, double hi, const char *g,
                   const char *d, ParameterStorage s = ParameterStorage::SD,
                   ParameterEffect e = ParameterEffect::Immediate, bool ro = false)
-      : id(key), name(n), value(nullptr), minimum(lo), maximum(hi), group(g), description(d),
+      : name(n), value(nullptr), minimum(lo), maximum(hi), group(g), description(d),
         integer(v), storage(s), effect(e), defaultValue(*v), readOnly(ro) {}
   const char *type() const { return integer ? "int" : "float"; }
   double read() const { return integer ? static_cast<double>(*integer) : *value; }
@@ -78,3 +77,11 @@ inline bool validParameterValue(const FlightParameter &p, double value) {
 }
 
 const FlightParameter *flightParameterTable(size_t &count);
+
+// Returns count when absent. Internal groups resolve names once during initialization.
+inline size_t findParameterIndex(const FlightParameter *table, size_t count, const char *name) {
+  if (!table || !name) return count;
+  for (size_t i = 0; i < count; ++i)
+    if (!strcmp(table[i].name, name)) return i;
+  return count;
+}

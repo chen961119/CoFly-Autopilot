@@ -84,7 +84,7 @@ bool decode(char *line, char *&name, char *&type, double &value) {
     return false;
   float floating = 0;
   int32_t integer = 0;
-  FlightParameter p(0, name, &floating, -3.4028234663852886e38, 3.4028234663852886e38, "", "");
+  FlightParameter p(name, &floating, -3.4028234663852886e38, 3.4028234663852886e38, "", "");
   if (!strcmp(type, "int")) {
     p.integer = &integer;
     p.minimum = INT32_MIN;

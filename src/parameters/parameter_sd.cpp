@@ -1,6 +1,5 @@
 #include "parameters/parameter_sd.h"
 #include "parameters/parameter_text.h"
-#include "parameters/parameter_keys.h"
 #include "config/aircraft_config.h"
 #include <SD.h>
 #include <string.h>
@@ -10,6 +9,7 @@ const char *const primaryPath = "params.cfg";
 const char *const backupPath = "params_backup.cfg";
 const FlightParameter *table;
 size_t count;
+size_t aircraftIdIndex;
 const double *defaults;
 bool storageReady;
 const char *activePath;
@@ -71,11 +71,9 @@ bool readParameterFile(const char *path, double *values, bool *needsMigration = 
       --parsedStats.defaultsUsed;
     }
   }
-  if (needsMigration)
-    for (size_t i = 0; i < count; ++i)
-      if (table[i].id == ParameterKey::AircraftId &&
-          view.aircraftId != static_cast<uint32_t>(values[i]))
-        *needsMigration = true;
+  if (needsMigration && aircraftIdIndex < count &&
+      view.aircraftId != static_cast<uint32_t>(values[aircraftIdIndex]))
+    *needsMigration = true;
   if (stats)
     *stats = parsedStats;
   return true;
@@ -90,12 +88,11 @@ bool sameSDValues(const double *a, const double *b) {
 
 bool writeSnapshot(const char *path, const double *values) {
   size_t sdCount = 0;
-  uint32_t identity = 0;
+  const uint32_t identity = aircraftIdIndex < count
+      ? static_cast<uint32_t>(values[aircraftIdIndex]) : 0;
   for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::SD)
       ++sdCount;
-    if (table[i].id == ParameterKey::AircraftId)
-      identity = static_cast<uint32_t>(values[i]);
   }
   size_t used = ParameterText::begin(fileData, sizeof(fileData), sdCount, aircraftCount(), identity);
   if (!used)
@@ -181,6 +178,7 @@ void initialize(bool ready, const FlightParameter *parameters, size_t size,
                 const double *defaultValues, ValueValidator validator) {
   table = parameters;
   count = size;
+  aircraftIdIndex = findParameterIndex(table, count, "aircraft_id");
   defaults = defaultValues;
   validValue = validator;
   storageReady = ready && table && defaults && validValue && count <= PARAMETER_COUNT_LIMIT;

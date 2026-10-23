@@ -1,6 +1,5 @@
 #include "parameters/parameter_eeprom.h"
 #include "parameters/parameter_text.h"
-#include "parameters/parameter_keys.h"
 #include "config/aircraft_config.h"
 #include <EEPROM.h>
 
@@ -10,6 +9,8 @@ constexpr int BASE = PARAMETER_EEPROM_BASE;
 uint8_t current[SIZE], next[SIZE];
 int active = -1;
 const char *state = "DEFAULTS";
+const FlightParameter *table;
+size_t count, aircraftIdIndex;
 bool valid(const uint8_t *data) {
   ParameterText::View view;
   return ParameterText::valid(data, SIZE, view);
@@ -42,7 +43,10 @@ bool writeSlot(int slot, const uint8_t *data) {
 }
 } // namespace
 
-bool initializeEEPROMParameters() {
+bool initializeEEPROMParameters(const FlightParameter *parameters, size_t parameterCount) {
+  table = parameters;
+  count = parameterCount;
+  aircraftIdIndex = findParameterIndex(table, count, "aircraft_id");
   active = -1;
   state = "DEFAULTS";
   if (EEPROM.length() < BASE + PARAMETER_EEPROM_SLOT_COUNT * SIZE) {
@@ -90,20 +94,18 @@ bool hasEEPROMMigrationSource(const FlightParameter &p) {
   double value;
   return readEEPROMParameter(p, value);
 }
-bool saveEEPROMParameters(const FlightParameter *table, size_t count, const double *values,
-                          bool sdVerified) {
-  if (EEPROM.length() < BASE + PARAMETER_EEPROM_SLOT_COUNT * SIZE)
+bool saveEEPROMParameters(const double *values, bool sdVerified) {
+  if (!table || !values || !count || aircraftIdIndex == count ||
+      EEPROM.length() < BASE + PARAMETER_EEPROM_SLOT_COUNT * SIZE)
     return false;
   memset(next, 0, SIZE);
   size_t rows = 0;
-  uint32_t identity = 0;
+  const uint32_t identity = static_cast<uint32_t>(values[aircraftIdIndex]);
   // Count first, since the text COUNT field is variable width.
   for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::EEPROM ||
         (!sdVerified && hasEEPROMMigrationSource(table[i])))
       ++rows;
-    if (table[i].id == ParameterKey::AircraftId)
-      identity = static_cast<uint32_t>(values[i]);
   }
   size_t used = ParameterText::begin(next, SIZE, rows, aircraftCount(), identity);
   if (!used)

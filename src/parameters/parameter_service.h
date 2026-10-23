@@ -14,7 +14,7 @@ void pollTelemetryParameterService();
 bool queueDiagnosticOutput(const char *text, size_t length);
 // True means accepted in RAM; persistence is debounced per medium by 2 seconds.
 // EEPROM edits require lock; SD edits and saves are allowed locked or unlocked.
-bool saveParameterValue(uint16_t id, double value);
+bool saveParameterValue(const char *name, double value);
 // Force queued writes before explicit reboot; false blocks reset.
 // Both media can be flushed regardless of flight lock state.
 bool flushParameterWrites();
