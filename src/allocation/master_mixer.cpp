@@ -5,6 +5,7 @@
 #include "config/aircraft_config.h"
 #include "math/math_utils.h"
 #include "control/control_modes.h"
+#include "parameters/control_parameters.h"
 
 static void mixLegacyMaster()
 {
@@ -726,14 +727,14 @@ void mixMasterCommands() {
   ActuatorCommand result;
 
   mixLegacyMaster();
-  const float brakeOffset = ::brakeEnabled ? 0.1f : 0.0f;
+  const float brakeOffset = ::brakeEnabled ? ControlParameters::brake_aileron_offset : 0.0f;
   result.aileron1 = commands.local.aileron1 + brakeOffset;
   result.aileron2 = commands.local.aileron2 + brakeOffset;
   result.throttle = commands.local.throttle;
   result.rudder = commands.local.rudder;
   result.elevator = commands.local.elevator;
   // 主机交联属于主分配；输出转换层不再叠加。
-  const float compensation = - result.elevator / 20.0f;
+  const float compensation = ControlParameters::elevator_aileron_gain * result.elevator;
   result.aileron1 += compensation + rollDampingControlOutput.dampingCommand;
   result.aileron2 += compensation - rollDampingControlOutput.dampingCommand;
 

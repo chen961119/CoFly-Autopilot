@@ -9,6 +9,8 @@ extern int32_t integralControlEnabled; // 0 关闭滚转/俯仰/构型/空速积
 extern int32_t pitch_controller; // 0 PID，1 INDI；各机独立设置。
 extern float Trim_pitch_angle;
 extern float k_Clp;
+extern float brake_aileron_offset; // 主机刹车时两路副翼的归一化下偏偏置，0～1。
+extern float elevator_aileron_gain; // 本机升降舵到两路副翼的归一化交联系数，负值为反向。
 // 滚转、俯仰和构型限制乘 Ki 前的误差积分；偏航限制乘 Ki 后的 I 项。
 extern float i_limit_roll_angle, i_limit_roll_rate;
 extern float i_limit_pitch_angle, i_limit_pitch_rate;

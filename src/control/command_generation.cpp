@@ -4,6 +4,7 @@
 #include "control/control_pipeline.h"
 #include "control/control_modes.h"
 #include "config/aircraft_config.h"
+#include "parameters/control_parameters.h"
 #include <cmath>
 
 ControlTargets targets{};
@@ -71,7 +72,7 @@ void generateSlaveCommand() {
     slaveTargets[5].pitch += Units::toRadians(-0.5 * 1.8 * roll);
   }
 
-  const float brakeOffset = ::brakeEnabled ? 0.1f : 0.0f;
+  const float brakeOffset = ::brakeEnabled ? ControlParameters::brake_aileron_offset : 0.0f;
   for (unsigned i = 0; i < CONTROL_AIRCRAFT_SLOTS; ++i) {
     ActuatorCommand &child = commands.slaves[i];
     // 手动交联先读取原始副翼值，再原位缩放，避免把刹车和缩放计入交联。

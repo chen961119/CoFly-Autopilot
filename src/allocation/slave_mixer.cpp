@@ -14,6 +14,7 @@ void mixSlaveCommands() {
        -pitchIndiControlOutput.indiOutput :
        -pitchPidControlOutput.pidOutput);
   // 交联只在从分配生成；主机升降舵前馈不重复作为本机俯仰贡献。
-  commands.local.aileron1 = commands.local.aileron2 = -elevator / 20.0f + rollDampingControlOutput.dampingCommand;
+  const float compensation = ControlParameters::elevator_aileron_gain * elevator;
+  commands.local.aileron1 = commands.local.aileron2 = compensation + rollDampingControlOutput.dampingCommand;
   commands.local.elevator = currentFlightMode == MANUAL_MODE ? 0.0f : elevator;
 }

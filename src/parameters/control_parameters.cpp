@@ -6,6 +6,8 @@ int32_t integralControlEnabled = 1; // SD 参数；控制滚转/俯仰/构型/�
 int32_t pitch_controller = 0; // 保留原默认 PID 选择，用于增稳模式。
 float Trim_pitch_angle = 3.0;
 float k_Clp = 0.05;
+float brake_aileron_offset = 0.2f; // 刹车副翼偏置，最终按各机 PWM 行程映射。
+float elevator_aileron_gain = -0.05f; // 本机升降舵到两路副翼交联，默认等效于 -elevator/20。
 // 滚转/俯仰/构型沿用原公共 i_limit 的误差积分限幅；偏航改为限制 I 项输出。
 float i_limit_roll_angle = 45.0f;
 float i_limit_roll_rate = 45.0f;

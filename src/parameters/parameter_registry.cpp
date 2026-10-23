@@ -90,6 +90,10 @@ const FlightParameter *flightParameterTable(size_t &count) {
        "Debug", "Received sensor fields USB/X6 log: 0 off, 1 on", ParameterStorage::SD,
        ParameterEffect::Immediate},
       {"k_Clp", &k_Clp, 0, 10, "Control", "Roll damping gain"},
+      {"brake_aileron_offset", &brake_aileron_offset, 0, 1, "Control",
+       "Brake aileron offset (normalized, down-positive; master only)"},
+      {"elevator_aileron_gain", &elevator_aileron_gain, -1, 1, "Control",
+       "Local elevator to both ailerons gain: 0 off, negative opposite deflection"},
       // 原公共 i_limit 已移除；新名称缺项时使用各环默认值。
       {"i_limit_roll_angle", &i_limit_roll_angle, 0, 1000, "Attitude", "Roll angle error integral limit (before Ki)"},
       {"i_limit_roll_rate", &i_limit_roll_rate, 0, 1000, "Attitude", "Roll rate error integral limit (before Ki)"},
