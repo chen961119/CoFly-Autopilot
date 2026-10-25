@@ -75,7 +75,7 @@ void generateSlaveCommand() {
   const float brakeOffset = ::brakeEnabled ? ControlParameters::brake_aileron_offset : 0.0f;
   for (unsigned i = 0; i < CONTROL_AIRCRAFT_SLOTS; ++i) {
     ActuatorCommand &child = commands.slaves[i];
-    // 手动交联先读取原始副翼值，再原位缩放，避免把刹车和缩放计入交联。
+    // PID 主分配已在 mixLegacyMaster() 完成换算；这里只叠加刹车，不再缩放。
     if (currentFlightMode == MANUAL_MODE) {
       // child.elevator = commands.local.elevator -
       //     0.5f * (child.aileron1 + child.aileron2) / 2;

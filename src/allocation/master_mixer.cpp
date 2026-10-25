@@ -721,6 +721,17 @@ static void mixLegacyMaster()
     }
   }
 
+  // PID 增稳：将旧主分配换算为当前执行器尺度，发送前统一处理本机和从机贡献。
+  // 交联、刹车与阻尼在此之后叠加；接收端不得再次缩放上级贡献。
+  if (isStabilizedMode(currentFlightMode) && activePitchController == PitchController::PID) {
+    const auto scaleAllocation = [](ActuatorCommand &command) {
+      command.aileron1 *= 2.0f;
+      command.aileron2 *= 2.0f;
+      command.elevator *= 5.0f;
+    };
+    scaleAllocation(commands.local);
+    for (auto &child : commands.slaves) scaleAllocation(child);
+  }
 }
 
 void mixMasterCommands() {
@@ -735,8 +746,8 @@ void mixMasterCommands() {
   result.elevator = commands.local.elevator;
   // 主机交联属于主分配；输出转换层不再叠加。
   const float compensation = ControlParameters::elevator_aileron_gain * result.elevator;
-  result.aileron1 += compensation + rollDampingControlOutput.dampingCommand;
-  result.aileron2 += compensation - rollDampingControlOutput.dampingCommand;
+  result.aileron1 += compensation + rollDampingControlOutput.dampingCommand*5;
+  result.aileron2 += compensation - rollDampingControlOutput.dampingCommand*5;
 
   commands.local =  result;
 }

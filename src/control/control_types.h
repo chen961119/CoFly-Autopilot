@@ -85,7 +85,7 @@ struct ActuatorCommand {
 struct SlaveCommand {
   FlightMode mode = MANUAL_MODE;
   SlaveControlTargets target;
-  ActuatorCommand masterContribution; // 从作动器指令-1：手动为全量，增稳升降舵为前馈；elevator 始终下偏为正。
+  ActuatorCommand masterContribution; // 上级已换算的执行器贡献；手动为全量，增稳升降舵为前馈。融合不再缩放，elevator 下偏为正。
 };
 
 struct ControlCycleOutput {

@@ -39,7 +39,11 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 | `slaveCommands[]` / `slaveCommand` | 待发送/接收的模式、俯仰目标及 `masterContribution` |
 | `ActuatorOutput[0..4]` | 最终物理 PWM，顺序为副翼1、副翼2、升降舵、油门、方向舵 |
 
-`ControlTargets` 只保存目标；模式、策略和刹车开关独立存储。主机分配完成后，`generateSlaveCommand()` 才初始化当周期从机俯仰目标、叠加滚转/构型策略修正，并原位整理从机分配和发送命令。手动交联先读取未缩放的从机副翼，再执行副翼缩放与刹车叠加，不使用上一周期分配。
+`ControlTargets` 只保存目标；模式、策略和刹车开关独立存储。主机分配完成后，`generateSlaveCommand()` 才初始化当周期从机俯仰目标、叠加滚转/构型策略修正，并原位叠加从机刹车偏置、整理发送命令，不使用上一周期分配。旧的手动副翼到升降舵反向交联已停用。
+
+PID 增稳使用旧分配到当前执行器尺度的补偿：`mixLegacyMaster()` 完成原始计算后，将本机和全部从机的两路副翼乘 2、升降舵乘 5；油门、方向舵、控制器发布量和物理目标不变。该固定比例针对舵面 mode=0、trim 两侧各约 200 μs 的线性区间。`mixMasterCommands()` 随后使用已换算的本机升降舵计算交联，再添加刹车与阻尼；从机刹车在 `generateSlaveCommand()` 中添加，发送字段不再缩放。
+
+接收端 PID 只将本机新算的升降舵贡献乘 5，再用该值计算副翼交联，不对本机交联或阻尼乘 2。上级副翼主分配及升降舵前馈已经换算，`fuseSlaveCommands()` 只相加，中继原样转发，控制周期末尾不再统一乘倍数。因此从机最终升降舵为 `5*本机PID贡献 + 5*上级原始前馈`，不是重复乘 5；交联继续只使用本机俯仰贡献。主机手动和 INDI 分支保留原映射，本补偿方案以主从均运行 PID 的场景为准。
 
 俯仰直接读取 `targets.pitch`，没有 mixer 反馈到下一周期的中央机俯仰修正缓存。偏航为机体 Z 轴角速度闭环：`YawRatePidController` 接收 rad/s 目标和 rad 滚转/俯仰目标，协调转弯项为 `g/V_cruise*tan(rollTarget)*cos(pitchTarget)`，叠加后与 `ang_vel_filtered[2]` 比较。FF、P、I、D 各自乘增益后直接相加，不再整体乘 0.573；I 项更新为 `I_prev + Ki*error*dt`，再限幅至 `±i_limit_yaw_rate`。发布 `yawRateControlOutput.pidOutput` 以及 `proportionalTerm`、`integralTerm`、`derivativeTerm`、`feedforwardTerm`，后四项之和等于总输出，未启用时五项均为 0，全部进入 SD 日志。内部增益使用 `Kp_yaw_rate` 等名称，持久化键保留旧名称。实装偏航使用油门差动，rudder 字段继续保留在通用五路接口中。
 
@@ -61,7 +65,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 主从机各自使用本机 SD 参数 `elevator_aileron_gain`，向两路副翼叠加 `gain * elevator`。该参数位于 Control 组，默认 -0.05、范围 -1～1，默认等效于 `-elevator/20`；0 关闭交联，负值反向、正值同向，均采用下偏正的舵面坐标。主机第一路另加滚转阻尼，第二路减阻尼；从机两路均另加滚转阻尼。两者的阻尼分配不同，不能把 PWM 同号直接解释为舵面同向。
 
-手动子机升降舵为 `本机 elevator - 0.25*(子机原始副翼1 + 子机原始副翼2)`。从机手动副翼补偿使用收到的完整手动升降舵贡献；增稳时使用本机选中的俯仰闭环贡献，不包含主机升降舵前馈。
+手动子机升降舵直接使用主机下发的完整升降舵指令。从机手动副翼补偿使用收到的完整手动升降舵贡献；增稳时使用本机选中的俯仰闭环贡献，不包含主机升降舵前馈。
 
 | 从机路径 | 上级 `masterContribution.elevator` | 本机 elevator 贡献 | 融合结果 |
 | --- | --- | --- | --- |
