@@ -36,11 +36,11 @@ macOS/Linux 使用 `python3 -m venv tools/flight_data_browser/.venv`，后续解
 以下命令在本目录的环境中执行；把 `python` 换成 `.venv/Scripts/python.exe`（Windows）或 `.venv/bin/python`（macOS/Linux）。
 
 ```sh
-python main.py datalog109.txt --summary
-python main.py A/datalog109.txt B/datalog064.txt
-python main.py datalog109.txt --fft "att[0](deg)" --from 30 --to 60
-python main.py datalog109.txt --export selected.csv --columns "att[0](deg)" "att[1](deg)" --from 30 --to 60
-python main.py datalog109.txt --summary --time-column "TimeStamp(us)" --time-unit us
+python main.py datalog109.csv --summary
+python main.py A/datalog109.csv B/datalog064.csv
+python main.py datalog109.csv --fft "att[0](deg)" --from 30 --to 60
+python main.py datalog109.csv --export selected.csv --columns "att[0](deg)" "att[1](deg)" --from 30 --to 60
+python main.py datalog109.csv --summary --time-column "TimeStamp(us)" --time-unit us
 python main.py damaged.txt --summary --skip-bad-rows
 ```
 
@@ -51,7 +51,7 @@ python main.py damaged.txt --summary --skip-bad-rows
 ```python
 from data import load_log, compute_spectrum
 
-log = load_log("datalog109.txt")
+log = load_log("datalog109.csv")
 roll = log.column("att[0](deg)")
 fft = compute_spectrum(log.time, roll, bounds=(30, 60))
 print(log.sample_rate, fft.peak_frequency)

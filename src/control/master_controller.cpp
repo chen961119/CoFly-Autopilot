@@ -1,4 +1,3 @@
-#include "math/units.h"
 #include "control/master_controller.h"
 #include "control/control_output.h"
 #include "control/command_generation.h"
@@ -19,14 +18,14 @@ void runMasterController()
   controllers.yawRate.prepare(controlModeChanged);
   controllers.configuration.prepare(integralEnabled);
   controllers.pitchPid.prepare(integralEnabled, controlModeChanged);
-  if (controlModeChanged) controllers.pitchIndi.reset(Units::toDegrees(targets.pitch));
+  if (controlModeChanged) controllers.pitchIndi.reset(targets.pitch);
 
   const bool stabilized = isStabilizedMode(currentFlightMode);
-  controllers.roll.update(Units::toDegrees(targets.roll), stabilized);
+  controllers.roll.update(targets.roll, stabilized);
   controllers.yawRate.update(targets.yawRate, targets.roll, targets.pitch, stabilized);
   controllers.throttle.update(targets.throttle, airspeed, airspeedValid(),
                               stabilized, integralEnabled, dt);
-  controllers.pitchPid.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::PID);
-  controllers.pitchIndi.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::INDI);
+  controllers.pitchPid.update(targets.pitch, stabilized && activePitchController == PitchController::PID);
+  controllers.pitchIndi.update(targets.pitch, stabilized && activePitchController == PitchController::INDI);
   controllers.configuration.update(targets.configuration);
 }

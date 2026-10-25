@@ -18,8 +18,8 @@ void generateSlaveCommand() {
     slaveCommands[i] = {};
   }
 
-  const float roll = Units::toDegrees(targets.roll);
-  const float rollCommand = currentFlightMode == MANUAL_MODE ? manual_input[0] : rollControlOutput.pidOutput;
+  const float roll = targets.roll;
+  const float rollCommand = currentFlightMode == MANUAL_MODE ? 2.0f * manual_input[0] : rollControlOutput.pidOutput;
   const bool strategy1 = mixerStrategyCommand > 0.2f;
   const bool strategy2 = mixerStrategyCommand < 0.2f && mixerStrategyCommand > -0.2f;
   if (aircraftCount() == 3) {
@@ -27,11 +27,11 @@ void generateSlaveCommand() {
       // slaveTargets[0].pitch = targets.pitch;
       // slaveTargets[1].pitch =  targets.pitch;
     } else if (strategy2) {
-      slaveTargets[0].pitch += Units::toRadians(20.0 * rollControlOutput.filteredPidOutput);
-      slaveTargets[1].pitch += Units::toRadians(-20.0 * rollControlOutput.filteredPidOutput);
+      slaveTargets[0].pitch += Units::toRadians(10.0f) * rollControlOutput.filteredPidOutput;
+      slaveTargets[1].pitch += -Units::toRadians(10.0f) * rollControlOutput.filteredPidOutput;
     } else {
-      const float coeab = fabsf(Units::toDegrees(configurationControlOutput.angleErrors[0])) > 20
-          ? fabsf(Units::toDegrees(configurationControlOutput.angleErrors[0])) / 20.0f : 0.8f;
+      const float coeab = fabsf(configurationControlOutput.angleErrors[0]) > Units::toRadians(20.0f)
+          ? fabsf(configurationControlOutput.angleErrors[0]) / Units::toRadians(20.0f) : 0.8f;
       const float coeac = 1.0f;
       const float coeroll = 0.2f;
       const float ab = configurationControlOutput.pidOutputs[0], ac = configurationControlOutput.pidOutputs[1];
@@ -40,42 +40,41 @@ void generateSlaveCommand() {
       const float b2 = 0.593 * coeroll * rollCommand - coeab * 0.27 * ab - coeac * 0.08 * ac;
       const float c1 = -0.593 * coeroll * rollCommand + coeab * 0.08 * ab + coeac * 0.27 * ac;
       const float c2 = -1.016 * coeroll * rollCommand + coeab * 0.62 * ab - coeac * 0.864 * ac;
-      slaveTargets[0].pitch += Units::toRadians(30.0 * rollControlOutput.filteredPidOutput + 6.0 * (b1 + b2));
-      slaveTargets[1].pitch += Units::toRadians(-30.0 * rollControlOutput.filteredPidOutput + 6.0 * (c1 + c2));
+      slaveTargets[0].pitch += Units::toRadians(15.0f) * rollControlOutput.filteredPidOutput + Units::toRadians(3.0f) * (b1 + b2);
+      slaveTargets[1].pitch += -Units::toRadians(15.0f) * rollControlOutput.filteredPidOutput + Units::toRadians(3.0f) * (c1 + c2);
     }
   } else if (aircraftCount() == 4) {
     if (strategy1) {
-      slaveTargets[2].pitch += Units::toRadians(0.13 * 1.5 * roll);
-      slaveTargets[0].pitch += Units::toRadians(0.07 * 1.5 * roll);
-      slaveTargets[1].pitch += Units::toRadians(-0.13 * 1.5 * roll);
+      slaveTargets[2].pitch += 0.13 * 1.5 * roll;
+      slaveTargets[0].pitch += 0.07 * 1.5 * roll;
+      slaveTargets[1].pitch += -0.13 * 1.5 * roll;
     } else if (strategy2) {
-      slaveTargets[2].pitch += Units::toRadians(70.0 * rollCommand);
-      slaveTargets[0].pitch += Units::toRadians(30.0 * rollCommand);
-      slaveTargets[1].pitch += Units::toRadians(-70.0 * rollCommand);
+      slaveTargets[2].pitch += Units::toRadians(35.0f) * rollCommand;
+      slaveTargets[0].pitch += Units::toRadians(15.0f) * rollCommand;
+      slaveTargets[1].pitch += -Units::toRadians(35.0f) * rollCommand;
     } else {
       const float ab = configurationControlOutput.pidOutputs[0], ac = configurationControlOutput.pidOutputs[1], bd = configurationControlOutput.pidOutputs[2];
-      slaveTargets[2].pitch += Units::toRadians(70.0 * rollCommand + 35.0 * ab - 20.0 * ac + 20.0 * bd);
-      slaveTargets[0].pitch += Units::toRadians(30.0 * rollCommand - 40.0 * ab + 15.0 * ac - 45.0 * bd);
-      slaveTargets[1].pitch += Units::toRadians(-70.0 * rollCommand + 35.0 * ab - 20.0 * ac + 20.0 * bd);
+      slaveTargets[2].pitch += Units::toRadians(35.0f) * rollCommand + Units::toRadians(17.5f) * ab - Units::toRadians(10.0f) * ac + Units::toRadians(10.0f) * bd;
+      slaveTargets[0].pitch += Units::toRadians(15.0f) * rollCommand - Units::toRadians(20.0f) * ab + Units::toRadians(7.5f) * ac - Units::toRadians(22.5f) * bd;
+      slaveTargets[1].pitch += -Units::toRadians(35.0f) * rollCommand + Units::toRadians(17.5f) * ab - Units::toRadians(10.0f) * ac + Units::toRadians(10.0f) * bd;
     }
   } else if (aircraftCount() == 5) {
-    slaveTargets[2].pitch += Units::toRadians(0.3 * 1.2 * roll);
-    slaveTargets[0].pitch += Units::toRadians(0.15 * 1.2 * roll);
-    slaveTargets[1].pitch += Units::toRadians(-0.15 * 1.2 * roll);
-    slaveTargets[3].pitch += Units::toRadians(-0.3 * 1.2 * roll);
+    slaveTargets[2].pitch += 0.3 * 1.2 * roll;
+    slaveTargets[0].pitch += 0.15 * 1.2 * roll;
+    slaveTargets[1].pitch += -0.15 * 1.2 * roll;
+    slaveTargets[3].pitch += -0.3 * 1.2 * roll;
   } else if (aircraftCount() == 7) {
-    slaveTargets[4].pitch += Units::toRadians(0.5 * 1.8 * roll);
-    slaveTargets[2].pitch += Units::toRadians(0.3 * 1.8 * roll);
-    slaveTargets[0].pitch += Units::toRadians(0.15 * 1.8 * roll);
-    slaveTargets[1].pitch += Units::toRadians(-0.15 * 1.8 * roll);
-    slaveTargets[3].pitch += Units::toRadians(-0.3 * 1.8 * roll);
-    slaveTargets[5].pitch += Units::toRadians(-0.5 * 1.8 * roll);
+    slaveTargets[4].pitch += 0.5 * 1.8 * roll;
+    slaveTargets[2].pitch += 0.3 * 1.8 * roll;
+    slaveTargets[0].pitch += 0.15 * 1.8 * roll;
+    slaveTargets[1].pitch += -0.15 * 1.8 * roll;
+    slaveTargets[3].pitch += -0.3 * 1.8 * roll;
+    slaveTargets[5].pitch += -0.5 * 1.8 * roll;
   }
 
   const float brakeOffset = ::brakeEnabled ? ControlParameters::brake_aileron_offset : 0.0f;
   for (unsigned i = 0; i < CONTROL_AIRCRAFT_SLOTS; ++i) {
     ActuatorCommand &child = commands.slaves[i];
-    // PID 主分配已在 mixLegacyMaster() 完成换算；这里只叠加刹车，不再缩放。
     if (currentFlightMode == MANUAL_MODE) {
       // child.elevator = commands.local.elevator -
       //     0.5f * (child.aileron1 + child.aileron2) / 2;

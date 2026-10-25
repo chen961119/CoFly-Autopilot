@@ -1,4 +1,3 @@
-#include "math/units.h"
 #include "control/control_output.h"
 #include "control/roll_damping_controller.h"
 #include "parameters/control_parameters.h"
@@ -7,6 +6,6 @@
 using namespace ControlParameters;
 
 void RollDampingController::update() const {
-  const float Clp_PID = .01 * k_Clp * (0 - Units::toDegrees(ang_vel[0]));
-  rollDampingControlOutput.dampingCommand = Clp_PID * 0.125f;
+  const float Clp_PID = k_Clp * (0 - ang_vel[0]);
+  rollDampingControlOutput.dampingCommand = Clp_PID;
 }

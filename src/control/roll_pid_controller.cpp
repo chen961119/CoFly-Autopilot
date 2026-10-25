@@ -18,12 +18,12 @@ void RollPidController::prepare(bool integralControlEnabled, bool controlModeCha
   }
 }
 void RollPidController::update(float rollTarget, bool enabled) {
-  rollControlOutput = {0, roll_PID_lpf, roll_PID_dot_lpf, Units::toRadians(roll_eq)};
+  rollControlOutput = {0, roll_PID_lpf, roll_PID_dot_lpf, roll_eq};
   if (!enabled) return;
   float roll_des_ol = 0;
   if (aircraftIsSingle())
   {
-    roll_eq = Units::toDegrees(att[0]);
+    roll_eq = att[0];
   }
   else
   {
@@ -38,28 +38,24 @@ void RollPidController::update(float rollTarget, bool enabled) {
     if ((aircraftCount() == 3))
     {
       roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC)) /
-          (cos(phiA) + cos(phiB) + cos(phiC))) *
-      57.3;
+          (cos(phiA) + cos(phiB) + cos(phiC)));
     }
     else if ((aircraftCount() == 4))
     {
       roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD)) /
-          (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD))) *
-      57.3;
+          (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD)));
     }
     else if ((aircraftCount() == 5))
     {
       roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD) + sin(phiE)) /
-          (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD) + cos(phiE))) *
-      57.3;
+          (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD) + cos(phiE)));
     }
     else if ((aircraftCount() == 7))
     {
       roll_eq = atan((sin(phiA) + sin(phiB) + sin(phiC) + sin(phiD) + sin(phiE) +
           sin(phiF) + sin(phiG)) /
           (cos(phiA) + cos(phiB) + cos(phiC) + cos(phiD) + cos(phiE) +
-          cos(phiF) + cos(phiG))) *
-      57.3;
+          cos(phiF) + cos(phiG)));
     }
   }
   error_roll = rollTarget - roll_eq;
@@ -71,36 +67,35 @@ void RollPidController::update(float rollTarget, bool enabled) {
   {
     integral_roll_ol = 0;
   }
-  derivative_roll = (Units::toDegrees(att[0]) - previous_roll_att) / dt;
+  derivative_roll = (att[0] - previous_roll_att) / dt;
   roll_des_ol = Kp_roll_angle * error_roll +
   i_valid * Ki_roll_angle *
   integral_roll_ol;
-  roll_des_ol = 30.0 * roll_des_ol;
-  roll_des_ol = constrain(roll_des_ol, -240.0, 240.0);
+  roll_des_ol = constrain(roll_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
   roll_des_ol = (1.0 - B_loop_roll) * roll_des_prev + B_loop_roll * roll_des_ol;
   float Rollrate;
   if (aircraftIsSingle())
   {
-    Rollrate = Units::toDegrees(ang_vel_filtered[0]);
+    Rollrate = ang_vel_filtered[0];
   }
   else
   {
     if ((aircraftCount() == 3))
     {
-      Rollrate = (Units::toDegrees(ang_vel_B[0]) + Units::toDegrees(ang_vel_C[0]) + Units::toDegrees(ang_vel_filtered[0])) / 3.0;
+      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_filtered[0]) / 3.0;
     }
     else if ((aircraftCount() == 4))
     {
-      Rollrate = (Units::toDegrees(ang_vel_B[0]) + Units::toDegrees(ang_vel_C[0]) + Units::toDegrees(ang_vel_D[0]) + Units::toDegrees(ang_vel_filtered[0])) / 4.0;
+      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + ang_vel_filtered[0]) / 4.0;
     }
     else if ((aircraftCount() == 5))
     {
-      Rollrate = (Units::toDegrees(ang_vel_B[0]) + Units::toDegrees(ang_vel_C[0]) + Units::toDegrees(ang_vel_D[0]) + Units::toDegrees(ang_vel_E[0]) + Units::toDegrees(ang_vel_filtered[0])) / 5.0;
+      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + ang_vel_E[0] + ang_vel_filtered[0]) / 5.0;
     }
     else if ((aircraftCount() == 7))
     {
-      Rollrate = (Units::toDegrees(ang_vel_B[0]) + Units::toDegrees(ang_vel_C[0]) + Units::toDegrees(ang_vel_D[0]) + Units::toDegrees(ang_vel_E[0]) + Units::toDegrees(ang_vel_F[0]) + Units::toDegrees(ang_vel_G[0]) +
-          Units::toDegrees(ang_vel_filtered[0])) /
+      Rollrate = (ang_vel_B[0] + ang_vel_C[0] + ang_vel_D[0] + ang_vel_E[0] + ang_vel_F[0] + ang_vel_G[0] +
+          ang_vel_filtered[0]) /
       7.0;
     }
   }
@@ -115,7 +110,6 @@ void RollPidController::update(float rollTarget, bool enabled) {
   }
   derivative_roll = (error_roll - error_roll_prev) / dt;
   roll_PID =
-  .01 *
   (Kff_roll_rate * roll_des_ol + Kp_roll_rate * error_roll +
       i_valid * Ki_roll_rate * integral_roll_il +
       Kd_roll_rate *
@@ -156,7 +150,7 @@ void RollPidController::update(float rollTarget, bool enabled) {
   integral_roll_prev_ol = integral_roll_ol;
   integral_roll_prev_il = integral_roll_il;
   error_roll_prev = error_roll;
-  previous_roll_att = Units::toDegrees(att[0]);
+  previous_roll_att = att[0];
   roll_des_prev = roll_des_ol;
-  rollControlOutput = {roll_PID, roll_PID_lpf, roll_PID_dot_lpf, Units::toRadians(roll_eq)};
+  rollControlOutput = {roll_PID, roll_PID_lpf, roll_PID_dot_lpf, roll_eq};
 }

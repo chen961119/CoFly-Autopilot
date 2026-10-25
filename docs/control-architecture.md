@@ -25,7 +25,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 | 从机分配 | `src/allocation/slave_mixer.cpp` | 本机俯仰或手动贡献 → 本机交联/阻尼与闭环贡献 |
 | 从机融合 | `src/allocation/command_fusion.cpp` | 本机贡献 + 上级贡献 → 最终逻辑指令 |
 
-控制器按类封装，`controller_instances.cpp` 持有每块飞控的一套实例；积分、滤波历史和 INDI 延迟队列归对应对象。模式由 `control_modes.h/.cpp` 管理，输出由 `control_output.h/.cpp` 发布，层间类型定义在 `control_types.h`。
+角度阈值、角速度限值和积分限幅等常量用 `Units::toRadians(原度数)` 表达，保留其物理含义；常量换算不改变控制器内部弧度运算。控制器内部的角度、角速度、角加速度和误差积分均采用 rad、rad/s、rad/s² 及其时间积分，直接读取 SI 目标与测量。旧 30 和 0.01 等比例已合入现有增益，当前参数直接按弧度单位读取，不兼容或自动换算旧度制参数；遥控显示参数 maxRoll/maxPitch/maxYawRate 与 Trim_pitch_angle 仍在目标生成边界由度转换为弧度，与既有偏航控制一致。控制器按类封装，`controller_instances.cpp` 持有每块飞控的一套实例；积分、滤波历史和 INDI 延迟队列归对应对象。模式由 `control_modes.h/.cpp` 管理，输出由 `control_output.h/.cpp` 发布，层间类型定义在 `control_types.h`。
 
 ## 目标与结果接口
 
@@ -41,9 +41,9 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 `ControlTargets` 只保存目标；模式、策略和刹车开关独立存储。主机分配完成后，`generateSlaveCommand()` 才初始化当周期从机俯仰目标、叠加滚转/构型策略修正，并原位叠加从机刹车偏置、整理发送命令，不使用上一周期分配。旧的手动副翼到升降舵反向交联已停用。
 
-PID 增稳使用旧分配到当前执行器尺度的补偿：`mixLegacyMaster()` 完成原始计算后，将本机和全部从机的两路副翼乘 2、升降舵乘 5；油门、方向舵、控制器发布量和物理目标不变。该固定比例针对舵面 mode=0、trim 两侧各约 200 μs 的线性区间。`mixMasterCommands()` 随后使用已换算的本机升降舵计算交联，再添加刹车与阻尼；从机刹车在 `generateSlaveCommand()` 中添加，发送字段不再缩放。
+舵面采用名义 -1～1、油门采用 0～1。混控末尾不再统一乘 2/5，滚转与构型控制器的归一化换算、俯仰 PID 的 5 倍补偿、阻尼补偿均已合入现有控制参数。以提交 528c840 为物理输出基准：同一控制作用下，PID 副翼主分配、升降舵、阻尼、交联、前馈、刹车和油门保持原 PWM。原版 tag 0.1 的副翼在 1000*u 后另乘 0.4，因此不是 1000 μs/u，而是 400 μs/u；现有 200 μs 行程下的 2 倍换算已经等效，不再额外增强 2.5 倍。核对方法见 [控制输出等效核对](control-output-equivalence.md)。
 
-接收端 PID 只将本机新算的升降舵贡献乘 5，再用该值计算副翼交联，不对本机交联或阻尼乘 2。上级副翼主分配及升降舵前馈已经换算，`fuseSlaveCommands()` 只相加，中继原样转发，控制周期末尾不再统一乘倍数。因此从机最终升降舵为 `5*本机PID贡献 + 5*上级原始前馈`，不是重复乘 5；交联继续只使用本机俯仰贡献。主机手动和 INDI 分支保留原映射，本补偿方案以主从均运行 PID 的场景为准。
+主从 mixer 直接使用 PID/INDI 的升降舵输出，不对选用结果再次放大，融合只相加。从机交联仍只使用本机俯仰贡献，不包含上级前馈。INDI 的物理 PWM 逆映射本身已经匹配执行器行程，不额外乘 2/5；按明确选择，增稳 PID/INDI 统一使用滚转和构型控制器的同一副翼尺度，INDI 分配入口不再减半；相较 528c840，INDI 模式的滚转/构型副翼主分配贡献变为 2 倍。该变化不放大升降舵 INDI、本机交联、阻尼、刹车或差动油门，最终仍受物理行程限幅。
 
 俯仰直接读取 `targets.pitch`，没有 mixer 反馈到下一周期的中央机俯仰修正缓存。偏航为机体 Z 轴角速度闭环：`YawRatePidController` 接收 rad/s 目标和 rad 滚转/俯仰目标，协调转弯项为 `g/V_cruise*tan(rollTarget)*cos(pitchTarget)`，叠加后与 `ang_vel_filtered[2]` 比较。FF、P、I、D 各自乘增益后直接相加，不再整体乘 0.573；I 项更新为 `I_prev + Ki*error*dt`，再限幅至 `±i_limit_yaw_rate`。发布 `yawRateControlOutput.pidOutput` 以及 `proportionalTerm`、`integralTerm`、`derivativeTerm`、`feedforwardTerm`，后四项之和等于总输出，未启用时五项均为 0，全部进入 SD 日志。内部增益使用 `Kp_yaw_rate` 等名称，持久化键保留旧名称。实装偏航使用油门差动，rudder 字段继续保留在通用五路接口中。
 
@@ -73,7 +73,7 @@ PID 增稳使用旧分配到当前执行器尺度的补偿：`mixLegacyMaster()`
 | 增稳 PID | 主机前馈 | `-pitchPidControlOutput.pidOutput` | 本机闭环 + 前馈 |
 | 增稳 INDI | 主机前馈 | `-pitchIndiControlOutput.indiOutput` | 本机闭环 + 前馈 |
 
-副翼、油门、方向舵同样通过加法融合。融合函数只相加，不再运行控制律、交联或 PWM 映射。三机策略 3 的直接升降舵前馈在下偏正坐标中为 B=`-0.2R-0.01Rdot`、C=`+0.2R+0.01Rdot`，R 为滚转控制输出低通值；策略 1/2 前馈为 0。每周期清空分配，避免跨策略保留旧前馈。
+副翼、油门、方向舵同样通过加法融合。融合函数只相加，不再运行控制律、交联或 PWM 映射。三机策略 3 的升降舵前馈按新的滚转输出尺度直接计算：B 为 `(-100R-5Rdot)/200`（PID）或 `(-100R-5Rdot)/1000`（INDI），C 取反；R 为当前滚转低通输出，已为原 0.01 控制律输出的 2 倍。这样保留提交 528c840 中 PID 前馈补偿 5 倍、INDI 未补偿的既有行为。策略 1/2 为 0，每周期清空分配。
 
 ## 输出、通信和限制
 

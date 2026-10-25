@@ -77,7 +77,7 @@ INDI 以通道3映射零点为零舵角：模式 0 为 trim，模式 1 为 min/m
 | SPI CS 10、37 | BMI088 加速度计、陀螺仪 |
 | `Wire1`，SDA=17、SCL=16 | OLED、MT6701 夹角 |
 | `Wire2`，SDA=25、SCL=24 | CUAV MEAS/MS4525 空速计，底板6号口 |
-| 内置 SD | `datalogNNN.txt`、参数主备文件 |
+| 内置 SD | `datalogNNN.csv`、参数主备文件 |
 
 串口宏集中在 `src/config/serial_config.h`：
 

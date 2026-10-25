@@ -36,7 +36,7 @@
 
 目前共 133 项：122 项在 SD（含五路 PWM 上下限及立即生效的 USB/X6 调试开关（保留 usb_ 参数名））；11 项在 EEPROM，包括飞机编号、6 个 IMU 零偏、校准有效标记、校准模型标记、整组指纹和 MT6701 测量零点。校准有效/模型/指纹三个字段只读，固件整组管理；手工改零偏会使校准失效。当前 BMI088 零偏仍绑定原 `*_6050` 字段名，保持既有测量轴映射。
 
-积分限幅由六个独立 SD 参数控制，允许范围均为 0～1000。`i_limit_roll_angle`、`i_limit_roll_rate`、`i_limit_pitch_angle`、`i_limit_pitch_rate` 和 `i_limit_FLAP_RATE` 默认 45，限制乘 Ki 前的误差积分，构型六路共用最后一项。`i_limit_yaw_rate` 默认 0.1，限制乘 Ki 后的 I 项输出。旧公共 `i_limit` 不再注册，加载旧文件时跳过，新项缺失时采用各自默认值；现有迁移流程在保存新快照时移除旧项，不将旧公共值复制到新项。已保存的同名 `i_limit_yaw_rate` 不会因含义改变而自动换算，需按 I 项输出尺度重新检查设置。偏航积分独立，不受 `integralControlEnabled` 控制。
+积分限幅由六个独立 SD 参数控制；五项弧度误差积分限幅允许 0～`Units::toRadians(1000.0f)`，偏航输出积分限幅仍允许 0～1000。`i_limit_roll_angle`、`i_limit_roll_rate`、`i_limit_pitch_angle`、`i_limit_pitch_rate` 和 `i_limit_FLAP_RATE` 默认 `Units::toRadians(45.0f)`，限制乘 Ki 前的弧度误差积分，构型六路共用最后一项。`i_limit_yaw_rate` 默认 0.1，限制乘 Ki 后的 I 项输出。旧公共 `i_limit` 不再注册，加载旧文件时跳过，新项缺失时采用各自默认值；现有迁移流程在保存新快照时移除旧项，不将旧公共值复制到新项。已保存的同名 `i_limit_yaw_rate` 不会因含义改变而自动换算，需按 I 项输出尺度重新检查设置。偏航积分独立，不受 `integralControlEnabled` 控制。
 
 参数修改权限按存储介质区分：EEPROM 参数仅能在锁定状态下修改，普通 SD 参数也可在解锁时修改；只读字段仍不可编辑。当前重启生效参数 `aircraft_id` 位于 EEPROM，沿用锁定限制。标记 `ParameterEffect::Reboot` 的参数接受不同值并更新 RAM 中的待启动设置后，统一参数服务立即锁存“待重启”状态：OLED 全屏显示英文 `REBOOT REQUIRED`，禁止解锁并保持执行器安全位置；改回原值也不会解除，只有重启清除。相同值或被拒绝的修改不触发；延迟保存失败不解除锁定。
 

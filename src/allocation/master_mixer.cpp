@@ -12,6 +12,7 @@ static void mixLegacyMaster()
 
   const bool manual = currentFlightMode == MANUAL_MODE;
   const float roll_PID = manual ? manual_input[0] : rollControlOutput.pidOutput;
+  const float rollThrottleCommand = manual ? manual_input[0] : 0.5f * rollControlOutput.pidOutput;
   // 手动/PID/INDI均为抬头正的控制意图；在分配入口取负，转换为下偏正的舵面量。
   const float elevatorCommand = manual ? -manual_input[1] :
       (activePitchController == PitchController::INDI ?
@@ -21,12 +22,12 @@ static void mixLegacyMaster()
   const float throttleCommand = manual ? manual_input[2] : throttleControlOutput.throttleCommand;
   const float roll_PID_lpf = rollControlOutput.filteredPidOutput;
   const float roll_PID_dot_lpf = rollControlOutput.filteredPidOutputDerivative;
-  const float Phiab_PID = configurationControlOutput.pidOutputs[0], Phiac_PID = configurationControlOutput.pidOutputs[1];
-  const float Phibd_PID = configurationControlOutput.pidOutputs[2], Phice_PID = configurationControlOutput.pidOutputs[3];
-  const float Phidf_PID = configurationControlOutput.pidOutputs[4], Phieg_PID = configurationControlOutput.pidOutputs[5];
-  const float error_Phiab = Units::toDegrees(configurationControlOutput.angleErrors[0]), error_Phiac = Units::toDegrees(configurationControlOutput.angleErrors[1]);
-  const float error_Phibd = Units::toDegrees(configurationControlOutput.angleErrors[2]), error_Phice = Units::toDegrees(configurationControlOutput.angleErrors[3]);
-  const float error_Phidf = Units::toDegrees(configurationControlOutput.angleErrors[4]), error_Phieg = Units::toDegrees(configurationControlOutput.angleErrors[5]);
+  const float Phiab_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[0], Phiac_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[1];
+  const float Phibd_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[2], Phice_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[3];
+  const float Phidf_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[4], Phieg_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[5];
+  const float error_Phiab = configurationControlOutput.angleErrors[0], error_Phiac = configurationControlOutput.angleErrors[1];
+  const float error_Phibd = configurationControlOutput.angleErrors[2], error_Phice = configurationControlOutput.angleErrors[3];
+  const float error_Phidf = configurationControlOutput.angleErrors[4], error_Phieg = configurationControlOutput.angleErrors[5];
   // 按单机或编队构型，将姿态控制量分配到各机舵面和油门。
   // 手动模式直接使用归一化遥控指令；舵面归一化中位为 0，油门范围为 0～1。
 
@@ -109,17 +110,17 @@ static void mixLegacyMaster()
     {
 
       float coeab, coeac, coeroll;
-      if (abs(error_Phiab) > 20)
+      if (fabsf(error_Phiab) > Units::toRadians(20.0f))
       {
-        coeab = abs(error_Phiab) / 20.0;
+        coeab = fabsf(error_Phiab) / Units::toRadians(20.0f);
       }
       else
       {
         coeab = 0.8;
       }
-      if (abs(error_Phiac) > 20)
+      if (fabsf(error_Phiac) > Units::toRadians(20.0f))
       {
-        coeac = abs(error_Phiac) / 20.0;
+        coeac = fabsf(error_Phiac) / Units::toRadians(20.0f);
       }
       else
       {
@@ -167,7 +168,7 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
                         coeac * 0.08 * Phiac_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(+1.2 * yawCommand) + keeppositive(0.4 * roll_PID);
+            throttleCommand + keeppositive(+1.2 * yawCommand) + keeppositive(0.4 * rollThrottleCommand);
         commands.slaves[0].rudder = - yawCommand;
          // 2机、3机
         // commands.slaves[0].elevator = 0.0;
@@ -185,7 +186,7 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
                         coeac * 0.864 * Phiac_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(-1.2 * yawCommand) + keeppositive(-0.4 * roll_PID);
+            throttleCommand + keeppositive(-1.2 * yawCommand) + keeppositive(-0.4 * rollThrottleCommand);
         commands.slaves[1].rudder = - yawCommand;
          // 2机、3机
         // commands.slaves[1].elevator = 0.0;
@@ -199,12 +200,13 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.593 * coeroll * roll_PID - coeab * 0.27 * Phiab_PID -
                         coeac * 0.08 * Phiac_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(+1.2 * yawCommand) + keeppositive(0.4 * roll_PID);
+            throttleCommand + keeppositive(+1.2 * yawCommand) + keeppositive(0.4 * rollThrottleCommand);
         commands.slaves[0].rudder = - yawCommand;
          // 2机、3机
         // 升降舵下偏为正：正滚转控制量时 B 上偏、C 下偏，不含安装方向。
         commands.slaves[0].elevator =
-            (-10.0 * 20.0 * roll_PID_lpf - 10.0 * roll_PID_dot_lpf) / 1000.0f;
+            (-100.0f * roll_PID_lpf - 5.0f * roll_PID_dot_lpf) /
+            (activePitchController == PitchController::PID ? 200.0f : 1000.0f);
 
         commands.local.aileron1 =
             0.1 * roll_PID - coeab * 1.0 * Phiab_PID + coeac * 0.65 * Phiac_PID;
@@ -219,11 +221,12 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.016 * coeroll * roll_PID + coeab * 0.62 * Phiab_PID -
                         coeac * 0.864 * Phiac_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(-1.2 * yawCommand) + keeppositive(-0.4 * roll_PID);
+            throttleCommand + keeppositive(-1.2 * yawCommand) + keeppositive(-0.4 * rollThrottleCommand);
         commands.slaves[1].rudder = - yawCommand;
          // 2机、3机 增加了相对滚转到升降舵
         commands.slaves[1].elevator =
-            (10.0 * 20.0 * roll_PID_lpf + 10.0 * roll_PID_dot_lpf) / 1000.0f;
+            (100.0f * roll_PID_lpf + 5.0f * roll_PID_dot_lpf) /
+            (activePitchController == PitchController::PID ? 200.0f : 1000.0f);
       }
     }
     else if ((aircraftCount() == 4))
@@ -236,27 +239,27 @@ static void mixLegacyMaster()
       coeroll = 1.5;
 
       // USBSerial.println(coeroll);
-      if (abs(error_Phiab) > 20)
+      if (fabsf(error_Phiab) > Units::toRadians(20.0f))
       {
-        coeab = 1.2 * abs(error_Phiab) / 20.0;
+        coeab = 1.2 * fabsf(error_Phiab) / Units::toRadians(20.0f);
       }
       else
       {
         coeab = 1.2;
       }
 
-      if (abs(error_Phiac) > 20)
+      if (fabsf(error_Phiac) > Units::toRadians(20.0f))
       {
-        coeac = 1.0 * abs(error_Phiac) / 20.0;
+        coeac = 1.0 * fabsf(error_Phiac) / Units::toRadians(20.0f);
       }
       else
       {
         coeac = 1.0;
       }
 
-      if (abs(error_Phibd) > 20)
+      if (fabsf(error_Phibd) > Units::toRadians(20.0f))
       {
-        coebd = 1.0 * abs(error_Phibd) / 20.0;
+        coebd = 1.0 * fabsf(error_Phibd) / Units::toRadians(20.0f);
       }
       else
       {
@@ -310,7 +313,7 @@ static void mixLegacyMaster()
         commands.slaves[2].aileron2 = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
                         0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
         commands.slaves[2].throttle =
-            throttleCommand + keeppositive(+1.5 * yawCommand) + keeppositive(0.5 * roll_PID);
+            throttleCommand + keeppositive(+1.5 * yawCommand) + keeppositive(0.5 * rollThrottleCommand);
         commands.slaves[2].rudder = - yawCommand;
 
 
@@ -319,7 +322,7 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
                         0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(+1.0 * yawCommand) + keeppositive(0.3 * roll_PID);
+            throttleCommand + keeppositive(+1.0 * yawCommand) + keeppositive(0.3 * rollThrottleCommand);
         commands.slaves[0].rudder = - yawCommand;
 
 
@@ -329,7 +332,7 @@ static void mixLegacyMaster()
                         1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
         commands.local.elevator = elevatorCommand;
         commands.local.throttle =
-            throttleCommand + keeppositive(-1.0 * yawCommand) + keeppositive(-0.3 * roll_PID);
+            throttleCommand + keeppositive(-1.0 * yawCommand) + keeppositive(-0.3 * rollThrottleCommand);
         commands.local.rudder = - yawCommand;
 
         commands.slaves[1].aileron1 = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
@@ -337,7 +340,7 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
                         1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(-1.5 * yawCommand) + keeppositive(-0.5 * roll_PID);
+            throttleCommand + keeppositive(-1.5 * yawCommand) + keeppositive(-0.5 * rollThrottleCommand);
         commands.slaves[1].rudder = - yawCommand;
 
       }
@@ -350,7 +353,7 @@ static void mixLegacyMaster()
         commands.slaves[2].aileron2 = 0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID -
                         0.26 * coeac * Phiac_PID - 0.1 * coebd * Phibd_PID;
         commands.slaves[2].throttle =
-            throttleCommand + keeppositive(+1.5 * yawCommand) + keeppositive(0.5 * roll_PID);
+            throttleCommand + keeppositive(+1.5 * yawCommand) + keeppositive(0.5 * rollThrottleCommand);
         commands.slaves[2].rudder = - yawCommand;
 
 
@@ -359,7 +362,7 @@ static void mixLegacyMaster()
         commands.slaves[0].aileron2 = 0.1 * coeroll * roll_PID - 1.0 * coeab * Phiab_PID +
                         0.39 * coeac * Phiac_PID - 0.736 * coebd * Phibd_PID;
         commands.slaves[0].throttle =
-            throttleCommand + keeppositive(+1.0 * yawCommand) + keeppositive(0.3 * roll_PID);
+            throttleCommand + keeppositive(+1.0 * yawCommand) + keeppositive(0.3 * rollThrottleCommand);
         commands.slaves[0].rudder = - yawCommand;
 
 
@@ -369,7 +372,7 @@ static void mixLegacyMaster()
                         1.0 * coeac * Phiac_PID - 0.19 * coebd * Phibd_PID;
         commands.local.elevator = elevatorCommand;
         commands.local.throttle =
-            throttleCommand + keeppositive(-1.0 * yawCommand) + keeppositive(-0.3 * roll_PID);
+            throttleCommand + keeppositive(-1.0 * yawCommand) + keeppositive(-0.3 * rollThrottleCommand);
         commands.local.rudder = - yawCommand;
 
         commands.slaves[1].aileron1 = -0.74 * coeroll * roll_PID + 0.325 * coeab * Phiab_PID +
@@ -377,7 +380,7 @@ static void mixLegacyMaster()
         commands.slaves[1].aileron2 = -1.0 * coeroll * roll_PID + 1.0 * coeab * Phiab_PID -
                         1.0 * coeac * Phiac_PID + 0.53 * coebd * Phibd_PID;
         commands.slaves[1].throttle =
-            throttleCommand + keeppositive(-1.5 * yawCommand) + keeppositive(-0.5 * roll_PID);
+            throttleCommand + keeppositive(-1.5 * yawCommand) + keeppositive(-0.5 * rollThrottleCommand);
         commands.slaves[1].rudder = - yawCommand;
 
       }
@@ -388,36 +391,36 @@ static void mixLegacyMaster()
       // 5机一起飞DBACE
       float coeab, coeac, coebd, coece,
           coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
-      if (abs(error_Phiab) > 20)
+      if (fabsf(error_Phiab) > Units::toRadians(20.0f))
       {
-        coeab = abs(error_Phiab) / 20.0;
+        coeab = fabsf(error_Phiab) / Units::toRadians(20.0f);
       }
       else
       {
         coeab = 1.0;
       }
 
-      if (abs(error_Phiac) > 20)
+      if (fabsf(error_Phiac) > Units::toRadians(20.0f))
       {
-        coeac = abs(error_Phiac) / 20.0;
+        coeac = fabsf(error_Phiac) / Units::toRadians(20.0f);
       }
       else
       {
         coeac = 1.0;
       }
 
-      if (abs(error_Phibd) > 20)
+      if (fabsf(error_Phibd) > Units::toRadians(20.0f))
       {
-        coebd = abs(error_Phibd) / 20.0;
+        coebd = fabsf(error_Phibd) / Units::toRadians(20.0f);
       }
       else
       {
         coebd = 0.9;
       }
 
-      if (abs(error_Phice) > 20)
+      if (fabsf(error_Phice) > Units::toRadians(20.0f))
       {
-        coece = abs(error_Phice) / 20.0;
+        coece = fabsf(error_Phice) / Units::toRadians(20.0f);
       }
       else
       {
@@ -578,54 +581,54 @@ static void mixLegacyMaster()
       // 7机一起飞 FDBACEG
       float coeab, coeac, coebd, coece, coedf, coeeg,
           coeroll; // bc的系数和de的系数不同 de的系数是ab的0.66倍
-      if (abs(error_Phiab) > 20)
+      if (fabsf(error_Phiab) > Units::toRadians(20.0f))
       {
-        coeab = abs(error_Phiab) / 20.0;
+        coeab = fabsf(error_Phiab) / Units::toRadians(20.0f);
       }
       else
       {
         coeab = 1.0;
       }
 
-      if (abs(error_Phiac) > 20)
+      if (fabsf(error_Phiac) > Units::toRadians(20.0f))
       {
-        coeac = abs(error_Phiac) / 20.0;
+        coeac = fabsf(error_Phiac) / Units::toRadians(20.0f);
       }
       else
       {
         coeac = 1.0;
       }
 
-      if (abs(error_Phibd) > 20)
+      if (fabsf(error_Phibd) > Units::toRadians(20.0f))
       {
-        coebd = abs(error_Phibd) / 20.0;
+        coebd = fabsf(error_Phibd) / Units::toRadians(20.0f);
       }
       else
       {
         coebd = 0.9;
       }
 
-      if (abs(error_Phice) > 20)
+      if (fabsf(error_Phice) > Units::toRadians(20.0f))
       {
-        coece = abs(error_Phice) / 20.0;
+        coece = fabsf(error_Phice) / Units::toRadians(20.0f);
       }
       else
       {
         coece = 0.9;
       }
 
-      if (abs(error_Phidf) > 20)
+      if (fabsf(error_Phidf) > Units::toRadians(20.0f))
       {
-        coedf = abs(error_Phidf) / 20.0;
+        coedf = fabsf(error_Phidf) / Units::toRadians(20.0f);
       }
       else
       {
         coedf = 0.6;
       }
 
-      if (abs(error_Phieg) > 20)
+      if (fabsf(error_Phieg) > Units::toRadians(20.0f))
       {
-        coeeg = abs(error_Phieg) / 20.0;
+        coeeg = fabsf(error_Phieg) / Units::toRadians(20.0f);
       }
       else
       {
@@ -721,17 +724,6 @@ static void mixLegacyMaster()
     }
   }
 
-  // PID 增稳：将旧主分配换算为当前执行器尺度，发送前统一处理本机和从机贡献。
-  // 交联、刹车与阻尼在此之后叠加；接收端不得再次缩放上级贡献。
-  if (isStabilizedMode(currentFlightMode) && activePitchController == PitchController::PID) {
-    const auto scaleAllocation = [](ActuatorCommand &command) {
-      command.aileron1 *= 2.0f;
-      command.aileron2 *= 2.0f;
-      command.elevator *= 5.0f;
-    };
-    scaleAllocation(commands.local);
-    for (auto &child : commands.slaves) scaleAllocation(child);
-  }
 }
 
 void mixMasterCommands() {
@@ -746,8 +738,8 @@ void mixMasterCommands() {
   result.elevator = commands.local.elevator;
   // 主机交联属于主分配；输出转换层不再叠加。
   const float compensation = ControlParameters::elevator_aileron_gain * result.elevator;
-  result.aileron1 += compensation + rollDampingControlOutput.dampingCommand*5;
-  result.aileron2 += compensation - rollDampingControlOutput.dampingCommand*5;
+  result.aileron1 += compensation + rollDampingControlOutput.dampingCommand;
+  result.aileron2 += compensation - rollDampingControlOutput.dampingCommand;
 
   commands.local =  result;
 }

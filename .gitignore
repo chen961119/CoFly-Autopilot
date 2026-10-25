@@ -33,6 +33,7 @@ Desktop.ini
 # Runtime logs and on-device log exports
 *.log
 datalog*.txt
+datalog*.csv
 
 # Desktop parameter console environment and Python caches
 .venv/

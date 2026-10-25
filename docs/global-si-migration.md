@@ -326,3 +326,7 @@ git diff --check
 | 180 | [tools/flight_data_browser/README.md](../tools/flight_data_browser/README.md) | 81 | 80 | -0 / +2 | `MATLAB 参考文件作为实现参考读取，原脚本与原始飞行日志不` |
 | 181 | [src/math/units.h](../src/math/units.h) | 1 | 新增 | +13 | 完整新文件，验证见第 2 节 |
 | 182 | [tools/verification/verify_si_units.py](../tools/verification/verify_si_units.py) | 1 | 新增 | +527 | 完整新文件，验证见第 2 节 |
+
+## 控制器内部弧度化补充
+
+2026-10-25 起，滚转、俯仰、构型和 INDI 内部计算、积分、滤波历史及相关控制参数也采用弧度。本文此前关于这些控制器私有状态继续使用度的说明属于迁移前状态，现以 [控制输出等效核对](control-output-equivalence.md) 为准。输出字段和参数数量不增加，参数直接使用当前弧度值，不兼容或自动换算旧度制参数。

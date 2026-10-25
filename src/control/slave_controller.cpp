@@ -1,4 +1,3 @@
-#include "math/units.h"
 #include "control/slave_controller.h"
 #include "control/control_output.h"
 #include "control/command_generation.h"
@@ -11,13 +10,13 @@ void runSlaveController() {
   auto &controllers = controlControllers();
   controllers.pitchPid.prepare(ControlParameters::integralControlEnabled != 0, controlModeChanged);
   controllers.rollDamping.update();
-  if (controlModeChanged) controllers.pitchIndi.reset(Units::toDegrees(targets.pitch));
+  if (controlModeChanged) controllers.pitchIndi.reset(targets.pitch);
 
   const bool stabilized = isStabilizedMode(currentFlightMode);
   controllers.roll.update(0.0f, false);
   controllers.yawRate.update(0.0f, 0.0f, 0.0f, false);
   controllers.throttle.update(0.0f, 0.0f, false, false, false, 0.0f);
-  controllers.pitchPid.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::PID);
-  controllers.pitchIndi.update(Units::toDegrees(targets.pitch), stabilized && activePitchController == PitchController::INDI);
+  controllers.pitchPid.update(targets.pitch, stabilized && activePitchController == PitchController::PID);
+  controllers.pitchIndi.update(targets.pitch, stabilized && activePitchController == PitchController::INDI);
   controllers.configuration.update(targets.configuration);
 }

@@ -26,7 +26,7 @@ namespace
   String dataString = "";
   bool headerWritten = false;
 
-  // 扫描 SD 卡中 datalogNNN.txt 文件，选择下一个 1～999 的日志编号。
+  // 扫描 SD 卡中 datalogNNN.csv 文件，选择下一个 1～999 的日志编号。
   void findMaxFileNumber()
   {
     File root = SD.open("/");
@@ -37,7 +37,7 @@ namespace
         break;
 
       String name = entry.name();
-      if (name.startsWith("datalog") && name.endsWith(".txt"))
+      if (name.startsWith("datalog") && name.endsWith(".csv"))
       {
         // 提取编号部分
         String numStr = name.substring(7, 10); // 从第8个字符开始取3位
@@ -99,11 +99,11 @@ void initializeLogger()
     USBSerial.println("card initialized.");
   }
   findMaxFileNumber();
-  sprintf(filename_sd, "datalog%03d.txt", fileNumber);
+  sprintf(filename_sd, "datalog%03d.csv", fileNumber);
   dataFile = SD.open(filename_sd, FILE_WRITE);
   if (!dataFile)
   {
-    USBSerial.println("Error opening datalog.txt");
+    USBSerial.println("Error opening datalog.csv");
   }
   delay(10);
   USBSerial.print("新建日志文件：");

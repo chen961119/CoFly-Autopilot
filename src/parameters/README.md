@@ -23,7 +23,7 @@
 
 升降舵到副翼交联 `elevator_aileron_gain` 为 Control 组 float32 SD 参数，默认 -0.05、范围 -1～1，下一控制周期生效并沿用 SD 延迟保存。交联量为 `gain * elevator`，同量叠加到本机两路副翼；0 关闭、负值反向、正值同向，副翼和升降舵均以下偏为正。主从机各自读取本机参数，默认等效于原来的 `-elevator/20`。从机手动模式使用上级升降舵指令做交联，增稳使用本机 PID/INDI 的舵面贡献，不把上级前馈重复计入交联。滚转阻尼、升降舵输出及通信融合不变。旧 SD 文件缺项时使用默认 -0.05，后续保存补齐。
 
-PID 尺度补偿位于交联、刹车和阻尼之前：主机主分配中副翼乘 2、升降舵乘 5，从机本地 PID 升降舵另乘 5。`elevator_aileron_gain` 直接乘换算后的本机舵面贡献，`brake_aileron_offset` 和阻尼按最终归一化尺度添加，无需额外乘 2.5 或除以 2。上级贡献、融合结果及最终 PWM 转换不再重复缩放，原 PID 参数不因这次尺度补偿同步放大。适用条件及路径见 [控制架构](../../docs/control-architecture.md)。
+控制器内部统一使用弧度，30、0.01 和执行器尺度补偿直接合入现有参数值，不再新增输出字段或输出增益参数。滚转/构型的 P/I/D/FF（有对应项时）变为旧值的 `0.02 / Units::toRadians(1.0f)`，俯仰变为旧值的 `0.05 / Units::toRadians(1.0f)`；角度外环 Kp/Ki 和 Kp_Flap 变为旧值的 30 倍。角度常量用 `Units::toRadians(原度数)` 定义；五项乘 Ki 前的误差积分限幅从 45 改为 `Units::toRadians(45.0f)`：角度积分为 rad*s，角速度积分为 rad。k_Clp 变为旧值的 `0.00625 / Units::toRadians(1.0f)`。偏航控制和空速控制参数不作此次换算。主从 mixer 直接使用最终舵面尺度，不再末尾乘 2/5；PID 等效性以提交 528c840 为基准；按明确选择，INDI 模式采用与 PID 相同的副翼主分配尺度，其滚转/构型贡献为该提交 INDI 分配的 2 倍，详见 [核对说明](../../docs/control-output-equivalence.md)。
 
 名称是参数唯一标识，注册表不再维护数字编号。内部成组校验和校准在初始化时按名称解析并缓存下标，后续直接访问；单项保存接口为 `saveParameterValue(name, value)`。注册表行可自由重排，不改变校验或存储语义。地面站默认沿用固件返回的注册表顺序；RC 和 PWM 各通道按 min、trim、max 相邻排列，再列方向、模式等项，参数名称和值不变。遥控校准协议仍按 MIN/MAX/TRIM/REV 传值，与界面排列无关。
 
@@ -53,7 +53,7 @@ EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均
 
 积分开关：`integralControlEnabled` 为本机 SD 整数参数，默认 1，仅接受 0/1。0 关闭滚转、俯仰、构型和空速积分并清除历史，1 开启积分；偏航积分独立，不受此开关控制，设 `Ki_yaw_rate=0` 时清除偏航 I 项。修改后下一控制周期生效，使用现有延迟保存机制。该参数不由模式初始化或模式切换覆盖，各机独立设置。
 
-积分限幅：`i_limit_roll_angle`、`i_limit_roll_rate`、`i_limit_pitch_angle`、`i_limit_pitch_rate`、`i_limit_FLAP_RATE` 限制对应控制环乘 Ki 之前的误差积分，默认 45；`i_limit_yaw_rate` 限制乘 Ki 后的 I 项输出，默认 0.1。六项均为 float32 SD 参数，允许范围 0～1000，限制范围为各自参数的正负值，下一控制周期生效，并使用现有延迟保存机制。六路构型角速度环共用 `i_limit_FLAP_RATE`，积分历史各自独立。旧公共 `i_limit` 已移除，加载时跳过，新项缺失时使用各自默认值，迁移保存时写入新项并移除旧项。偏航的新控制律直接相加 FF、P、I、D，不再整体乘 0.573；原有同名增益和 `i_limit_yaw_rate` 已保存值仍会恢复，不自动换算，需要按新尺度检查实际参数。空速 PI 仍独立限制最终 I 项为 ±0.3。
+积分限幅：`i_limit_roll_angle`、`i_limit_roll_rate`、`i_limit_pitch_angle`、`i_limit_pitch_rate`、`i_limit_FLAP_RATE` 限制对应控制环乘 Ki 之前的误差积分，默认 `Units::toRadians(45.0f)`；`i_limit_yaw_rate` 限制乘 Ki 后的 I 项输出，默认 0.1。六项均为 float32 SD 参数；五项误差积分限幅允许 0～`Units::toRadians(1000.0f)`，偏航输出积分限幅仍为 0～1000，限制范围为各自参数的正负值，下一控制周期生效，并使用现有延迟保存机制。六路构型角速度环共用 `i_limit_FLAP_RATE`，积分历史各自独立。旧公共 `i_limit` 已移除，加载时跳过，新项缺失时使用各自默认值，迁移保存时写入新项并移除旧项。偏航的新控制律直接相加 FF、P、I、D，不再整体乘 0.573；原有同名增益和 `i_limit_yaw_rate` 已保存值仍会恢复，不自动换算，需要按新尺度检查实际参数。空速 PI 仍独立限制最终 I 项为 ±0.3。
 
 Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊断（含命令链、传感器链及 `debug_print` 函数）均同时提供给 USB 与 Serial8/X6，不依赖 USB 在线。诊断先组装完整帧，再交给对应会话的非阻塞发送游标，每周期最多发送 64 字节；等待中的命令、参数列表和存储通知优先，诊断不会插入协议回复中间。链路忙时独立丢弃新诊断帧，数传带宽不足时不保证完整采样率。
 
@@ -76,3 +76,11 @@ Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊�
 | `usb_quaternion_debug` | `printQuaternion`，四元数 |
 
 `printLocalThrottle` 及旧参数 `usb_throttle_debug` 已删除，查看实际油门输出使用 `usb_actuator_output_debug`。旧 SD 文件中的删除项按现有迁移流程跳过，新项缺失时保持默认 0，迁移保存时移除旧项并补齐新项。
+
+## 当前控制参数单位
+
+控制参数直接使用当前弧度值，不提供旧度制参数自动换算、旧控制参数名称别名或控制单位版本标记。`indi_pitch_pwm_to_rad_k` 和 `indi_pitch_rate_limit_rad_s` 分别使用 rad/μs 和 rad/s，原 P/I/D/FF 名称保留，参数总数不变。固件加载、在线 PARAM SET 和电脑文件导入都直接按当前数值读写。遥控角度显示与 IMU 原始零偏仍按既有边界约定使用度。
+
+## 换算表达式与参数说明
+
+角度、角速度限值、积分限幅和 PWM 到舵角标定直接用 `Units::toRadians(原度数)` 表达。按角度倒数定义的增益使用 `分子 / Units::toRadians(1.0f)`，不能把增益本身直接传入 `toRadians`，否则换算方向相反。例：`Kp_roll_rate = 0.003 / Units::toRadians(1.0f)`，上限为 `0.2f / Units::toRadians(1.0f)`；`Kff_pitch_rate = 0.01 / Units::toRadians(1.0f)`；`k_Clp = 0.0003125 / Units::toRadians(1.0f)`。参数表说明同步列出这些默认表达式，数值列仍按实际浮点值传输。实际默认值和范围保持不变，不增加参数或旧值兼容。
