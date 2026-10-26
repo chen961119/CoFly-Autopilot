@@ -1,5 +1,6 @@
 #include "parameters/parameter_service.h"
 #include "ground_station_service/ground_station_service.h"
+#include "ground_station_service/sd_file_service.h"
 #include "config/serial_config.h"
 #include "config/aircraft_config.h"
 #include "parameters/imu_calibration_integrity.h"
@@ -42,7 +43,7 @@ struct ParameterSession {
   size_t rxLength = 0;
   bool rxOverflow = false;
   uint32_t lastRxTime = 0;
-  char txLine[LINE_SIZE] = {};
+  char txLine[SD_FILE_RESPONSE_SIZE] = {};
   size_t txLength = 0;
   size_t txOffset = 0;
   size_t listIndex = 0;
@@ -121,6 +122,7 @@ bool flushMedium(ParameterStorage medium) {
   auto &pending = medium == ParameterStorage::SD ? sdSave : eeSave;
   if (!pending.dirty)
     return true;
+  if (medium == ParameterStorage::SD && sdFileSessionActive()) return false;
   for (size_t i = 0; i < count; ++i)
     candidate[i] = table[i].read();
   const bool success = persist(candidate, medium);
@@ -132,7 +134,7 @@ bool flushMedium(ParameterStorage medium) {
 void pollParameterSaves() {
   if (eeSave.due(millis()))
     flushMedium(ParameterStorage::EEPROM);
-  if (sdSave.due(millis()))
+  if (!sdFileSessionActive() && sdSave.due(millis()))
     flushMedium(ParameterStorage::SD);
 }
 
@@ -210,6 +212,15 @@ void ParameterSession::error(uint32_t id, const char *code, const char *message)
 }
 
 void ParameterSession::handleCommand(char *line) {
+  if (!strncmp(line, "SD ", 3) || !strncmp(line, "SD\t", 3)) {
+    if (this != &usbSession) {
+      error(0, "USB_REQUIRED", "SD files require USB");
+      return;
+    }
+    handleSdFileCommand(line, txLine, sizeof(txLine));
+    txLength = strlen(txLine);
+    return;
+  }
   if (!strncmp(line, "GCS ", 4) || !strncmp(line, "GCS\t", 4)) {
     handleGroundStationCommand(line, txLine, sizeof(txLine));
     txLength = strlen(txLine);
@@ -427,7 +438,7 @@ bool saveParameterValue(const char *name, double value) {
   return saveOne(findParameterIndex(table, count, name), value) != SaveResult::Rejected;
 }
 bool saveRadioCalibrationParameters(const char *const *values) {
-  if (!table || !count || !storageReady || !values || !isFlightLocked() || !radioInputValid())
+  if (sdFileSessionActive() || !table || !count || !storageReady || !values || !isFlightLocked() || !radioInputValid())
     return false;
   for (size_t i = 0; i < count; ++i) candidate[i] = table[i].read();
   for (unsigned channel = 0; channel < 4; ++channel) {
@@ -532,7 +543,8 @@ void ParameterSession::poll(Stream &port) {
     if (available > 0) {
       size_t amount = txLength - txOffset;
       if (amount > static_cast<size_t>(available)) amount = available;
-      if (amount > 64) amount = 64;
+      const size_t budget = this == &usbSession && sdFileSessionActive() ? 2048 : 64;
+      if (amount > budget) amount = budget;
       txOffset += port.write(reinterpret_cast<const uint8_t *>(txLine) + txOffset, amount);
       if (txOffset == txLength) txLength = txOffset = 0;
     }
@@ -598,6 +610,7 @@ void ParameterSession::poll(Stream &port) {
 } // namespace
 
 void pollParameterService() {
+  pollSdFileService(static_cast<bool>(USBSerial));
   if (table && count && count <= MAX_PARAMETERS) pollParameterSaves();
   if (!USBSerial) usbSession.reset();
   // A radio reply must drain before the existing delayed reboot starts.

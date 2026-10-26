@@ -60,6 +60,25 @@ CRC32=xxxxxxxx
 
 参数服务静态预留 512 项缓存，SD 文件缓冲由记录兼容长度自动推导；参数名默认上限 27，可在 `src/parameters/parameter_storage_config.h` 配置为 1～128，地面站兼容到 128 字符。控制运算直接读取 RAM 变量；USB 每轮最多接收 64 字节或发送一行。2 秒等待不阻塞主循环；到期保存、CRC、读回校验仍同步执行，会延长该控制周期。本版尚未真机验证最坏周期。
 
+## USB SD 文件协议 V1
+
+`GCS CAPS` 增加 `sd_files=USB_V1` 和 `sd_block=4096`（支持的最大分块字节数）。复用 `@COFLY` 行帧与请求 ID，SD 命令只接受第一 USB CDC，普通/双串口调试固件一致，X6 不支持。除 `CANCEL` 外，每条命令都在飞控检查 `isFlightLocked()` 和 SD 就绪状态。所有数据和 UTF-8 路径/名称采用十六进制编码，避免换行、空格和普通诊断输出破坏行帧。绝对路径最多 255 字节，拒绝 `.`、`..`、空路径分量和反斜杠。
+
+| 命令 | 回复类型和字段（以实际制表符分隔） |
+| --- | --- |
+| `SD LIST id path_hex` | `SD_BEGIN`，打开目录并替换之前的文件/目录 |
+| `SD NEXT id` | `SD_ENTRY name_hex size modified DIR\|FILE`；到末尾为 `SD_END` |
+| `SD OPEN id path_hex` | `SD_OPEN size`，只读打开文件，固定大小快照，偏移与 CRC 归零 |
+| `SD READ id offset [block_size]` | `SD_DATA offset data_hex crc32`；到固定大小末尾为 `SD_EOF size crc32`；分块省略时为 256，指定时允许 1–4096 |
+| `SD KEEP id` | `SD_KEEP`，维持当前会话 |
+| `SD CANCEL id` | `SD_CANCEL`，关闭句柄并恢复日志/延迟 SD 保存，重复取消安全 |
+
+`modified` 为 SD 原有本地时间 `YYYY-MM-DDTHH:MM:SS`，无有效时间为 `-`；大小和偏移为 uint64 十进制。新地面站按能力声明请求最多 4096 字节；旧固件没有 `sd_block` 时仍发送原四字段 READ，使用 256 字节；旧地面站连接新固件也保持 256 字节。行帧及隐藏后台流量的缓冲上限同步增至 8320 字节，USB 文件会话期间每控制周期最多发送 2048 字节且不超过 USB 可写空间。块和整文件 CRC32 均采用 IEEE 多项式 `0xedb88320`、初始值 `0xffffffff`、末尾异或 `0xffffffff`，与 Python `zlib.crc32` 相同，在线为八位十六进制。READ 必须从偏移 0 顺序读取，EOF 的 CRC 覆盖完整文件，包括空文件 CRC 0。
+
+电脑一次仅发一条请求；超时或块校验失败时，最多尝试三次相同 ID/内容。飞控缓存最近一次原始命令和回复，重复 NEXT 不推进目录、重复 READ 不累计两次 CRC；客户端忽略迟到旧 ID。空闲 15 秒、USB 断开或解锁都会释放会话。电脑窗口空闲每三秒发 KEEP。错误仍为 `ERROR code message`，包含 `LOCK_REQUIRED`、`NO_SD`、`PATH`、`OPEN_FAILED`、`SESSION_EXPIRED`、`OFFSET`、`FILE_CHANGED`、`READ_FAILED` 和 `NAME_TOO_LONG`。
+
+文件服务不写 SD 文件；首次会话开始时刷新已打开的日志，然后暂停日志与普通 SD 参数延迟保存。RC_SAVE 在文件会话期间拒绝保存；有待写 SD 参数时重启请求也不会抢占会话进行保存。关闭会话后普通保存流程继续。电脑侧完整校验通过后才将临时文件改成最终名称。
+
 ## 构建与验证
 
 在本目录执行 `./build.ps1`，生成 `dist/CoFlyGroundStation.exe`。已通过的自动测试使用本机 socket 模拟飞控，覆盖 V8 文本文件与 CRC、USB 参数导入和失败处理。按项目要求，测试脚本在验证后删除。[旧版板上记录](BOARD_TEST_REPORT.md) 不代表本版已完成真机验证。
