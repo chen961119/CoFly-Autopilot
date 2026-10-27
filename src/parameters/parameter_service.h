@@ -18,6 +18,7 @@ bool saveParameterValue(const char *name, double value);
 // Force queued writes before explicit reboot; false blocks reset.
 // Both media can be flushed regardless of flight lock state.
 bool flushParameterWrites();
+bool parameterWritesPending();
 // Latched immediately after changing any reboot-effective parameter in RAM.
 bool parameterRebootRequired();
 // Validate/apply the full IMU group in RAM; use ordinary delayed persistence.

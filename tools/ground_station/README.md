@@ -25,7 +25,7 @@ USB 与 X6 使用同一套 GCS/PARAM 协议，各自维护收发和参数列表�
 | 通讯连接 | 枚举/手动输入串口、波特率、连接/断开、能力识别与重试、重启飞控 |
 | 应用设置 | 室内深色、室外高对比浅色、9–18 号字体，自动保存 |
 | 参数 | 参数表、筛选、排序、类型/范围验证、就地编辑、存储确认、从电脑文件读取/保存到电脑文件 |
-| 校准 | 遥控器九步校准入口；显示实际采样配置，传感器校准/设置仍为预留接口 |
+| 校准 | 内置 IMU、空速及 MT6701 零点校准与进度；遥控器九步校准入口；传感器设置仍为预留接口 |
 | 遥控器 | 八路原始 PWM 输入、八路归一化值，CH5–8 为辅助1–4；九步遥控器校准 |
 | 串口助手 | 位于飞机设置最下方；接收日志、命令发送、十六进制显示、自动滚动、导出与原始记录；工具栏提供“下载 SD 卡内容…”按钮，USB 连接且锁定时可浏览并下载 SD 文件 |
 | 飞行 | 按机数显示独立姿态仪与欧拉角，本机角速度/加速度/空速及状态；底部滚转/俯仰斜视构型图 |
@@ -64,7 +64,7 @@ USB 与 X6 使用同一套 GCS/PARAM 协议，各自维护收发和参数列表�
 
 主循环还采样 MS4525 空速和 MT6701 转角。外置 IMU 受 `EXTIMU` 控制。BMP280 即便启用，主循环目前未调用 `getbarodata()`，显示 `INITIALIZED_NOT_SAMPLED`。磁力计/GPS/地速/高度未报告为有效。
 
-MT6701 仅用于测量与 SD 记录，不参与构型显示或控制计算。翼尖相对角恢复为 tag0.1 默认路径的相邻 IMU 滚转差：AB=B−A、AC=C−A、BD=D−B、CE=E−C、DF=F−D、EG=G−E。OLED、USB、构型控制、控制分配、调试输出和数传均使用 IMU 角度；原 MT 日志字段保留。
+OLED 的 `Relat`、USB/X6 `DATA.angle` 和角度读数显示本机 MT6701 的 `relativeAngle_ready`，由绝对角减 offset 并处理 ±180° 跨零点得到，所有机号均不做 reverse，显示为度。有效性只取决于本机 MT6701。构型控制、控制分配、翼面图、机间通讯和原有调试路径继续使用相邻 IMU 滚转差：AB=B−A、AC=C−A、BD=D−B、CE=E−C、DF=F−D、EG=G−E；MT6701 日志字段保留。
 
 空速和 IMU 尚无统一健康/测量时间戳接口，此处显示已有共享测量值；USB 帧新鲜度不代表传感器健康。
 
@@ -108,18 +108,29 @@ GCS DATA 2
 GCS CONFIG 7
 GCS REBOOT 8
 GCS CALIBRATE 3 IMU
+GCS CAL_STATUS 9
 GCS SENSOR_SET 4 IMU DEFAULT
 ```
 
 CAPS/DATA 返回 TSV 的 `key=value` 字段，定义见 `station_protocol.py`。数据包含 ms（板上毫秒，可回绕）、roll/pitch/yaw（度）、gx/gy/gz（度/秒）、ax/ay/az（g）、airspeed（m/s）、angle（度）、angle_valid、rc1..rc8（原始 μs）、n1..n8（[-1,1] 归一化指令）、mode、locked。桌面过期判断用本机单调时钟。
 
-校准目标：IMU/GYRO/ACCEL、启用时的 EXTIMU、AIRSPEED、ROTATE。SENSOR_SET 接收单个 ASCII 设置标识，界面暂提供 DEFAULT。模式标识 MANUAL/STABILIZE 分别对应手动和增稳；积分由本机参数 `integralControlEnabled` 控制。
+校准目标：`IMU/GYRO/ACCEL`（当前 BMI088 SPI 路径，三个标识均执行整组陀螺仪与加速度计零偏校准）、`AIRSPEED`、`ROTATE`。`EXTIMU`、气压计校准返回 `UNSUPPORTED_SENSOR`。SENSOR_SET 接收单个 ASCII 设置标识，界面暂提供 DEFAULT。模式标识 MANUAL/STABILIZE 分别对应手动和增稳；积分由本机参数 `integralControlEnabled` 控制。
 
-传感器校准和设置仍返回 ERROR / NOT_IMPLEMENTED；模式映射界面和命令已移除，模式由代码直接判断通道。接口位于 `src/ground_station_service/ground_station_service.h` 与 `src/ground_station_service/ground_station_service.cpp`。现有传感器按键/开机校准存在阻塞流程，未直接接到 USB。
+CAPS 的 `calibration=SUPPORTED` 表示支持校准。飞机必须锁定，存在待重启配置时拒绝校准。USB/X6 共用一个校准任务；忙时拒绝重复校准、遥控校准保存及重启，校准期间禁止解锁。任务按控制周期采样，串口可继续收发；断开地面站不会重复或中断已接受的任务，可重连后用 `GCS CAL_STATUS id` 查询。
+
+- IMU：保持水平静止，约 4 秒采集 2000 组原始数据，沿用现有安装轴映射和 g/deg/s 零偏存储单位。校验两颗 BMI088 芯片身份、水平姿态、角速度及采样方差，失败保留整组旧参数；成功由完整校准参数接口更新指纹及有效标记，延迟 2 秒写入 EEPROM。
+- 空速：保持空速管无风，约 2 秒采集 100 组完整且状态正常的压力数据，以均值更新零点，方差过大时拒绝；不重复累加旧零点。仅本次上电有效，下次上电沿用自动校零。无足够有效数据时最多等待 15 秒后失败。
+- MT6701：将当前位置设为零点，读取失败或参数服务拒绝时保留旧零点；成功后立即显示 0，沿用 EEPROM 延迟保存。
+
+`CALIBRATE` 和 `CAL_STATUS` 回复相同字段：`sensor=IMU|AIRSPEED|ROTATE|NONE`、`status=IDLE|RUNNING|APPLIED|FAILED`、整数 `progress=0..100`、`error=NONE|失败原因`、`storage=NONE|PENDING|SAVED|VOLATILE`。`APPLIED/PENDING` 表示已在 RAM 生效，实际写入仍需等待原有 `STORAGE` 通知；`SAVED` 表示已无待写参数，`VOLATILE` 表示本次上电有效。地面站显示进度和失败原因，不自动重发校准指令。
+
+传感器设置仍返回 `ERROR / NOT_IMPLEMENTED`，对应按钮保持禁用。模式映射界面和命令已移除，模式由代码直接判断通道。协议入口位于 `src/ground_station_service/`，分周期校准位于 `src/sensors/sensor_calibration.h/.cpp`；原板上 IMU 按键校准仍使用阻塞流程，地面站校准期间不接受按键重入。
 
 参数协议和 SD 恢复见 [参数协议说明](PARAMETER_PROTOCOL.md)。[历史参数板上测试](BOARD_TEST_REPORT.md) 不代表本版地面站已完成板上验证。
 
 ## 构建与验证
+
+2026-10-27：内置 IMU/空速/转角校准任务的主机模拟检查通过（锁定、互斥、原参数保留、超时、计时器回绕及 MT6701 读数/跨零点）；真实 Tk 控件配合模拟串口回复验证了按钮、进度、成功/失败、超时与断连。尚未烧录并验证实物传感器校准。
 
 本目录执行 `./build.ps1` 输出 `dist/CoFlyGroundStation.exe`，产物不提交 Git。仓库根目录运行：
 

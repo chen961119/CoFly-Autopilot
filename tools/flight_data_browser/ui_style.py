@@ -49,6 +49,15 @@ def apply_theme(root):
                         darkcolor=c["surface"], insertcolor=c["text"], arrowsize=12)
         style.map(widget, bordercolor=[("focus", c["accent"])], fieldbackground=[("readonly", c["subtle"])],
                   selectbackground=[("!disabled", c["selected"])], selectforeground=[("!disabled", c["text"])])
+    # Clam uses white text for readonly + focus; our light field needs dark text
+    # when the popup closes without selecting another subplot, too.
+    style.map("TCombobox", foreground=[("disabled", c["muted"]), ("!disabled", c["text"])])
+    style.configure("Search.TEntry", padding=(5, 5, 32, 5))
+    style.configure("TMenubutton", padding=(6, 4), background=c["subtle"], foreground=c["text"],
+                    bordercolor=c["border"], lightcolor=c["surface"], darkcolor=c["surface"],
+                    arrowsize=8, arrowpadding=2)
+    style.map("TMenubutton", background=[("active", c["selected"])],
+              foreground=[("disabled", c["muted"]), ("!disabled", c["text"])])
     style.configure("TCheckbutton", background=c["surface"], foreground=c["text"], font=(family, 9), padding=3)
     style.map("TCheckbutton", background=[("active", c["surface"])])
     style.configure("Treeview", background=c["surface"], fieldbackground=c["surface"],
@@ -60,9 +69,11 @@ def apply_theme(root):
     return family
 
 
-def style_axes(ax, title, active=False):
+def style_axes(ax, title, active=False, dense=None):
     c = COLORS
-    dense = ax.get_subplotspec().get_gridspec().nrows > 4
+    if dense is None:
+        grid = ax.get_subplotspec().get_gridspec()
+        dense = grid.nrows * grid.ncols > 4
     ax.set_facecolor(c["surface"])
     ax.set_axisbelow(True)
     ax.spines[["top", "right"]].set_visible(False)
@@ -87,8 +98,10 @@ def style_axes(ax, title, active=False):
     ax.margins(x=0.015, y=0.1)
 
 
-def style_legend(ax):
-    dense = ax.get_subplotspec().get_gridspec().nrows > 4
+def style_legend(ax, dense=None):
+    if dense is None:
+        grid = ax.get_subplotspec().get_gridspec()
+        dense = grid.nrows * grid.ncols > 4
     legend = ax.legend(fontsize=7 if dense else 8, loc="upper right", frameon=True, fancybox=True,
                        framealpha=0.94, facecolor="white", edgecolor=COLORS["border"],
                        borderpad=0.6, labelspacing=0.4, handlelength=2.4)

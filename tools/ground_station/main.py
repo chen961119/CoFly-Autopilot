@@ -54,6 +54,7 @@ class GroundStation(ParameterConsole):
         self.gcs_pending = None
         self.deferred_action = None
         self.radio_calibration = None
+        self.sensor_calibration = None
         self.radio_save = None
         self.sd_browser = None
         self.last_data = 0
@@ -236,22 +237,27 @@ class GroundStation(ParameterConsole):
 
     def _build_calibration(self):
         page = self.pages["校准"]
-        self._heading(page, "传感器校准", "识别当前固件的实际采样路径；USB 校准与传感器设置接口预留至下一版本。")
+        self._heading(page, "传感器校准", "先锁定飞机。IMU 校准时保持水平静止；空速校准时保持无风；转角校准将当前位置设为零点。")
         self.sensor_tree = ttk.Treeview(page, columns=("sensor", "state"), show="headings", height=7, selectmode="browse")
         self.sensor_tree.heading("sensor", text="传感器 / 来源")
         self.sensor_tree.heading("state", text="配置与可用性")
         self.sensor_tree.column("sensor", width=210)
         self.sensor_tree.column("state", width=520)
         self.sensor_tree.pack(fill="x", pady=12)
+        self.sensor_tree.bind("<<TreeviewSelect>>", lambda _event: self._update_controls())
         controls = ttk.Frame(page)
         controls.pack(fill="x", pady=12)
         self.sensor_setting = tk.StringVar(value="DEFAULT")
         ttk.Label(controls, text="设置预留项").pack(side="left")
         ttk.Combobox(controls, textvariable=self.sensor_setting, values=("DEFAULT",), state="readonly", width=15).pack(side="left", padx=10)
-        for label, verb in (("校准所选传感器（预留）", "CALIBRATE"), ("应用设置（预留）", "SENSOR_SET")):
+        self.sensor_buttons = {}
+        for label, verb in (("校准所选传感器", "CALIBRATE"), ("应用设置（预留）", "SENSOR_SET")):
             button = ttk.Button(controls, text=label, command=lambda v=verb: self._sensor_action(v))
             button.pack(side="left", padx=4)
             self.action_buttons.append(button)
+            self.sensor_buttons[verb] = button
+        self.calibration_progress = tk.DoubleVar(value=0)
+        ttk.Progressbar(page, variable=self.calibration_progress, maximum=100).pack(fill="x", pady=4)
         self.sensor_note = tk.StringVar(value="连接并识别固件后显示传感器。")
         ttk.Label(page, textvariable=self.sensor_note, wraplength=740).pack(anchor="w", pady=12)
         self.calibration_radio_button = ttk.Button(page, text="校准遥控器", command=self._calibrate_radio, state="disabled")
@@ -411,7 +417,7 @@ class GroundStation(ParameterConsole):
         super()._update_controls()
         if hasattr(self, "parameter_read"):
             polling = self.gcs_pending is not None and self.gcs_pending["verb"] in ("DATA", "CONFIG")
-            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.deferred_action is None and self.radio_save is None and self.sd_browser is None
+            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.sensor_calibration is None and self.deferred_action is None and self.radio_save is None and self.sd_browser is None
             self.radio_calibrate_button.configure(state="normal" if idle and self.caps.get("radio_calibration") == "SUPPORTED" and self.caps.get("radio") != "DISABLED" else "disabled")
             self.calibration_radio_button.configure(state=self.radio_calibrate_button.cget("state"))
             self.read_button.configure(state="normal" if idle else "disabled")
@@ -426,7 +432,12 @@ class GroundStation(ParameterConsole):
             self.sd_download_button.configure(state="normal" if sd_ready else "disabled")
             for button in self.action_buttons:
                 button.configure(state="normal" if idle and self.caps else "disabled")
-        if self.sd_browser:
+            selected = self.sensor_tree.selection()
+            supported = {"IMU": self.caps.get("imu") == "BMI088_SPI", "AIRSPEED": self.caps.get("airspeed") == "MS4525",
+                         "ROTATE": self.caps.get("rotate") == "MT6701"}
+            self.sensor_buttons["CALIBRATE"].configure(state="normal" if idle and self.caps.get("calibration") == "SUPPORTED" and selected and supported.get(selected[0]) else "disabled")
+            self.sensor_buttons["SENSOR_SET"].configure(state="normal" if idle and self.caps.get("sensor_setting") == "SUPPORTED" else "disabled")
+        if self.sd_browser or self.sensor_calibration:
             self.send_button.configure(state="disabled")
             self.command_box.configure(state="disabled")
             self._cancel_edit()
@@ -437,7 +448,7 @@ class GroundStation(ParameterConsole):
     def _start_request(self, *args):
         if self._defer_for_poll(self._start_request, *args):
             return
-        if self.gcs_pending or self.radio_calibration or self.radio_save or self.sd_browser:
+        if self.gcs_pending or self.radio_calibration or self.sensor_calibration or self.radio_save or self.sd_browser:
             self.status.set("正在接收串口数据，请稍后再试")
             return
         super()._start_request(*args)
@@ -498,10 +509,12 @@ class GroundStation(ParameterConsole):
         self.sd_browser.load("/")
 
     def send_command(self):
-        if not self.sd_browser:
+        if not self.sd_browser and not self.sensor_calibration:
             super().send_command()
 
     def _request(self, verb, *args, automatic=False):
+        if self.sensor_calibration and verb not in ("CAL_STATUS", "DATA"):
+            return
         if not automatic and verb not in ("DATA", "CONFIG") and self._defer_for_poll(self._request, verb, *args):
             return
         if self.sd_browser or not self.connected or self.pending or self.gcs_pending or self.file_import is not None:
@@ -545,14 +558,51 @@ class GroundStation(ParameterConsole):
             self._request("RC_SAVE", *job["values"])
 
     def _sensor_action(self, verb):
+        if self._defer_for_poll(self._sensor_action, verb):
+            return
+        if self.sensor_calibration or self.radio_calibration or self.radio_save:
+            return
         selected = self.sensor_tree.selection()
-        active = {"IMU": self.caps.get("imu") == "BMI088_SPI", "EXTIMU": self.caps.get("external") == "ENABLED",
+        active = {"IMU": self.caps.get("imu") == "BMI088_SPI",
                   "AIRSPEED": self.caps.get("airspeed") == "MS4525", "ROTATE": self.caps.get("rotate") == "MT6701"}
         if not selected or not active.get(selected[0], False):
             self.status.set("请选择当前启用且正在采样的传感器")
             return
+        if verb == "CALIBRATE":
+            if self.caps.get("calibration") != "SUPPORTED":
+                self.status.set("当前固件不支持传感器校准，请先更新固件")
+                return
+            if self.data.get("locked") != 1 or time.monotonic() - self.last_data > 2:
+                self.status.set("请先锁定飞机，等待有效实时数据后再校准")
+                return
+            self.calibration_progress.set(0)
+            self.sensor_note.set("正在请求校准，请保持校准姿态，等待飞控确认…")
         args = (selected[0],) if verb == "CALIBRATE" else (selected[0], self.sensor_setting.get())
         self._request(verb, *args)
+
+    def _calibration_result(self, values):
+        self.calibration_progress.set(values["progress"])
+        sensor = {"IMU": "内置 IMU", "AIRSPEED": "空速", "ROTATE": "MT6701 转角", "NONE": "传感器"}[values["sensor"]]
+        if values["status"] == "RUNNING":
+            if self.sensor_calibration is None:
+                self.sensor_calibration = {"deadline": time.monotonic() + 25}
+            text = f"{sensor}正在校准：{values['progress']}%，请保持水平静止或无风状态"
+        else:
+            self.sensor_calibration = None
+            if values["status"] == "APPLIED":
+                self.parameters.clear()
+                self.parameter_file_version = None
+                self._render_table()
+                text = (f"{sensor}校准已生效；参数按 2 秒延迟保存，请等待存储确认后断电并重新读取参数"
+                        if values["storage"] == "PENDING" else f"{sensor}校准已生效，参数已保存；可重新读取参数"
+                        if values["storage"] == "SAVED" else f"{sensor}校准已生效；零点仅本次上电有效，下次开机自动重新校准")
+            else:
+                reasons = {"KEEP_LEVEL": "请保持飞机水平", "KEEP_STILL": "请保持飞机静止", "KEEP_NO_WIND": "请保持空速管无风",
+                           "SENSOR_TIMEOUT": "未采集到足够有效数据，请检查传感器连接", "SENSOR_INVALID": "传感器读数无效，请检查连接",
+                           "SAVE_FAILED": "校准参数未被接受，请检查参数服务", "CANCELLED": "状态发生变化，校准已取消"}
+                text = f"{sensor}校准未完成：{reasons.get(values['error'], values['error'])}；原校准参数保留"
+        self.sensor_note.set(text)
+        self.status.set(text)
 
     def _handle_reply(self, reply):
         if self.sd_browser and self.sd_browser.transport.handle(reply):
@@ -577,7 +627,10 @@ class GroundStation(ParameterConsole):
                     messagebox.showerror("遥控器校准保存失败", f"未确认保存成功（{code}）。请检查飞机锁定状态、接收机和 SD 卡，然后重新校准。", parent=self.root)
                 self.status.set(f"遥控校准保存失败：{code}；原遥控参数保持不变" if pending["verb"] == "RC_SAVE" else
                                 "该接口暂未实现，待下一版本开放；飞控状态未修改。" if code == "NOT_IMPLEMENTED" else
-                                "请先锁定飞机，再重启飞控" if code == "LOCK_REQUIRED" else
+                                "请先锁定飞机，再执行此操作" if code == "LOCK_REQUIRED" else
+                                "校准正在进行，请等待完成" if code == "BUSY" else
+                                "该传感器不支持校准" if code == "UNSUPPORTED_SENSOR" else
+                                "请先重启飞控使配置生效，再校准" if code == "REBOOT_REQUIRED" else
                                 "待保存参数写入失败，已取消重启；请检查存储介质" if code == "SAVE_FAILED" else f"固件拒绝地面站请求：{code}")
                 if pending["verb"] == "CAPS":
                     self.device_label.set("固件不支持地面站协议；参数页仍可使用。请更新固件后重试识别。")
@@ -590,6 +643,8 @@ class GroundStation(ParameterConsole):
                 values = decode_fields(kind, fields)
                 self.link_timeouts = 0
                 self.next_link_check = time.monotonic() + 3
+                if kind in ("CALIBRATE", "CAL_STATUS"):
+                    self._calibration_result(values)
                 if kind == "RC_SAVE":
                     self.radio_save = None
                     self.parameters.clear()
@@ -642,7 +697,7 @@ class GroundStation(ParameterConsole):
                                   ("ROTATE", "构型转角", self.caps["rotate"]),
                                   ("BAROMETER", "气压计", self.caps["barometer"])):
             self.sensor_tree.insert("", "end", iid=key, values=(name, state))
-        self.sensor_note.set("识别的是编译配置与采样路径，未进行硬件探测。校准、设置按钮只请求预留接口，不调用现有阻塞式校准。")
+        self.sensor_note.set("IMU 同时校准陀螺仪和加速度计，约 4 秒，需水平静止；空速约 2 秒，需无风；MT6701 将当前位置清零。外置 IMU、气压计和传感器设置暂不支持。" if self.caps.get("calibration") == "SUPPORTED" else "当前固件尚未实现传感器校准，请更新固件。")
 
     def _render_data(self):
         for key, var in self.metric_vars.items():
@@ -775,6 +830,11 @@ class GroundStation(ParameterConsole):
                     self.disconnect()
                     self.status.set("飞控连续三次无响应，正在重新检测 USB / X6；未确认操作不会重发")
         self._run_deferred_action()
+        if self.sensor_calibration and now >= self.sensor_calibration["deadline"]:
+            self.sensor_calibration = None
+            self.sensor_note.set("校准结果未确认，请检查连接；飞控不会自动重复校准，可通过 GCS CAL_STATUS 查询结果。")
+            self.status.set(self.sensor_note.get())
+            self._update_controls()
         if self.radio_save and now >= self.radio_save["deadline"] and not (self.gcs_pending and self.gcs_pending["verb"] == "RC_SAVE"):
             self.radio_save = None
             self.status.set("五秒内遥控信号未恢复稳定，未保存校准参数；请检查接收机连接")
@@ -782,7 +842,9 @@ class GroundStation(ParameterConsole):
         if self.radio_calibration and not self.radio_calibration.closed and now - self.last_data > 2:
             self.radio_calibration.cancel("数传数据中断，校准已取消，原参数保持不变")
         if self.connected and not self.pending and not self.gcs_pending and self.file_import is None and self.sd_browser is None:
-            if self.auto_probe:
+            if self.sensor_calibration:
+                self._request("DATA" if now - self.last_data > 0.8 else "CAL_STATUS", automatic=True)
+            elif self.auto_probe:
                 self.auto_probe = False
                 self._request("CAPS", automatic=True)
             elif self.caps and (self.page in ("飞行", "遥控器", "校准")
@@ -811,6 +873,7 @@ class GroundStation(ParameterConsole):
         self.link_timeouts = 0
         self.next_link_check = 0
         self.radio_save = None
+        self.sensor_calibration = None
         self.deferred_action = None
         if self.radio_calibration:
             self.radio_calibration.cancel("串口已断开，校准已取消")
@@ -830,6 +893,7 @@ class GroundStation(ParameterConsole):
         self.device_label.set("固件能力尚未识别")
         self.radio_label.set("接收机：未识别")
         self.sensor_note.set("连接并识别固件后显示传感器。")
+        self.calibration_progress.set(0)
 
     def close(self):
         if self.sd_browser:

@@ -9,7 +9,7 @@ public:
       : bus_(bus), address_(address) {}
   // Degrees in [0, 360); leaves the caller's value unchanged on an I2C error.
   bool readAngle(float &degrees);
-  static float relativeAngle(float degrees, float zero, bool reverse);
+  static float relativeAngle(float degrees, float offset);
 
 private:
   bool readRegister(uint8_t reg, uint8_t &value);

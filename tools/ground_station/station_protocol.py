@@ -73,6 +73,21 @@ def decode_fields(kind, fields):
                         raise ValueError("多机姿态包含非有限数值")
                 if result[f"v_{suffix}"] not in (0, 1):
                     raise ValueError("多机姿态有效标志错误")
+    elif kind in ("CALIBRATE", "CAL_STATUS"):
+        if set(result) != {"sensor", "status", "progress", "error", "storage"}:
+            raise ValueError("传感器校准响应字段不完整")
+        if result["sensor"] not in ("NONE", "IMU", "AIRSPEED", "ROTATE") or result["status"] not in ("IDLE", "RUNNING", "APPLIED", "FAILED"):
+            raise ValueError("传感器校准状态无效")
+        progress = float(result["progress"])
+        if not math.isfinite(progress) or not progress.is_integer() or not 0 <= progress <= 100:
+            raise ValueError("传感器校准进度无效")
+        result["progress"] = int(progress)
+        if result["storage"] not in ("NONE", "PENDING", "SAVED", "VOLATILE"):
+            raise ValueError("传感器校准存储状态无效")
+        if result["status"] == "APPLIED" and (progress != 100 or result["error"] != "NONE" or result["storage"] == "NONE"):
+            raise ValueError("传感器校准完成状态无效")
+        if result["status"] == "FAILED" and result["error"] == "NONE":
+            raise ValueError("传感器校准缺少失败原因")
     elif kind == "RC_SAVE":
         if result != {"status": "SAVED"}:
             raise ValueError("遥控校准保存响应无效")

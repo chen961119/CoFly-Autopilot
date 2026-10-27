@@ -8,7 +8,7 @@ class ChartToolbar(NavigationToolbar2Tk):
     toolitems = (
         ("Back", "上一视图", "back", "back"),
         ("Forward", "下一视图", "forward", "forward"),
-        ("Home", "恢复初始视图", "home", "home"),
+        ("Home", "恢复当前子图初始视图", "home", "home"),
         (None, None, None, None),
         ("Zoom", "框选缩放：左键放大，右键缩小", "zoom_to_rect", "zoom"),
         ("Subplots", "设置图表布局", "subplots", "configure_subplots"),
@@ -16,9 +16,10 @@ class ChartToolbar(NavigationToolbar2Tk):
         ("CSV", "导出当前子图所选变量为 CSV", None, "export_csv"),
     )
 
-    def __init__(self, canvas, window, on_action, on_export):
+    def __init__(self, canvas, window, on_action, on_export, on_home):
         self.on_action = on_action
         self.on_export = on_export
+        self.on_home = on_home
         super().__init__(canvas, window)
 
     def _Button(self, text, image_file, toggle, command):
@@ -63,8 +64,7 @@ class ChartToolbar(NavigationToolbar2Tk):
             self.on_action("启用 Zoom 框选缩放" if self.mode else "关闭 Zoom 框选缩放")
 
     def home(self, *args):
-        super().home(*args)
-        self.on_action("恢复初始视图")
+        self.on_home()
 
     def back(self, *args):
         super().back(*args)

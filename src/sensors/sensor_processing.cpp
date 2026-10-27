@@ -4,6 +4,7 @@
 #include "config/aircraft_config.h"
 #include "config/serial_config.h"
 #include "sensors/sensor_processing.h"
+#include "sensors/sensor_calibration.h"
 #include "sensors/imu_internal.h"
 #include "config/flight_config.h"
 #include "system/flight_clock.h"
@@ -518,6 +519,18 @@ void calibrateAirspeedSensor() {
   airspeedSensor.calib();
 }
 
+bool readAirspeedCalibrationSample(float &pressure) {
+  if (!airspeedSensor.readMS4525() || airspeedSensor.lastStatus != 0) return false;
+  pressure = airspeedSensor.MS4525_param.pressure;
+  return true;
+}
+
+void applyAirspeedCalibration(float pressure) {
+  airspeedSensor.MS4525_param.pressure_drift = pressure;
+  airspeedSensor.MS4525_param.airspeed = airspeed = 0;
+  airspeedReadValid = false; // Next normal read publishes a fresh corrected value.
+}
+
 // 按编译配置初始化内置 IMU 的总线、电源状态、量程及采样参数。
 void IMUinit() {
 #if defined INTIMU
@@ -647,53 +660,76 @@ bool validImuOffsets(const CalibrationAccGyroData &data) {
 
 bool imuCalibrationValid() { return imuCalibrationReady; }
 
+bool readBmi088CalibrationSample(float values[6]) {
+  auto chipId = [](int cs, bool dummy) {
+    SPI.beginTransaction(bmiSettings);
+    digitalWrite(cs, LOW);
+    SPI.transfer(0x80); // CHIP_ID register 0x00.
+    if (dummy) SPI.transfer(0x00);
+    const uint8_t id = SPI.transfer(0x00);
+    digitalWrite(cs, HIGH);
+    SPI.endTransaction();
+    return id;
+  };
+  if (chipId(CS_ACC, true) != 0x1e || chipId(CS_GYR, false) != 0x0f) return false;
+  uint8_t buf[6];
+  // 1. SPI 读取原始加速度
+  SPI.beginTransaction(bmiSettings);
+  digitalWrite(CS_ACC, LOW);
+  SPI.transfer(0x12 | 0x80); // 读取加速度起始地址
+  SPI.transfer(0x00); // 重要：BMI088 加速度计 SPI 读取必需的 Dummy Byte
+  for (int i = 0; i < 6; i++)
+    buf[i] = SPI.transfer(0x00);
+  digitalWrite(CS_ACC, HIGH);
+  SPI.endTransaction();
+
+  int16_t rx = (int16_t)(buf[0] | (buf[1] << 8));
+  int16_t ry = (int16_t)(buf[2] | (buf[3] << 8));
+  int16_t rz = (int16_t)(buf[4] | (buf[5] << 8));
+
+  // 2. SPI 读取原始陀螺仪
+  SPI.beginTransaction(bmiSettings);
+  digitalWrite(CS_GYR, LOW);
+  SPI.transfer(0x02 | 0x80); // 读取陀螺仪起始地址
+  for (int i = 0; i < 6; i++)
+    buf[i] = SPI.transfer(0x00);
+  digitalWrite(CS_GYR, HIGH);
+  SPI.endTransaction();
+
+  int16_t rgx = (int16_t)(buf[0] | (buf[1] << 8));
+  int16_t rgy = (int16_t)(buf[2] | (buf[3] << 8));
+  int16_t rgz = (int16_t)(buf[4] | (buf[5] << 8));
+
+  // 3. 映射到机体系 (保持 90 度旋转逻辑: 新X=旧Y, 新Y=-旧X)
+  values[0] = ry / 5460.0;
+  values[1] = -rx / 5460.0;
+  values[2] = rz / 5460.0;
+
+  values[3] = rgy / 16.384;
+  values[4] = -rgx / 16.384;
+  values[5] = rgz / 16.384;
+  return true;
+}
+
+
 // 静置采集 BMI088 多组数据，计算旋转后机体系的加速度和角速度零偏。
 // 完成后在 RAM 生效，按普通参数逻辑延迟保存；标定期间应保持水平且静止。
 void calculate_IMU_error() {
   // 采集 12000 组 BMI088 数据，计算机体系静态零偏并交给统一参数服务。
   double sAX = 0, sAY = 0, sAZ = 0, sGX = 0, sGY = 0, sGZ = 0;
   int c = 0;
-  uint8_t buf[6];
 
   USBSerial.println(
       "BMI088 SPI Calibrating (Rotated 90)... Keep vehicle flat and still.");
 
   while (c < 12000) {
-    // 1. SPI 读取原始加速度
-    SPI.beginTransaction(bmiSettings);
-    digitalWrite(CS_ACC, LOW);
-    SPI.transfer(0x12 | 0x80); // 读取加速度起始地址
-    SPI.transfer(0x00); // 重要：BMI088 加速度计 SPI 读取必需的 Dummy Byte
-    for (int i = 0; i < 6; i++)
-      buf[i] = SPI.transfer(0x00);
-    digitalWrite(CS_ACC, HIGH);
-    SPI.endTransaction();
-
-    int16_t rx = (int16_t)(buf[0] | (buf[1] << 8));
-    int16_t ry = (int16_t)(buf[2] | (buf[3] << 8));
-    int16_t rz = (int16_t)(buf[4] | (buf[5] << 8));
-
-    // 2. SPI 读取原始陀螺仪
-    SPI.beginTransaction(bmiSettings);
-    digitalWrite(CS_GYR, LOW);
-    SPI.transfer(0x02 | 0x80); // 读取陀螺仪起始地址
-    for (int i = 0; i < 6; i++)
-      buf[i] = SPI.transfer(0x00);
-    digitalWrite(CS_GYR, HIGH);
-    SPI.endTransaction();
-
-    int16_t rgx = (int16_t)(buf[0] | (buf[1] << 8));
-    int16_t rgy = (int16_t)(buf[2] | (buf[3] << 8));
-    int16_t rgz = (int16_t)(buf[4] | (buf[5] << 8));
-
-    // 3. 映射与累加 (保持 90 度旋转逻辑: 新X=旧Y, 新Y=-旧X)
-    sAX += ry / 5460.0;
-    sAY += -rx / 5460.0;
-    sAZ += rz / 5460.0;
-
-    sGX += rgy / 16.384;
-    sGY += -rgx / 16.384;
-    sGZ += rgz / 16.384;
+    float values[6];
+    if (!readBmi088CalibrationSample(values)) {
+      USBSerial.println("BMI088 calibration rejected: sensor unavailable");
+      return;
+    }
+    sAX += values[0]; sAY += values[1]; sAZ += values[2];
+    sGX += values[3]; sGY += values[4]; sGZ += values[5];
 
     if (c % 1000 == 0)
       USBSerial.print(".");
@@ -726,11 +762,10 @@ void calculate_IMU_error() {
 }
 
 
-// 函数结尾停机，不会返回飞行主循环。
-
-
 // 每隔至少 20 ms 从空速驱动刷新一次 airspeed。
 void getairspeed() {
+  // Calibration owns the 50 Hz pressure reads; a second read can be marked stale.
+  if (sensorCalibrationBusy() && !strcmp(sensorCalibrationSnapshot().sensor, "AIRSPEED")) return;
   // 以 50 Hz 更新空速；其他控制周期沿用上次有效测量。
   static unsigned long lastAirspeedRead = 0;
   if (micros() - lastAirspeedRead > 20000) {
@@ -808,19 +843,20 @@ void getRotateSensor1() {
   angleReadValid = angleSensor.readAngle(angle);
   if (!angleReadValid) return; // 保持最后有效角度，屏幕通过状态显示 ERR。
   relativeAngle_raw = Units::toRadians(angle);
-  const bool reverse = !aircraftIsRight();
-  relativeAngle_ready = Units::toRadians(MT6701::relativeAngle(angle, relativeAngle_offset, reverse));
+  relativeAngle_ready = Units::toRadians(MT6701::relativeAngle(angle, relativeAngle_offset));
 }
 
 // 将当前原始转角设为新零点，经统一参数服务延迟合并保存。
-void ResetRotateSensor() {
-  if (!angleReadValid) return; // 未连接或读取失败时不覆盖已保存零点。
+bool ResetRotateSensor() {
+  getRotateSensor1();
+  if (!angleReadValid) return false; // 未连接或读取失败时不覆盖已保存零点。
   if (!saveParameterValue("mt6701_zero", Units::toDegrees(relativeAngle_raw))) {
     USBSerial.println("MT6701 zero change rejected");
-    return;
+    return false;
   }
   relativeAngle_ready = 0;
   USBSerial.println("Zero Set! Offset: " + String(relativeAngle_offset));
+  return true;
 }
 
 

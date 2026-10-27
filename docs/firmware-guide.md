@@ -31,7 +31,7 @@ pio device monitor -e teensy41
 
 [地面站软件](../tools/ground_station/README.md) 位于 `tools/ground_station/`，支持参数读取、就地编辑、SD 恢复、重启提示、传感器/遥控/飞行数据显示及串口助手。参数页双击当前值编辑，Enter 保存，Esc 取消。启动方式、协议和电脑端依赖统一在工具文档维护。
 
-USB 参数与地面站协议共用 `Serial`，3DR X6 通过 `Serial8` 独立收发同一协议。两条链路各自维护解析和回复状态；自动连接优先 USB，规则见地面站工具文档，接线和模块配置见 [X6 数传接入](x6-radio.md)。立即生效参数接受后在 RAM 中使用，存储采用 2 秒合并保存；身份重启生效。传感器校准与设置的部分 USB 接口仍返回 `NOT_IMPLEMENTED`，不能据此代替板上按键校准。
+USB 参数与地面站协议共用 `Serial`，3DR X6 通过 `Serial8` 独立收发同一协议。两条链路各自维护解析和回复状态；自动连接优先 USB，规则见地面站工具文档，接线和模块配置见 [X6 数传接入](x6-radio.md)。立即生效参数接受后在 RAM 中使用，存储采用 2 秒合并保存；身份重启生效。USB/X6 地面站支持锁定后的内置 IMU、空速和 MT6701 零点校准，分周期采样并返回进度；外置 IMU、气压计校准及传感器设置暂不支持。
 
 ## 执行器映射与方向迁移
 
@@ -114,9 +114,9 @@ MS4525 驱动绑定 `Wire2`，7 位地址仍为 `0x28`。`calibrateAirspeedSenso
 
 ## 传感器与统一测量接口
 
-MT6701 位于 `Wire1` 的 7 位地址 `0x06`，先读 `0x03` 再读 `0x04`，14 位数据换算为 0～360°。`relativeAngle_ready` 减零点后转换到 ±180°，A/B/D/F 反向、C/E/G 正向。按键清零通过参数服务保存 `mt6701_zero`。读失败保留最后有效值，每 20 ms 重试，禁止保存错误零点。
+MT6701 位于 `Wire1` 的 7 位地址 `0x06`，先读 `0x03` 再读 `0x04`，14 位数据换算为 0～360°。`relativeAngle_ready` 减零点后转换到 ±180°，所有机号均只减去 offset，不再按左右机号反向；运行值以 rad 发布。按键或地面站清零通过参数服务保存 `mt6701_zero`。读失败保留最后有效值，每 20 ms 重试，禁止保存错误零点。
 
-MT6701 仅用于测量与日志。构型控制、分配、OLED、地面站及机间构型使用相邻 IMU 滚转差；OLED 无有效下游姿态时显示 `--`。完整构型显示需连接 A 主机。
+OLED 的 `Relat` 和地面站 `DATA.angle` 显示 MT6701 的 `relativeAngle_ready`（显示单位为度），有效性由本机 MT6701 读取结果决定，失效时 OLED 显示 `--`。构型控制、分配、机间构型及地面站翼面图继续使用相邻 IMU 滚转差。完整构型显示需连接 A 主机。
 
 `updateInertialSensors()` 按外置优先、否则内置路径采样和姿态估计，发布以下统一接口；具体采样与滤波配置以 `sensor_processing.cpp` 和 `filters.cpp` 为准。
 
@@ -132,6 +132,8 @@ MT6701 仅用于测量与日志。构型控制、分配、OLED、地面站及机
 内置路径在传感器层统一 X/Z 角速度符号，外置路径保持安装轴映射。`ang_vel_B[3]`～`ang_vel_G[3]` 目前仅通过状态协议更新滚转分量 [0]，[1]/[2] 为 0，不能作为有效测量。
 
 ## 通信与日志
+
+SD 日志末尾记录 `commands.local.aileron1`、`commands.local.aileron2`、`commands.local.elevator`、`commands.local.throttle`、`commands.local.rudder` 五路本机逻辑指令。这些是本周期混控/融合后、PWM 映射前的归一化量，按原值保留六位小数；混控贡献可能超出标准范围。实际锁定/限幅后的 PWM 仍由 `ActuatorOutput[0..4]` 记录。
 
 | 协议 | 帧头 | 当前内容 |
 | --- | --- | --- |

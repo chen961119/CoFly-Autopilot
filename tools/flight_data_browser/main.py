@@ -78,16 +78,28 @@ class Browser:
         self.signatures = {}
         self.entries = {}
         self.transforms = {}
+        self.transform_exclusions = {}
+        self.transform_check_vars = {}
         self.groups = [set()]
+        self.group_ids = [0]
+        self.next_group_id = 1
+        self.layout_rows = self.layout_columns = 1
+        self.spare_groups = []
+        self.group_views = {}
         self.axes = []
         self.lines = []
+        self.plotted_groups = []
+        self.initial_views = {}
         self.series_styles = {}
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="flight-log")
         self.events = queue.Queue()
         self.syncing = False
+        self.replace_selection_group = None
+        self.selection_job = None
         self.closed = False
         self.fft_job = None
         self.view_job = None
+        self.dirty_view_axes = set()
         self.navigation_start = None
         self.drag_axes = None
         root.title("CoFly Autopilot · Flight Data Browser")
@@ -121,8 +133,14 @@ class Browser:
                 "Danger.TButton" if callback == self.remove_files else "TButton")
             ttk.Button(file_actions, text=label, command=callback, style=button_style).pack(side="left", padx=(0, 4))
         self.search = tk.StringVar()
-        self.search_entry = ttk.Entry(files_card, textvariable=self.search)
+        self.search_entry = ttk.Entry(files_card, textvariable=self.search, style="Search.TEntry")
         self.search_entry.pack(fill="x", pady=(0, 10))
+        self.search_clear = tk.Button(
+            self.search_entry, text="⊗", command=self.clear_search, takefocus=False,
+            font=(self.ui_font, 14), foreground=COLORS["muted"], background=COLORS["surface"],
+            activeforeground=COLORS["accent"], activebackground=COLORS["surface"],
+            borderwidth=0, highlightthickness=0, relief="flat", cursor="hand2", padx=0, pady=0)
+        self.search_clear.place(relx=1, x=-4, rely=0.5, anchor="e", width=24, height=24)
         self.search_hint = tk.Label(
             self.search_entry, text="搜索变量名，例如 att、ang_vel、yaw",
             foreground=COLORS["muted"], background=COLORS["surface"], borderwidth=0, font=(self.ui_font, 9))
@@ -148,14 +166,32 @@ class Browser:
         controls = ttk.Frame(left, style="Card.TFrame", padding=12)
         controls.pack(fill="x", pady=(10, 0))
         ttk.Label(controls, text="子图与显示", style="Section.TLabel").pack(anchor="w", pady=(0, 8))
+        layout_row = ttk.Frame(controls, style="Surface.TFrame")
+        layout_row.pack(fill="x", pady=(0, 10))
+        self.row_count, self.column_count = tk.StringVar(value="1"), tk.StringVar(value="1")
+        for label, variable in (("行", self.row_count), ("列", self.column_count)):
+            ttk.Label(layout_row, text=label).pack(side="left", padx=(0, 5))
+            editor = ttk.Spinbox(layout_row, from_=1, to=8, textvariable=variable, width=4,
+                                 command=self.apply_layout)
+            editor.pack(side="left", padx=(0, 10))
+            editor.bind("<Return>", self.apply_layout)
+            editor.bind("<KP_Enter>", self.apply_layout)
         group_row = ttk.Frame(controls, style="Surface.TFrame")
         group_row.pack(fill="x", pady=(0, 10))
         self.group_box = ttk.Combobox(group_row, state="readonly", width=8)
         self.group_box.pack(side="left", padx=(0, 5))
         self.group_box.bind("<<ComboboxSelected>>", self.change_group)
-        ttk.Button(group_row, text="添加子图", command=self.add_group).pack(side="left", padx=(0, 4))
         ttk.Button(group_row, text="清除子图", command=self.clear_group).pack(side="left", padx=(0, 4))
-        ttk.Button(group_row, text="删除子图", command=self.delete_group, style="Danger.TButton").pack(side="left")
+        self.delete_group_button = ttk.Button(group_row, text="删除子图", command=self.delete_group,
+                                              style="Danger.TButton")
+        self.delete_group_button.pack(side="left")
+        transform_selection = ttk.Frame(controls, style="Surface.TFrame")
+        transform_selection.pack(fill="x", pady=(0, 8))
+        self.transform_summary = tk.StringVar(value="变量：0/0")
+        self.transform_selector = ttk.Menubutton(transform_selection, textvariable=self.transform_summary, width=12)
+        self.transform_selector.pack(side="left")
+        self.transform_menu = tk.Menu(self.transform_selector, tearoff=False)
+        self.transform_selector.configure(menu=self.transform_menu)
         transform = ttk.Frame(controls, style="Surface.TFrame")
         transform.pack(fill="x")
         self.scale, self.offset = tk.StringVar(value="1"), tk.StringVar(value="0")
@@ -170,6 +206,9 @@ class Browser:
             editor.bind("<KP_Enter>", self.apply_transform)
             self.transform_inputs[name] = editor
         ttk.Button(transform, text="恢复", command=self.reset_transform).pack(side="left")
+        self.hide_legend = tk.BooleanVar(value=False)
+        ttk.Checkbutton(controls, text="隐藏图例", variable=self.hide_legend,
+                        command=lambda: self.toggle_display("legend")).pack(anchor="w", pady=(10, 0))
         self.smooth = tk.BooleanVar(value=False)
         self.fft_enabled = tk.BooleanVar(value=False)
         toggles = ttk.Frame(controls, style="Surface.TFrame")
@@ -188,7 +227,8 @@ class Browser:
         ttk.Label(chart_header, textvariable=self.view_summary, style="Muted.TLabel").pack(side="right")
         self.figure = Figure(figsize=(10, 8), dpi=100, facecolor=COLORS["surface"])
         self.canvas = ChartCanvas(self.figure, master=right)
-        self.toolbar = ChartToolbar(self.canvas, right, self.report_action, self.export_current_csv)
+        self.toolbar = ChartToolbar(self.canvas, right, self.report_action, self.export_current_csv,
+                                    self.restore_current_view)
         self.toolbar.configure(background=COLORS["surface"])
         for widget in self.toolbar.winfo_children():
             if isinstance(widget, (tk.Button, tk.Checkbutton)):
@@ -238,9 +278,14 @@ class Browser:
             self.search_hint.place_forget()
 
     def search_changed(self, *_args):
+        self.finish_tree_selection()
         self.update_search_hint()
         self.refresh_tree()
         self.report_action(f"搜索变量：{self.search.get()}" if self.search.get() else "清除变量搜索")
+
+    def clear_search(self):
+        self.search_entry.focus_set()
+        self.search.set("")
 
     def select_files(self):
         from tkinter import filedialog
@@ -270,6 +315,7 @@ class Browser:
             except (OSError, ValueError):
                 ignored.append(raw)
         settings_error = None
+        accepted, duplicates = False, []
         if files:
             self.last_directory = files[0].parent
             try:
@@ -277,28 +323,47 @@ class Browser:
             except OSError as exc:
                 settings_error = exc
             for file in dict.fromkeys(files):
-                self.load(file)
+                if self.filename_conflict(file):
+                    duplicates.append(file)
+                else:
+                    accepted = self.load(file) or accepted
         if ignored:
             self.status.set(f"已忽略 {len(ignored)} 个目录、无效路径或不支持的文件；请选择 CSV/TXT/LOG/DAT 文件。")
         elif settings_error:
             self.status.set(f"文件已选择，但无法保存下次打开的位置：{settings_error}")
-        return bool(files)
+        if duplicates:
+            self.report_duplicate_files(duplicates)
+        return accepted
+
+    def filename_conflict(self, path):
+        return any(other != path and other.name.casefold() == path.name.casefold()
+                   for other in self.logs.keys() | self.requests.keys())
+
+    def report_duplicate_files(self, paths):
+        from tkinter import messagebox
+        names = "、".join(path.name for path in paths)
+        message = f"无法载入：{names}。已有同名文件正在读取或已加载，请先重命名文件或移除原同名文件。"
+        self.status.set(message)
+        messagebox.showerror("无法载入同名文件", message, parent=self.root)
 
     def load(self, file):
         path = Path(file).expanduser().resolve()
+        if self.filename_conflict(path):
+            self.report_duplicate_files([path])
+            return False
         options = dict(self.options)
         try:
             stat = path.stat()
         except OSError as exc:
             self.status.set(str(exc))
-            return
+            return False
         signature = (stat.st_size, stat.st_mtime_ns, tuple(sorted(options.items())))
         if path in self.requests:
             self.status.set(f"正在读取：{path.name}；待完成 {self.pending} 个文件…")
-            return
+            return True
         if self.signatures.get(path) == signature:
             self.status.set(f"已加载，直接复用内存：{path.name}")
-            return
+            return True
         self.request_id += 1
         request_id = self.request_id
         self.requests[path] = request_id
@@ -314,6 +379,7 @@ class Browser:
             except Exception as exc:
                 self.events.put((request_id, path, signature, None, str(exc)))
         self.futures[path] = self.executor.submit(work)
+        return True
 
     def poll(self):
         from tkinter import messagebox
@@ -350,7 +416,7 @@ class Browser:
         self.file_items.clear()
         query = self.search.get().casefold()
         for path in self.file_order:
-            label = f"{path.parent.name}/{path.name}" + ("（加载中…）" if path in self.requests else "")
+            label = path.name + ("（加载中…）" if path in self.requests else "")
             parent = self.tree.insert("", "end", iid=f"file:{path}", text=label,
                                       open=expanded.get(path, True), tags=("file",))
             self.file_items[parent] = path
@@ -376,10 +442,16 @@ class Browser:
         return {self.entries[item] for item in self.tree.selection() if item in self.entries}
 
     def tree_pressed(self, event):
+        self.finish_tree_selection()
         item = self.tree.identify_row(event.y)
         element = self.tree.identify_element(event.x, event.y)
         if item not in self.file_items or not element.endswith(("indicator", "disclosure")):
             if item in self.entries:
+                # Let Tk handle focus, Ctrl toggles and Shift ranges. A plain
+                # click replaces the whole group, including filtered-out items.
+                if self.groups and not event.state & 0x0005: # Shift / Control.
+                    self.replace_selection_group = self.group_ids[max(0, self.group_box.current())]
+                    self.selection_job = self.root.after_idle(self.finish_tree_selection)
                 path, column = self.entries[item]
                 self.report_action(f"点选变量 · {path.name} / {self.logs[path].columns[column]}")
             elif item in self.file_items:
@@ -399,6 +471,19 @@ class Browser:
             action = "展开文件" if self.tree.tk.getboolean(self.tree.item(item, "open")) else "折叠文件"
             self.report_action(f"{action} · {self.file_items[item].name}")
         return "break"
+
+    def finish_tree_selection(self):
+        if self.selection_job is not None:
+            self.root.after_cancel(self.selection_job)
+            self.selection_job = None
+        if self.replace_selection_group is None:
+            return
+        index = max(0, self.group_box.current())
+        if self.groups and self.group_ids[index] == self.replace_selection_group:
+            # Also handle clicking an already-selected visible item when hidden
+            # curves still need to be removed and Tk sends no selection change.
+            self.selection_changed()
+        self.replace_selection_group = None
 
     def selected_files(self):
         return {self.file_items[item] if item in self.file_items else self.entries[item][0]
@@ -433,6 +518,8 @@ class Browser:
         self.file_order = [path for path in self.file_order if path not in selected]
         self.transforms = {entry: value for entry, value in self.transforms.items() if entry[0] not in selected}
         self.groups = [{entry for entry in group if entry[0] not in selected} for group in self.groups]
+        self.spare_groups = [(group_id, {entry for entry in group if entry[0] not in selected})
+                             for group_id, group in self.spare_groups]
         self.refresh_tree()
         self.plot()
         self.report_action(f"删除所选文件 · 已移除 {len(selected)} 个；待完成 {self.pending} 个文件")
@@ -457,16 +544,20 @@ class Browser:
         if not self.groups:
             if not self.selected():
                 return
-            self.groups.append(set())
+            self.append_group()
             self.update_groups()
         index = max(self.group_box.current(), 0)
-        # A filtered tree hides entries; keep these assigned to the subplot.
+        replace = self.replace_selection_group == self.group_ids[index]
+        self.replace_selection_group = None
+        # Search refreshes and modified clicks retain hidden assignments;
+        # an ordinary variable click starts a new selection for the group.
         visible = set(self.entries.values())
-        updated = (self.groups[index] - visible) | self.selected()
+        updated = self.selected() if replace else (self.groups[index] - visible) | self.selected()
         changed = updated != self.groups[index]
         added = updated - self.groups[index]
         removed = self.groups[index] - updated
-        self.groups[index] = updated
+        if changed:
+            self.groups[index] = updated
         if changed or _event is None:
             self.plot()
         if changed:
@@ -476,22 +567,25 @@ class Browser:
                 names += f" 等 {len(affected)} 个"
             self.report_action(f"{'点选变量' if added else '取消选择'} · 子图 {index + 1} · {names} · 共 {len(updated)} 个变量")
 
-    def update_groups(self):
+    def update_groups(self, active=None):
+        active = self.group_box.current() if active is None else active
         self.group_box["values"] = [f"子图 {i + 1}" for i in range(len(self.groups))]
         if self.groups:
-            self.group_box.current(len(self.groups) - 1)
+            self.group_box.current(min(max(0, active), len(self.groups) - 1))
         else:
             self.group_box.set("")
+        self.delete_group_button.configure(state="normal" if self.groups else "disabled")
 
     def change_group(self, _event=None):
         self.select_group()
+        self.refresh_transform_selector()
         self.style_active_group()
         self.update_fft()
         if self.groups:
             self.report_action(f"切换目标 · 子图 {self.group_box.current() + 1}")
 
     def select_plot(self, event):
-        if event.button != 1 or self.toolbar.mode or event.inaxes not in self.axes:
+        if event.button != 1 or event.inaxes not in self.axes:
             return
         self.group_box.current(self.axes.index(event.inaxes))
         self.change_group()
@@ -515,21 +609,46 @@ class Browser:
             self.status.set("导出失败：不能覆盖已加载的原始日志。")
             return
         try:
-            export_csv(log, destination, [log.columns[column] for _, column in selected], self.axes[0].get_xlim())
+            export_csv(log, destination, [log.columns[column] for _, column in selected],
+                       self.axes[max(0, self.group_box.current())].get_xlim())
         except (OSError, ValueError) as exc:
             self.status.set(f"导出 CSV 失败：{exc}")
             return
         self.report_action(f"导出 CSV · {Path(destination).name}（原始数值，当前时间范围）")
 
-    def add_group(self):
-        if len(self.groups) >= 8:
-            self.status.set("最多显示 8 个子图。")
-            return
-        self.groups.append(set())
-        self.update_groups()
+    def apply_layout(self, _event=None):
+        try:
+            rows, columns = int(self.row_count.get()), int(self.column_count.get())
+            if not 1 <= rows <= 8 or not 1 <= columns <= 8:
+                raise ValueError()
+        except ValueError:
+            self.status.set("子图行数和列数必须是 1～8 的整数。")
+            return "break"
+        active = self.group_box.current()
+        count = rows * columns
+        if count < len(self.groups):
+            self.spare_groups = list(zip(self.group_ids[count:], self.groups[count:])) + self.spare_groups
+            del self.groups[count:]
+            del self.group_ids[count:]
+        while len(self.groups) < count:
+            if self.spare_groups:
+                group_id, group = self.spare_groups.pop(0)
+                self.group_ids.append(group_id)
+                self.groups.append(group)
+            else:
+                self.append_group()
+        self.layout_rows, self.layout_columns = rows, columns
+        self.update_groups(active)
         self.select_group()
         self.plot()
-        self.report_action(f"添加子图 · 子图 {len(self.groups)}")
+        self.report_action(f"应用布局 · {rows} 行 × {columns} 列 · {count} 个子图"
+                           + ("；超出位置的变量分配已暂存，扩大布局可恢复" if self.spare_groups else ""))
+        return "break"
+
+    def append_group(self):
+        self.groups.append(set())
+        self.group_ids.append(self.next_group_id)
+        self.next_group_id += 1
 
     def clear_group(self):
         if not self.groups:
@@ -540,18 +659,35 @@ class Browser:
         self.report_action(f"清除子图 · 子图 {self.group_box.current() + 1}")
 
     def delete_group(self):
+        self.finish_tree_selection()
         if not self.groups:
             return
         index = max(0, self.group_box.current())
+        removed_id = self.group_ids.pop(index)
         del self.groups[index]
-        self.update_groups()
-        if self.groups:
-            self.group_box.current(min(index, len(self.groups) - 1))
+        # Compact unused outer rows/columns while keeping the existing column
+        # order. A partially filled final column contains no extra empty axes.
+        self.layout_rows = min(self.layout_rows, len(self.groups)) if self.groups else 1
+        self.layout_columns = ((len(self.groups) + self.layout_rows - 1) // self.layout_rows
+                               if self.groups else 1)
+        self.row_count.set(str(self.layout_rows))
+        self.column_count.set(str(self.layout_columns))
+        self.update_groups(index)
         self.select_group()
         self.plot()
-        self.report_action(f"删除子图 · 原子图 {index + 1}；剩余 {len(self.groups)} 个")
+        self.group_views.pop(removed_id, None)
+        self.transform_exclusions.pop(removed_id, None)
+        self.report_action(f"删除子图 · 原子图 {index + 1}；后续子图已前移，剩余 {len(self.groups)} 个")
 
     def toggle_display(self, option):
+        if option == "legend":
+            for ax in self.figure.axes:
+                legend = ax.get_legend()
+                if legend is not None:
+                    legend.set_visible(not self.hide_legend.get())
+            self.canvas.draw_idle()
+            self.report_action("隐藏图例" if self.hide_legend.get() else "显示图例")
+            return
         self.plot()
         enabled = self.smooth.get() if option == "smooth" else self.fft_enabled.get()
         name = "显示平滑" if option == "smooth" else "区段 FFT"
@@ -581,6 +717,57 @@ class Browser:
         self.apply_transform()
         return "break"
 
+    def refresh_transform_selector(self):
+        import tkinter as tk
+        self.transform_menu.delete(0, "end")
+        self.transform_check_vars = {}
+        group = self.groups[max(0, self.group_box.current())] if self.groups else set()
+        self.transform_selector.configure(state="normal" if group else "disabled")
+        if not group and self.groups:
+            self.transform_exclusions.pop(self.group_ids[max(0, self.group_box.current())], None)
+        if group:
+            group_id = self.group_ids[max(0, self.group_box.current())]
+            excluded = self.transform_exclusions.setdefault(group_id, set())
+            excluded.intersection_update(group)
+            self.transform_menu.add_command(label="全选", command=self.select_all_transform_variables)
+            self.transform_menu.add_separator()
+            for entry in self.ordered_entries(group):
+                checked = tk.BooleanVar(self.root, value=entry not in excluded)
+                self.transform_check_vars[entry] = checked
+                label = f"{entry[0].name} | {self.logs[entry[0]].columns[entry[1]]}"
+                self.transform_menu.add_checkbutton(label=label, variable=checked,
+                    command=lambda key=entry, gid=group_id, var=checked:
+                        self.set_transform_variable(gid, key, var.get()))
+        self.update_transform_summary()
+
+    def update_transform_summary(self):
+        index = max(0, self.group_box.current())
+        group = self.groups[index] if self.groups else set()
+        excluded = self.transform_exclusions.get(self.group_ids[index], set()) if self.groups else set()
+        self.transform_summary.set(f"变量：{len(group - excluded)}/{len(group)}")
+
+    def set_transform_variable(self, group_id, entry, checked):
+        excluded = self.transform_exclusions.setdefault(group_id, set())
+        if checked:
+            excluded.discard(entry)
+        else:
+            excluded.add(entry)
+        self.update_transform_summary()
+
+    def select_all_transform_variables(self):
+        if not self.groups:
+            return
+        index = max(0, self.group_box.current())
+        self.transform_exclusions[self.group_ids[index]] = set()
+        self.refresh_transform_selector()
+
+    def transform_targets(self):
+        self.finish_tree_selection()
+        if not self.groups:
+            return set()
+        index = max(0, self.group_box.current())
+        return self.groups[index] - self.transform_exclusions.get(self.group_ids[index], set())
+
     def apply_transform(self, _event=None):
         try:
             scale, offset = float(self.scale.get()), float(self.offset.get())
@@ -589,19 +776,27 @@ class Browser:
         except ValueError:
             self.status.set("缩放与偏移必须是有限数值。")
             return "break"
-        for entry in self.selected():
+        entries = self.transform_targets()
+        if not entries:
+            self.status.set("请先在变量菜单中勾选要缩放或偏移的变量。")
+            return "break"
+        for entry in entries:
             self.transforms[entry] = (scale, offset)
-        self.selection_changed()
-        self.report_action(f"应用显示变换 · 缩放 ×{scale:g}，偏移 {offset:+g} · {len(self.selected())} 个变量")
+        self.plot()
+        self.report_action(f"应用显示变换 · 缩放 ×{scale:g}，偏移 {offset:+g} · {len(entries)} 个变量")
         return "break"
 
     def reset_transform(self):
-        for entry in self.selected():
+        entries = self.transform_targets()
+        if not entries:
+            self.status.set("请先在变量菜单中勾选要恢复的变量。")
+            return
+        for entry in entries:
             self.transforms.pop(entry, None)
         self.scale.set("1")
         self.offset.set("0")
-        self.selection_changed()
-        self.report_action(f"恢复默认缩放与偏移 · {len(self.selected())} 个变量")
+        self.plot()
+        self.report_action(f"恢复默认缩放与偏移 · {len(entries)} 个变量")
 
     def series(self, entry):
         path, column = entry
@@ -616,7 +811,7 @@ class Browser:
         path, column = entry
         log = self.logs[path]
         scale, offset = self.transforms.get(entry, (1, 0))
-        label = f"{path.parent.name}/{path.name} | {log.columns[column]}"
+        label = f"{path.name} | {log.columns[column]}"
         changes = []
         if scale != 1:
             changes.append(f"缩放 ×{scale:g}")
@@ -652,28 +847,42 @@ class Browser:
 
     def plot(self):
         from ui_style import COLORS, style_axes, style_legend
-        old_view = self.axes[0].get_xlim() if self.axes and self.lines else None
+        self.group_views.update({group_id: (signature, (ax.get_xlim(), ax.get_ylim()), bool(ax.lines))
+                                 for (group_id, signature), ax in zip(self.plotted_groups, self.axes)})
         if self.view_job:
             self.root.after_cancel(self.view_job)
             self.view_job = None
+        self.dirty_view_axes.clear()
         self.figure.clear()
         self.axes, self.lines = [], []
+        self.plotted_groups, self.initial_views = [], {}
         count = sum(len(group) for group in self.groups)
-        self.view_summary.set(f"{len(self.groups)} 个子图 · {count} 条曲线" if count else "未选择变量")
+        self.view_summary.set(f"{self.layout_rows} 行 × {self.layout_columns} 列 · {len(self.groups)} 个子图 · {count} 条曲线")
+        self.refresh_transform_selector()
         if not self.groups:
             self.fft_ax = None
             self.figure.text(0.5, 0.54, "尚无子图", ha="center", fontsize=16, color=COLORS["text"])
-            self.figure.text(0.5, 0.48, "添加子图或选择变量开始", ha="center", fontsize=10, color=COLORS["muted"])
+            self.figure.text(0.5, 0.48, "设置行列布局以绘制变量", ha="center", fontsize=10, color=COLORS["muted"])
             self.toolbar.update()
             self.canvas.draw_idle()
             return
-        grid = self.figure.add_gridspec(len(self.groups) + int(self.fft_enabled.get()), 1)
+        grid = self.figure.add_gridspec(self.layout_rows + int(self.fft_enabled.get()), self.layout_columns)
+        dense = len(self.groups) + int(self.fft_enabled.get()) > 4
         for group_index, group in enumerate(self.groups):
-            ax = self.figure.add_subplot(grid[group_index], sharex=self.axes[0] if self.axes else None)
+            column, row = divmod(group_index, self.layout_rows)
+            ax = self.figure.add_subplot(grid[row, column])
             self.axes.append(ax)
-            style_axes(ax, f"子图 {group_index + 1}", active=group_index == max(0, self.group_box.current()))
+            group_id = self.group_ids[group_index]
+            signature = (self.smooth.get(), frozenset(
+                (entry, self.transforms.get(entry, (1, 0)), id(self.logs.get(entry[0])))
+                for entry in group))
+            # Stable IDs preserve each subplot's own view across layout changes.
+            self.plotted_groups.append((group_id, signature))
+            previous = self.group_views.get(group_id)
+            style_axes(ax, f"子图 {group_index + 1}", active=group_index == max(0, self.group_box.current()), dense=dense)
             ax.set_ylabel("显示值", color=COLORS["muted"])
-            ax.tick_params(labelbottom=group_index == len(self.groups) - 1)
+            ax.tick_params(labelbottom=True)
+            ax.set_xlabel("相对时间 (s)", color=COLORS["muted"])
             for entry in self.ordered_entries(group):
                 if entry[0] not in self.logs or entry[1] >= len(self.logs[entry[0]].columns):
                     continue
@@ -685,26 +894,31 @@ class Browser:
                                 label=label, **self.line_style(entry))
                 self.lines.append((line, entry))
             if ax.lines:
-                style_legend(ax)
+                style_legend(ax, dense=dense).set_visible(not self.hide_legend.get())
             else:
                 ax.text(0.5, 0.5, "选择变量以绘制曲线", transform=ax.transAxes,
                         ha="center", va="center", fontsize=11, color=COLORS["muted"])
                 ax.grid(False)
                 ax.tick_params(labelbottom=False, labelleft=False, bottom=False, left=False)
-        self.axes[-1].set_xlabel("相对时间 (s)", color=COLORS["muted"])
-        limits = self.time_limits()
-        if limits is not None:
-            self.axes[0].set_xlim(self.bounded_time_xlim(old_view if old_view is not None else limits))
+            limits = self.time_limits(group_index)
+            if limits is not None:
+                ax.set_xlim(limits)
+            # Keep full-data defaults separately from the current independent view.
+            self.initial_views[ax] = (ax.get_xlim(), ax.get_ylim())
+            if previous is not None and previous[2]:
+                ax.set_xlim(self.bounded_limits(previous[1][0], limits))
+                if signature == previous[0]:
+                    ax.set_ylim(previous[1][1])
         if self.fft_enabled.get():
-            self.fft_ax = self.figure.add_subplot(grid[-1])
+            self.fft_ax = self.figure.add_subplot(grid[-1, :])
             self.update_fft()
         else:
             self.fft_ax = None
         self.layout_plot()
-        for ax in self.axes:
-            ax.callbacks.connect("xlim_changed", self.view_changed)
         self.toolbar.update()
         self.toolbar.push_current()
+        for ax in self.axes:
+            ax.callbacks.connect("xlim_changed", self.view_changed)
         self.canvas.draw_idle()
 
     def layout_plot(self):
@@ -715,8 +929,11 @@ class Browser:
     def figure_resized(self, _event):
         self.layout_plot()
 
-    def time_limits(self):
-        paths = {path for group in self.groups for path, column in group
+    def time_limits(self, group_index=None):
+        if not self.groups:
+            return None
+        group_index = max(0, self.group_box.current()) if group_index is None else group_index
+        paths = {path for path, column in self.groups[group_index]
                  if path in self.logs and column < len(self.logs[path].columns)}
         if not paths:
             return None
@@ -724,19 +941,36 @@ class Browser:
         upper = max(float(self.logs[path].time[-1]) for path in paths)
         return (lower, upper) if upper > lower else None
 
-    def bounded_time_xlim(self, xlim):
-        limits = self.time_limits()
-        if limits is None:
-            return tuple(xlim)
-        lower, upper = limits
-        left, right = sorted(xlim)
+    def bounded_time_xlim(self, xlim, group_index=None):
+        return self.bounded_limits(xlim, self.time_limits(group_index))
+
+    def restore_current_view(self):
+        if not self.axes:
+            return
+        ax = self.axes[max(0, self.group_box.current())]
+        xlim, ylim = self.initial_views[ax]
+        if not np.array_equal((ax.get_xlim(), ax.get_ylim()), (xlim, ylim)):
+            self.toolbar.push_current()
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
+            self.toolbar.push_current()
+            self.canvas.draw_idle()
+        self.report_view("恢复当前子图初始视图", ax)
+
+    @staticmethod
+    def bounded_limits(view, bounds):
+        # Shared by the full time extent and each axis's initial display extent.
+        if bounds is None:
+            return tuple(view)
+        lower, upper = sorted(bounds)
+        left, right = sorted(view)
         width = right - left
         if width >= upper - lower:
             result = (lower, upper)
         else:
             left = min(max(left, lower), upper - width)
             result = (left, min(upper, left + width))
-        return result[::-1] if xlim[0] > xlim[1] else result
+        return result[::-1] if view[0] > view[1] else result
 
     def navigation_pressed(self, event):
         self.navigation_start = None
@@ -786,8 +1020,12 @@ class Browser:
         ylim = event.ydata + (np.asarray(ax.get_ylim()) - event.ydata) * factor
         if not np.isfinite([xlim, ylim]).all() or xlim[0] == xlim[1] or ylim[0] == ylim[1]:
             return
-        if ax in self.axes:
-            xlim = self.bounded_time_xlim(xlim)
+        initial = self.initial_views.get(ax)
+        x_bounds = self.time_limits(self.axes.index(ax)) if ax in self.axes else initial[0] if initial else None
+        xlim = self.bounded_limits(xlim, x_bounds)
+        ylim = self.bounded_limits(ylim, initial[1] if initial else None)
+        if np.array_equal(xlim, ax.get_xlim()) and np.array_equal(ylim, ax.get_ylim()):
+            return
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
         self.toolbar.push_current()
@@ -795,26 +1033,35 @@ class Browser:
         self.report_view("Zoom 滚轮放大" if event.step > 0 else "Zoom 滚轮缩小", ax)
 
     def view_changed(self, _ax):
-        bounded = self.bounded_time_xlim(_ax.get_xlim())
+        if _ax not in self.axes:
+            return
+        bounded = self.bounded_time_xlim(_ax.get_xlim(), self.axes.index(_ax))
         if not np.array_equal(_ax.get_xlim(), bounded):
-            for ax in self.axes:
-                ax.set_xlim(bounded, emit=False)
+            _ax.set_xlim(bounded, emit=False)
+        self.dirty_view_axes.add(_ax)
         if self.view_job:
             self.root.after_cancel(self.view_job)
         self.view_job = self.root.after(180, self.refresh_view)
 
     def refresh_view(self):
+        if self.view_job:
+            self.root.after_cancel(self.view_job)
         self.view_job = None
         if not self.axes:
             return
-        bounds = self.axes[0].get_xlim()
+        targets = self.dirty_view_axes or set(self.axes)
+        self.dirty_view_axes = set()
         for line, entry in self.lines:
+            if line.axes not in targets:
+                continue
+            bounds = line.axes.get_xlim()
             log, values = self.series(entry)
             left = max(0, int(np.searchsorted(log.time, bounds[0])) - 1)
             right = min(len(log.time), int(np.searchsorted(log.time, bounds[1], side="right")) + 1)
             width = max(1, round(log.sample_rate * 0.2)) if self.smooth.get() else 1
             line.set_data(*display_series(log.time[left:right], values[left:right], smooth_samples=width))
-        self.update_fft()
+        if self.axes[max(0, self.group_box.current())] in targets:
+            self.update_fft()
         self.canvas.draw_idle()
 
     def update_fft(self):
@@ -823,7 +1070,8 @@ class Browser:
             return
         ax = self.fft_ax
         ax.clear()
-        style_axes(ax, "频域分析 · FFT")
+        dense = len(self.groups) + int(self.fft_enabled.get()) > 4
+        style_axes(ax, "频域分析 · FFT", dense=dense)
         errors = []
         for entry in self.ordered_entries(self.groups[max(0, self.group_box.current())]):
             if entry[0] not in self.logs:
@@ -831,20 +1079,22 @@ class Browser:
             log, values = self.series(entry)
             label = self.series_label(entry)
             try:
-                spectrum = compute_spectrum(log.time, values, self.axes[0].get_xlim())
+                spectrum = compute_spectrum(log.time, values,
+                                            self.axes[max(0, self.group_box.current())].get_xlim())
                 ax.plot(spectrum.frequency, spectrum.amplitude, linewidth=1.35, label=label, **self.line_style(entry))
             except LogError as exc:
                 errors.append(f"{log.path.name}/{log.columns[entry[1]]}: {exc}")
         ax.set_xlabel("频率 (Hz)", color=COLORS["muted"])
         ax.set_ylabel("幅值", color=COLORS["muted"])
         if ax.lines:
-            style_legend(ax)
+            style_legend(ax, dense=dense).set_visible(not self.hide_legend.get())
         else:
             ax.text(0.5, 0.5, "\n".join(errors[:2]) if errors else "选择变量与时间范围以查看频谱", transform=ax.transAxes,
                     ha="center", va="center", fontsize=10, color=COLORS["muted"])
         if errors and ax.lines:
             ax.text(0.01, 0.03, "\n".join(errors[:2]), transform=ax.transAxes, fontsize=8,
                     color=COLORS["danger"], clip_on=True).set_in_layout(False)
+        self.initial_views[ax] = (ax.get_xlim(), ax.get_ylim())
         self.canvas.draw_idle()
 
     def close(self):
@@ -853,7 +1103,7 @@ class Browser:
             self.drag_axes.end_pan()
             self.drag_axes = None
         self.canvas.cancel_pending_draws()
-        for job in (self.poll_job, self.view_job, self.fft_job):
+        for job in (self.poll_job, self.view_job, self.fft_job, self.selection_job):
             if job:
                 self.root.after_cancel(job)
         self.executor.shutdown(wait=False, cancel_futures=True)

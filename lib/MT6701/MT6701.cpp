@@ -20,9 +20,9 @@ bool MT6701::readAngle(float &degrees) {
   return true;
 }
 
-float MT6701::relativeAngle(float degrees, float zero, bool reverse) {
-  float delta = degrees - zero;
+float MT6701::relativeAngle(float degrees, float offset) {
+  float delta = degrees - offset;
   if (delta > 180.0f) delta -= 360.0f;
   else if (delta < -180.0f) delta += 360.0f;
-  return reverse ? -delta : delta;
+  return delta;
 }

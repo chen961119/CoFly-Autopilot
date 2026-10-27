@@ -1,6 +1,7 @@
 #include "radio_comm/radio_comm.h"
 #include "control/control_output.h"
 #include "control/control_modes.h"
+#include "control/control_pipeline.h"
 #include "parameters/control_parameters.h"
 #include "logging/logger.h"
 #include "ground_station_service/sd_file_service.h"
@@ -248,6 +249,13 @@ namespace
     LOG_ARRAY(configurationControlOutput.measuredAngles);
     LOG_ARRAY(configurationControlOutput.measuredRates);
     LOG_ARRAY(configurationControlOutput.rateTargets);
+
+    // 8. 本机混控/融合后的逻辑指令，保留 PWM 映射前的实际值。
+    LOG_FIELD(commands.local.aileron1);
+    LOG_FIELD(commands.local.aileron2);
+    LOG_FIELD(commands.local.elevator);
+    LOG_FIELD(commands.local.throttle);
+    LOG_FIELD(commands.local.rudder);
 
 #undef LOG_ARRAY
 #undef LOG_FIELD

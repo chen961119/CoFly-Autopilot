@@ -6,6 +6,7 @@
 #include "system/flight_lock.h"
 #include "system/device_reboot.h"
 #include "sensors/sensor_processing.h"
+#include "sensors/sensor_calibration.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 #include "radio_comm/radio_comm.h"
 #include "parameters/parameter_service.h"
@@ -14,8 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-GroundStationResult requestGroundCalibration(const char *) { return GroundStationResult::NotImplemented; }
-GroundStationResult requestGroundSensorSetting(const char *, const char *) { return GroundStationResult::NotImplemented; }
+const char *requestGroundCalibration(const char *sensor) { return startSensorCalibration(sensor); }
+const char *requestGroundSensorSetting(const char *, const char *) { return "NOT_IMPLEMENTED"; }
 
 namespace {
 float groundAcceleration(float value) {
@@ -59,6 +60,14 @@ bool activeSensor(const char *name) {
 #endif
   return false;
 }
+
+void calibrationReply(uint32_t id, const char *kind, char *response, size_t capacity) {
+  const auto state = sensorCalibrationSnapshot();
+  snprintf(response, capacity,
+    "@COFLY\t%lu\t%s\tsensor=%s\tstatus=%s\tprogress=%u\terror=%s\tstorage=%s\n",
+    static_cast<unsigned long>(id), kind, state.sensor, state.status,
+    static_cast<unsigned>(state.progress), state.error, state.storage);
+}
 }
 
 void handleGroundStationCommand(char *line, char *response, size_t capacity) {
@@ -75,7 +84,8 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
   }
   const char *code = "SYNTAX", *message = "Invalid GCS arguments";
   if (!strcmp(tokens[1], "RC_SAVE") && count == 19) {
-    if (!isFlightLocked()) { code = "LOCK_REQUIRED"; message = "Lock aircraft before radio calibration"; }
+    if (sensorCalibrationBusy()) { code = "BUSY"; message = "Sensor calibration in progress"; }
+    else if (!isFlightLocked()) { code = "LOCK_REQUIRED"; message = "Lock aircraft before radio calibration"; }
     else if (!radioInputValid()) { code = "RADIO_INVALID"; message = "Receiver signal missing or invalid"; }
     else if (!saveRadioCalibrationParameters(const_cast<const char *const *>(tokens + 3))) {
       code = "SAVE_FAILED"; message = "Invalid calibration or SD write failed; live parameters unchanged";
@@ -87,6 +97,10 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     return;
   }
   if (!strcmp(tokens[1], "REBOOT") && count == 3) {
+    if (sensorCalibrationBusy()) {
+      snprintf(response, capacity, "@COFLY\t%lu\tERROR\tBUSY\tSensor calibration in progress\n", static_cast<unsigned long>(id));
+      return;
+    }
     if (requestDeviceReboot())
       snprintf(response, capacity, "@COFLY\t%lu\tREBOOT\tstatus=REBOOTING\n", static_cast<unsigned long>(id));
     else
@@ -125,20 +139,19 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     const char *radio = "DISABLED";
 #endif
     snprintf(response, capacity,
-      "@COFLY\t%lu\tCAPS\tversion=1\timu=%s\texternal=%s\tairspeed=MS4525\trotate=MT6701\tbarometer=%s\tradio=%s\tcalibration=STUB\tsensor_setting=STUB\tflight_modes=REMOVED\treboot=SUPPORTED\tradio_calibration=SUPPORTED\tsd_files=USB_V1\tsd_block=4096\n",
+      "@COFLY\t%lu\tCAPS\tversion=1\timu=%s\texternal=%s\tairspeed=MS4525\trotate=MT6701\tbarometer=%s\tradio=%s\tcalibration=SUPPORTED\tsensor_setting=STUB\tflight_modes=REMOVED\treboot=SUPPORTED\tradio_calibration=SUPPORTED\tsd_files=USB_V1\tsd_block=4096\n",
       static_cast<unsigned long>(id), imu, external, barometer, radio);
     return;
   }
   if (!strcmp(tokens[1], "DATA") && count == 3) {
     const char *mode = currentFlightMode == MANUAL_MODE ? "MANUAL" : "STABILIZE";
     // Snapshot existing measurements only. No invented ground speed/altitude.
-    float relativeRoll = 0;
-    const bool relativeValid = localWingRelativeAngle(relativeRoll);
+    const bool relativeValid = rotateSensorValid();
     const int written = snprintf(response, capacity,
       "@COFLY\t%lu\tDATA\tms=%lu\troll=%.3f\tpitch=%.3f\tyaw=%.3f\tgx=%.3f\tgy=%.3f\tgz=%.3f\tax=%.3f\tay=%.3f\taz=%.3f\tairspeed=%.3f\tangle=%.3f\tangle_valid=%d\trc1=%d\trc2=%d\trc3=%d\trc4=%d\trc5=%d\trc6=%d\trc7=%d\trc8=%d\tn1=%.3f\tn2=%.3f\tn3=%.3f\tn4=%.3f\tn5=%.3f\tn6=%.3f\tn7=%.3f\tn8=%.3f\tmode=%s\tlocked=%d\tradio_valid=%d\n",
       static_cast<unsigned long>(id), millis(), Units::toDegrees(att[0]), Units::toDegrees(att[1]), Units::toDegrees(att[2]),
       Units::toDegrees(ang_vel[0]), Units::toDegrees(ang_vel[1]), Units::toDegrees(ang_vel[2]), groundAcceleration(acc[0]), groundAcceleration(acc[1]), groundAcceleration(acc[2]),
-      airspeed, Units::toDegrees(relativeRoll), relativeValid, radio_channel1_raw,
+      airspeed, Units::toDegrees(relativeAngle_ready), relativeValid, radio_channel1_raw,
       radio_channel2_raw, radio_channel3_raw, radio_channel4_raw, radio_channel5_raw, radio_channel6_raw, radio_channel7_raw, radio_channel8_raw,
       radio_channel1_normalized, radio_channel2_normalized, radio_channel3_normalized, radio_channel4_normalized,
       radio_channel5_normalized, radio_channel6_normalized, radio_channel7_normalized, radio_channel8_normalized,
@@ -177,8 +190,17 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
                static_cast<unsigned long>(id));
     return;
   }
-  if (!strcmp(tokens[1], "CALIBRATE") && count == 4 && activeSensor(tokens[3])) {
-    requestGroundCalibration(tokens[3]); code = "NOT_IMPLEMENTED"; message = "Calibration USB job reserved for V2";
+  if (!strcmp(tokens[1], "CAL_STATUS") && count == 3) {
+    calibrationReply(id, "CAL_STATUS", response, capacity);
+    return;
+  }
+  if (!strcmp(tokens[1], "CALIBRATE") && count == 4) {
+    code = requestGroundCalibration(tokens[3]);
+    if (!code) {
+      calibrationReply(id, "CALIBRATE", response, capacity);
+      return;
+    }
+    message = "Calibration rejected; lock aircraft and select a supported sensor";
   } else if (!strcmp(tokens[1], "SENSOR_SET") && count == 5 && activeSensor(tokens[3])) {
     requestGroundSensorSetting(tokens[3], tokens[4]); code = "NOT_IMPLEMENTED"; message = "Sensor setting reserved for V2";
   }

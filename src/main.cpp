@@ -16,6 +16,7 @@
 #include "parameters/parameter_service.h"
 #include "radio_comm/radio_comm.h"
 #include "sensors/sensor_processing.h"
+#include "sensors/sensor_calibration.h"
 #include "telemetry/telemetry.h"
 #include <Arduino.h>
 
@@ -68,6 +69,7 @@ void loop() {
   updateInertialSensors();
   getairspeed();
   getRotateSensor1();
+  pollSensorCalibration();
   ProcessButtonState();
   displayAttitude();
   Strain_read_all();

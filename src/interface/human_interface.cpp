@@ -9,6 +9,7 @@
 #include <Wire.h>
 #include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
+#include "sensors/sensor_calibration.h"
 #include "system/flight_lock.h"
 #include "actuators/actuator_output.h"
 #include "parameters/parameter_service.h"
@@ -260,15 +261,14 @@ void displayAttitude() {
     return;
   }
 
-  // 第一行：相对滚转角
+  // 第一行：MT6701 减去零点后的相对角。
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE); // 白色文字。
   display.fillRect(30, 0, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 0);
   display.print("Relat: ");
-  float relativeRoll;
-  if (localWingRelativeAngle(relativeRoll)) {
-    display.print(Units::toDegrees(relativeRoll), 1);
+  if (rotateSensorValid()) {
+    display.print(Units::toDegrees(relativeAngle_ready), 1);
     display.print((char)247); // 度符号°
   } else {
     display.print("--");
@@ -346,7 +346,7 @@ void ProcessButtonState() {
     // 判断是短按还是长按释放
     if (millis() - buttonPressTime < LONG_PRESS_TIME) {
       if (millis() - buttonPressTime >= SHORT_PRESS_TIME) {
-        ResetRotateSensor();
+        if (!sensorCalibrationBusy()) ResetRotateSensor();
       }
       // 如果短于SHORT_PRESS_TIME，不视为有效短按
     }
@@ -398,7 +398,7 @@ void ProcessButtonState() {
     // 标定会阻塞主循环；先锁定并立即写出安装中位。
     setFlightLocked(true);
     commandSafeActuatorPositions();
-    calculate_IMU_error();
+    if (!sensorCalibrationBusy()) calculate_IMU_error();
     USBSerial.println("校准IMU完成");
     // delay(500);
   }

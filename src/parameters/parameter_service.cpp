@@ -474,6 +474,8 @@ bool parameterRebootRequired() {
   return rebootRequired;
 }
 
+bool parameterWritesPending() { return sdSave.dirty || eeSave.dirty; }
+
 bool saveImuCalibrationParameters(const float *offsets) {
   if (!table || !count || !offsets || !isFlightLocked())
     return false;

@@ -95,7 +95,7 @@ void initBAROMETER();
 void initializeRotateSensor();
 bool rotateSensorValid();
 void getRotateSensor1();
-void ResetRotateSensor();
+bool ResetRotateSensor();
 void loadRotateSensorOffset();
 void calibrateAirspeedSensor();
 void calibrateAttitude();
