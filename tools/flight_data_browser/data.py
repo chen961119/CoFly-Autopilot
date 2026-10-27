@@ -16,13 +16,6 @@ class LogError(ValueError):
 
 
 @dataclass(frozen=True)
-class Segment:
-    start: float
-    stop: float
-    label: str
-
-
-@dataclass(frozen=True)
 class FlightLog:
     path: Path
     columns: tuple[str, ...]
@@ -32,9 +25,6 @@ class FlightLog:
     time_source: str
     time_unit: str
     warnings: tuple[str, ...]
-    in_air: tuple[Segment, ...]
-    in_air_source: str
-    modes: tuple[Segment, ...]
 
     def column(self, name: str) -> np.ndarray:
         return self.data[:, self.columns.index(name)]
@@ -44,8 +34,7 @@ class FlightLog:
                     duration_seconds=float(self.time[-1]), sample_rate_hz=self.sample_rate,
                     time_source=self.time_source, time_unit=self.time_unit,
                     memory_bytes=self.data.nbytes + self.time.nbytes,
-                    warnings=list(self.warnings), in_air_source=self.in_air_source,
-                    in_air=[vars(s) for s in self.in_air], modes=[vars(s) for s in self.modes])
+                    warnings=list(self.warnings))
 
 
 def _headers(raw: list[str]) -> tuple[str, ...]:
@@ -209,89 +198,6 @@ def _time_base(columns, data, requested_column, requested_unit, fallback_hz, war
     return data, time, rate, name, unit
 
 
-def _runs(mask: np.ndarray):
-    edges = np.diff(np.r_[False, mask, False].astype(np.int8))
-    return zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1) - 1)
-
-
-def _smooth_mask(mask, time, close_seconds, min_seconds):
-    mask = mask.copy()
-    dt = float(np.median(np.diff(time)))
-    for start, stop in _runs(~mask):
-        if start > 0 and stop + 1 < len(mask) and time[stop + 1] - time[start - 1] - dt <= close_seconds:
-            mask[start:stop + 1] = True
-    for start, stop in _runs(mask):
-        if time[stop] - time[start] + dt < min_seconds:
-            mask[start:stop + 1] = False
-    return mask
-
-
-def _in_air(columns, data, time):
-    candidates = ["airspeed", "ActuatorOutput[3]", "A_thro_PWM", "thro_PWM",
-                  "radio_channel3_normalized", "RC_CH3", "CH3_NORMALIZED", "CH3_PWM",
-                  *[f"{node}thro_PWM" for node in "BCDEFG"]]
-    for name in candidates:
-        if name not in columns:
-            continue
-        series = data[:, columns.index(name)]
-        good = series[np.isfinite(series)]
-        if not len(good):
-            continue
-        if name == "airspeed":
-            threshold, gap, minimum = max(8, 0.25 * np.quantile(good, 0.99)), 2, 1
-        elif name in ("radio_channel3_normalized", "RC_CH3", "CH3_NORMALIZED"):
-            threshold = max(-0.7, min(-0.2, np.min(good) + 0.25 * np.ptp(good)))
-            gap, minimum = 3, 2
-        else:
-            threshold = max(1150, min(1400, np.min(good) + 0.25 * np.ptp(good)))
-            gap, minimum = 3, 2
-        mask = _smooth_mask(np.isfinite(series) & (series > threshold), time, gap, minimum)
-        # Do not paint a flight interval across a long missing-data gap.
-        segments = []
-        for start, stop in _runs(mask):
-            splits = np.flatnonzero(np.diff(time[start:stop + 1]) > gap) + start + 1
-            bounds = np.r_[start, splits, stop + 1]
-            for left, right in zip(bounds[:-1], bounds[1:]):
-                if time[right - 1] - time[left] >= minimum:
-                    segments.append(Segment(float(time[left]), float(time[right - 1]), "In air (estimate)"))
-        if segments:
-            return tuple(segments), name
-    return (), "none"
-
-
-def _modes(columns, data, time):
-    if "currentFlightMode" in columns:
-        values = data[:, columns.index("currentFlightMode")]
-        codes = np.where(values == 0, 1, np.where((values == 1) | (values == 2), 2, 0))
-        boundaries = np.r_[0, np.flatnonzero(np.diff(codes)) + 1, len(time)]
-        # 当前固件发布 0（手动）和 1（增稳）；保留历史增稳值 2 的读取兼容。
-        names = {0: "Unknown", 1: "Manual", 2: "Stabilize"}
-        return tuple(Segment(float(time[a]), float(time[b - 1]), names[int(codes[a])])
-                     for a, b in zip(boundaries[:-1], boundaries[1:]))
-    if "radio_channel5_normalized" in columns:
-        name, high = "radio_channel5_normalized", 0.0
-        values = data[:, columns.index(name)]
-        codes = np.where(~np.isfinite(values), 0, np.where(values > high, 1, 2))
-        boundaries = np.r_[0, np.flatnonzero(np.diff(codes)) + 1, len(time)]
-        names = {0: "Unknown", 1: "Manual", 2: "Stabilize"}
-        return tuple(Segment(float(time[a]), float(time[b - 1]), names[int(codes[a])])
-                     for a, b in zip(boundaries[:-1], boundaries[1:]))
-    elif "RC_CH5" in columns:
-        name, low, high = "RC_CH5", -0.2, 0.2
-    elif "CH5_NORMALIZED" in columns:
-        name, low, high = "CH5_NORMALIZED", -0.2, 0.2
-    elif "CH5_PWM" in columns:
-        name, low, high = "CH5_PWM", 1400, 1600
-    else:
-        return ()
-    values = data[:, columns.index(name)]
-    codes = np.where(~np.isfinite(values), 0, np.where(values > high, 1, np.where(values < low, 3, 2)))
-    boundaries = np.r_[0, np.flatnonzero(np.diff(codes)) + 1, len(time)]
-    names = {0: "Unknown", 1: "Manual", 2: "Stab1", 3: "Stab2"}
-    return tuple(Segment(float(time[a]), float(time[b - 1]), names[int(codes[a])])
-                 for a, b in zip(boundaries[:-1], boundaries[1:]))
-
-
 def load_log(file, *, delimiter=None, encoding="utf-8-sig", time_column=None,
              time_unit="auto", fallback_hz=50.0, skip_bad_rows=False, chunk_rows=32768) -> FlightLog:
     """Read a header + numeric table. Preserve units and never truncate columns."""
@@ -302,11 +208,9 @@ def load_log(file, *, delimiter=None, encoding="utf-8-sig", time_column=None,
     if not len(data):
         raise LogError("文件没有数据样本。")
     data, time, rate, source, unit = _time_base(columns, data, time_column, time_unit, fallback_hz, warnings)
-    in_air, in_air_source = _in_air(columns, data, time) if len(time) > 1 else ((), "none")
-    modes = _modes(columns, data, time)
     data.setflags(write=False)
     time.setflags(write=False)
-    return FlightLog(path, columns, data, time, rate, source, unit, tuple(warnings), in_air, in_air_source, modes)
+    return FlightLog(path, columns, data, time, rate, source, unit, tuple(warnings))
 
 
 @dataclass(frozen=True)
@@ -389,20 +293,3 @@ def display_series(time, values, *, max_points=6000, smooth_samples=1):
             selected.add(start + int(np.flatnonzero(~finite)[0]))
     selected = np.array(sorted(selected))
     return time[selected], values[selected]
-
-
-def describe_variable(name):
-    lower = name.lower()
-    if "_control_us" in lower:
-        return "机间有符号控制偏移（μs），尚未应用本机中位、rev 与 trim；不是物理 PWM。"
-    if name == "current_time" or "timestamp" in lower or lower.startswith("time"):
-        return "原始记录时间戳；图中横轴转换为秒，并从本文件第一个有效样本开始。"
-    for token, text in (("mt6701", "MT6701 夹角传感器"), ("airspeed", "空速测量"),
-                        ("strain", "应变传感器"), ("indi", "俯仰 INDI 控制状态"),
-                        ("gyro", "陀螺仪角速度"), ("acc", "加速度计测量"),
-                        ("roll", "滚转状态/目标/控制量"), ("pitch", "俯仰状态/目标/控制量"),
-                        ("yaw", "偏航状态/目标/控制量"), ("phi", "相邻机体构型角/目标/控制量"),
-                        ("pwm", "遥控输入或执行器 PWM；具体物理含义以日志版本为准")):
-        if token in lower:
-            return text + f"；字段：{name}。"
-    return f"日志字段：{name}；保留原表头单位。"

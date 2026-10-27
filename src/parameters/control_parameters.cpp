@@ -29,14 +29,11 @@ float Ki_airspeed = 0.01f;
 float airspeed_lpf_hz = 2.0f;
 float Kp_roll_angle = 7.5f;  // 滚转角比例增益。
 float Ki_roll_angle = 0.0f;   // 滚转角积分增益。
-float Kd_roll_angle = 0.0;   // 滚转角微分增益；串级滚转 PID 不使用该参数。
 float B_loop_roll = 1.0;     // 滚转外环阻尼系数，范围 0～1。
 float Kp_pitch_angle = 3.6f; // 俯仰角比例增益。
 float Ki_pitch_angle = 0.0f;  // 俯仰角积分增益。
-float Kd_pitch_angle = 0.00; // 俯仰角微分增益；串级俯仰 PID 不使用该参数。
 float B_loop_pitch = 1.0;    // 俯仰外环阻尼系数，范围 0～1。
 float Kp_Flap = 6.0f;         // 襟翼角度比例增益。
-float B_loop_FLAP = 0.0;
 // INDI 的 q、dq 抬头为正；升降舵偏角 delta_e 下偏为正，单位 rad。
 float indi_pitch_q_gain = 25.0f;           // 单位 1/s；dq_des = Kq * (q_des - q_filtered)。
 float indi_pitch_effectiveness = -113.65f; // 局部舵效 G，单位 (rad/s^2)/rad；负值表示下偏使俯仰角加速度减小。

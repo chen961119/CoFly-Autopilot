@@ -91,7 +91,7 @@
 | `ground_station_service.cpp` | DATA/CONFIG 的姿态、角速度和相对角在输出边界转回原显示单位；内置加速度回到旧 GCS 的 g，外置保持旧 m/s² | A：各字段边界契约；B；未连接真实地面站作 UI 实测 |
 | `interface/human_interface.cpp` | 三轴姿态和相对角送 OLED 度符号前转度 | A：四个显示入口；B；未上板观察 OLED |
 | `diagnostics/debug_print.cpp` | 构型字段改名、打印 rad 与六位小数；等效滚转全局字段改名 | A：格式、字段与单位一致；B |
-| `logging/logger.cpp` | 跟随全局字段改名、直接记录 SI；新增 `si_units_version=1`，时间/PWM 列原样保留 | A：字段清单与单一表头/数据写入路径；B；未写真实 SD 卡 |
+| `logging/logger.cpp` | 跟随全局字段改名、直接记录 SI；时间/PWM 列原样保留 | A：字段清单与单一表头/数据写入路径；B；未写真实 SD 卡 |
 | 传感器、通信头文件与相关 README、INDI 文档 | 同步单位说明、全局/局部边界和日志列语义 | A：与上表及实际声明交叉核对 |
 | `tools/verification/verify_si_units.py` | 可重复的基线对照、硬件桩和范围审计，不烧写设备 | 自身实际执行，结果见下节 |
 
@@ -136,7 +136,7 @@ git diff --check
 - `relativeAngle_offset`、`calAccGyroData`、`appliedImuCalibration` 属于原有持久化标定参数，存储值、校验和算法、范围和参数键保持不变。
 - 命令帧仍为 40 字节，状态帧仍为 34 字节，遥测帧仍为 19 字节；没有把线上度制数值直接解释为弧度。
 - 现有地面站和 OLED 的角度显示尺度保持不变。旧 GCS 加速度本身有内置 g / 外置 m/s² 的历史差别，本次只统一固件全局物理状态，不改变旧客户端协议。
-- 新日志的同名 `att/ang_vel/ang_acc/acc` 列语义已经变为 SI；使用 `si_units_version=1` 区分历史日志。INDI、构型及等效滚转字段列名随成员一起更新。`current_time` 仍为 μs，`dt` 仍为 s，`ActuatorOutput` 仍为 μs。
+- 新日志的同名 `att/ang_vel/ang_acc/acc` 列语义已经变为 SI；日志不包含单位版本列，历史日志的单位需结合来源固件确认。INDI、构型及等效滚转字段列名随成员一起更新。`current_time` 仍为 μs，`dt` 仍为 s，`ActuatorOutput` 仍为 μs。
 
 ## 5. 精确修改行清单
 

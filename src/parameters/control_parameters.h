@@ -27,14 +27,11 @@ extern float Kp_airspeed, Ki_airspeed; // 油门/(m/s)、油门/(m/s*s)。
 extern float airspeed_lpf_hz; // 控制器反馈一阶低通截止频率；0 直通。
 extern float Kp_roll_angle;
 extern float Ki_roll_angle;
-extern float Kd_roll_angle;
 extern float B_loop_roll;
 extern float Kp_pitch_angle;
 extern float Ki_pitch_angle;
-extern float Kd_pitch_angle;
 extern float B_loop_pitch;
 extern float Kp_Flap;
-extern float B_loop_FLAP;
 extern float indi_pitch_q_gain;
 extern float indi_pitch_effectiveness;
 extern float indi_pitch_pwm_to_rad_k;

@@ -164,9 +164,6 @@ namespace
     // 1. 本周期时间戳（us）与循环间隔（s）。
     LOG_FIELD(current_time);
     LOG_FIELD(dt);
-    // Identify SI physical columns in logs that share names with older firmware.
-    // Time and PWM units retain their original definitions.
-    writer.field("si_units_version", 1);
 
     // 2. 本机传感器发布值和滤波值；不读取其他飞机的传感器状态。
     LOG_ARRAY(quat);
@@ -177,11 +174,6 @@ namespace
     LOG_ARRAY(acc);
     LOG_FIELD(airspeed);
     LOG_ARRAY(strain_value);
-    LOG_FIELD(airdata.aoa);
-    LOG_FIELD(airdata.aos);
-    LOG_FIELD(airdata.tas);
-    LOG_FIELD(airdata.statA);
-    LOG_FIELD(airdata.statS);
     LOG_FIELD(relativeAngle_raw);
     LOG_FIELD(relativeAngle_ready);
     LOG_FIELD(rotateSensorValid());

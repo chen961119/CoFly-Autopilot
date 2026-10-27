@@ -67,4 +67,4 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 模式准备函数在更新本周期模式及俯仰算法后发布 `controlModeChanged`，供控制器重置状态。`ControlParameters::integralControlEnabled` 是本机 SD 整数参数（0 关闭、1 开启，默认 1），独立于手动/增稳模式；主从控制入口读取它进行 PID 积分门控，关闭时清除积分历史。
 
-全局物理量的 SI 单位、命名迁移、兼容边界与逐处验证见 [全局变量 SI 迁移报告](../docs/global-si-migration.md)。日志新增 `si_units_version=1` 标识；时间与 PWM 单位保持原约定。
+全局物理量的 SI 单位、命名迁移、兼容边界与逐处验证见 [全局变量 SI 迁移报告](../docs/global-si-migration.md)。日志直接记录 SI 物理量；时间与 PWM 单位保持原约定。
