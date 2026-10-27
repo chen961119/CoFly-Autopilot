@@ -134,7 +134,7 @@ class ParameterConsole:
             terminal_row = 0
         else:
             outer.rowconfigure(5, weight=2)
-        terminal_tools = ttk.Frame(terminal_outer)
+        self.terminal_tools = terminal_tools = ttk.Frame(terminal_outer)
         terminal_tools.grid(row=terminal_row, column=0, sticky="ew", pady=(0, 6))
         ttk.Button(terminal_tools, text="清空", command=lambda: self._clear_terminal()).pack(side="left")
         ttk.Button(terminal_tools, text="导出窗口内容", command=self.export_terminal).pack(side="left", padx=8)
@@ -672,7 +672,7 @@ class ParameterConsole:
             operation = self.pending["kind"]
             self._finish_request("写入结果未确认，请重新读取参数；不要重复发送写入命令" if operation == "SET"
                                  else "读取超时，请检查固件版本和串口后重新读取")
-        self.poll_timer = self.root.after(30, self._poll)
+        self.poll_timer = self.root.after(1 if getattr(self, "sd_browser", None) else 30, self._poll)
 
     def close(self):
         self.root.after_cancel(self.poll_timer)

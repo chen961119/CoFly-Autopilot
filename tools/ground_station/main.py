@@ -15,6 +15,7 @@ from wing_geometry import ORDERS, configuration_ready, aircraft_attitudes, wing_
 from auto_connect import FlightControllerDetector
 from radio_calibration import RadioCalibrationDialog
 from terminal_filter import AutomaticQueryFilter
+from sd_files import SdFileDialog
 
 SETTINGS_PATH = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CoFly" / "ground_station.json"
 
@@ -54,6 +55,7 @@ class GroundStation(ParameterConsole):
         self.deferred_action = None
         self.radio_calibration = None
         self.radio_save = None
+        self.sd_browser = None
         self.last_data = 0
         self.data = {}
         self.configuration = {}
@@ -118,6 +120,8 @@ class GroundStation(ParameterConsole):
         self.link_type_box.bind("<<ComboboxSelected>>", self._select_link_type)
         ttk.Label(preset, text="支持自动识别 USB / X6；也可手动选择端口连接。").pack(side="left")
         super()._build_widgets()
+        self.sd_download_button = ttk.Button(self.terminal_tools, text="下载 SD 卡内容…", command=self._open_sd_files)
+        self.sd_download_button.pack(side="right")
         parameter_actions = ttk.Frame(self.parameter_parent)
         parameter_actions.pack(before=self.parameter_parent.winfo_children()[0], fill="x", padx=12, pady=(8, 0))
         self.parameter_read = self.read_button = ttk.Button(parameter_actions, text="读取参数", command=self.read_parameters)
@@ -407,7 +411,7 @@ class GroundStation(ParameterConsole):
         super()._update_controls()
         if hasattr(self, "parameter_read"):
             polling = self.gcs_pending is not None and self.gcs_pending["verb"] in ("DATA", "CONFIG")
-            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.deferred_action is None and self.radio_save is None
+            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.deferred_action is None and self.radio_save is None and self.sd_browser is None
             self.radio_calibrate_button.configure(state="normal" if idle and self.caps.get("radio_calibration") == "SUPPORTED" and self.caps.get("radio") != "DISABLED" else "disabled")
             self.calibration_radio_button.configure(state=self.radio_calibrate_button.cget("state"))
             self.read_button.configure(state="normal" if idle else "disabled")
@@ -417,8 +421,15 @@ class GroundStation(ParameterConsole):
             self.parameter_save_file.configure(state="normal" if files_ready else "disabled")
             self.probe_button.configure(state="normal" if idle else "disabled")
             self.reboot_button.configure(state="normal" if idle and self.caps.get("reboot") == "SUPPORTED" else "disabled")
+            sd_ready = (idle and self.link_type.get() == "USB" and self.caps.get("sd_files") == "USB_V1"
+                        and self.data.get("locked") == 1 and time.monotonic() - self.last_data <= 2)
+            self.sd_download_button.configure(state="normal" if sd_ready else "disabled")
             for button in self.action_buttons:
                 button.configure(state="normal" if idle and self.caps else "disabled")
+        if self.sd_browser:
+            self.send_button.configure(state="disabled")
+            self.command_box.configure(state="disabled")
+            self._cancel_edit()
         self.link_type_box.configure(state="disabled" if self.worker else "readonly")
         self.link_label.set(f"● {self.link_type.get()} 已连接" if self.connected else
                             "● 自动检测飞控" if self.auto_connect.get() and not self.auto_paused else "● 未连接")
@@ -426,7 +437,7 @@ class GroundStation(ParameterConsole):
     def _start_request(self, *args):
         if self._defer_for_poll(self._start_request, *args):
             return
-        if self.gcs_pending or self.radio_calibration or self.radio_save:
+        if self.gcs_pending or self.radio_calibration or self.radio_save or self.sd_browser:
             self.status.set("正在接收串口数据，请稍后再试")
             return
         super()._start_request(*args)
@@ -453,7 +464,7 @@ class GroundStation(ParameterConsole):
     def _calibrate_radio(self):
         if self._defer_for_poll(self._calibrate_radio):
             return
-        if self.radio_calibration or not self.connected or self.pending or self.gcs_pending or self.file_import:
+        if self.sd_browser or self.radio_calibration or not self.connected or self.pending or self.gcs_pending or self.file_import:
             return
         if time.monotonic() - self.last_data > 0.5 or self.data.get("locked") != 1 or self.data.get("radio_valid") != 1:
             self.status.set("请先锁定飞机并打开遥控器，等待有效实时数据后再校准")
@@ -469,10 +480,31 @@ class GroundStation(ParameterConsole):
     def _terminal_payload(self, kind, payload):
         return self.terminal_filter.feed(kind, payload)
 
+    def _open_sd_files(self):
+        if self._defer_for_poll(self._open_sd_files):
+            return
+        if (self.sd_browser or not self.connected or self.pending or self.gcs_pending or self.file_import
+                or self.radio_calibration or self.radio_save):
+            return
+        if self.link_type.get() != "USB" or self.caps.get("sd_files") != "USB_V1":
+            self.status.set("请通过 USB 连接，并更新支持 SD 文件下载的飞控固件")
+            return
+        if self.data.get("locked") != 1 or time.monotonic() - self.last_data > 2:
+            self.status.set("请先锁定飞机，等待锁定状态更新后再打开 SD 文件窗口")
+            return
+        self._cancel_edit()
+        self.sd_browser = SdFileDialog(self)
+        self._update_controls()
+        self.sd_browser.load("/")
+
+    def send_command(self):
+        if not self.sd_browser:
+            super().send_command()
+
     def _request(self, verb, *args, automatic=False):
         if not automatic and verb not in ("DATA", "CONFIG") and self._defer_for_poll(self._request, verb, *args):
             return
-        if not self.connected or self.pending or self.gcs_pending or self.file_import is not None:
+        if self.sd_browser or not self.connected or self.pending or self.gcs_pending or self.file_import is not None:
             return
         self.request_id = (self.request_id + 1) & 0xffffffff
         self.gcs_pending = {"id": self.request_id, "verb": verb, "automatic": automatic,
@@ -523,6 +555,8 @@ class GroundStation(ParameterConsole):
         self._request(verb, *args)
 
     def _handle_reply(self, reply):
+        if self.sd_browser and self.sd_browser.transport.handle(reply):
+            return
         request_id, kind, fields = reply
         pending = self.gcs_pending
         if not pending or request_id != pending["id"]:
@@ -725,6 +759,8 @@ class GroundStation(ParameterConsole):
 
     def _station_tick(self):
         now = time.monotonic()
+        if self.sd_browser:
+            self.sd_browser.tick()
         self._auto_connect_tick(now)
         if self.gcs_pending and now > self.gcs_pending["deadline"]:
             verb = self.gcs_pending["verb"]
@@ -745,11 +781,13 @@ class GroundStation(ParameterConsole):
             self._update_controls()
         if self.radio_calibration and not self.radio_calibration.closed and now - self.last_data > 2:
             self.radio_calibration.cancel("数传数据中断，校准已取消，原参数保持不变")
-        if self.connected and not self.pending and not self.gcs_pending and self.file_import is None:
+        if self.connected and not self.pending and not self.gcs_pending and self.file_import is None and self.sd_browser is None:
             if self.auto_probe:
                 self.auto_probe = False
                 self._request("CAPS", automatic=True)
-            elif self.caps and (self.page in ("飞行", "遥控器", "校准") or self.radio_calibration or self.radio_save) and not (self.radio_calibration and self.radio_calibration.closed):
+            elif self.caps and (self.page in ("飞行", "遥控器", "校准")
+                               or (self.page == "串口助手" and self.link_type.get() == "USB" and self.caps.get("sd_files") == "USB_V1")
+                               or self.radio_calibration or self.radio_save) and not (self.radio_calibration and self.radio_calibration.closed):
                 self._request("DATA", automatic=True)
             elif self.auto_connect.get() and not self.auto_paused and now >= self.next_link_check:
                 self._request("CAPS", automatic=True)
@@ -767,6 +805,8 @@ class GroundStation(ParameterConsole):
         self.station_timer = self.root.after(200, self._station_tick)
 
     def disconnect(self):
+        if self.sd_browser:
+            self.sd_browser.destroy()
         self.terminal_filter = AutomaticQueryFilter()
         self.link_timeouts = 0
         self.next_link_check = 0
@@ -792,6 +832,11 @@ class GroundStation(ParameterConsole):
         self.sensor_note.set("连接并识别固件后显示传感器。")
 
     def close(self):
+        if self.sd_browser:
+            if self.connected and self.worker:
+                self.request_id = self.request_id % 0xffffffff + 1
+                self.worker.send(f"SD CANCEL {self.request_id}\n".encode("ascii"))
+            self.sd_browser.destroy()
         if self.auto_detector:
             self.auto_detector.stop()
             self.auto_detector.join(timeout=0.5)
