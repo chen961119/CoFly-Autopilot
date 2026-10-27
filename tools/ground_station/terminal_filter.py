@@ -1,7 +1,7 @@
 """Hide successful automatic queries without changing protocol or raw recording."""
 from collections import OrderedDict
 
-from protocol import parse_reply
+from protocol import MAX_REPLY_LINE, parse_reply
 
 
 class AutomaticQueryFilter:
@@ -19,6 +19,8 @@ class AutomaticQueryFilter:
     def feed(self, kind, payload):
         if kind == "tx":
             parts = payload.split()
+            if len(parts) >= 3 and parts[0] == b"SD" and parts[2].isdigit() and self.requests.get(int(parts[2])) == "SD":
+                return b""
             if len(parts) == 3 and parts[0] == b"GCS" and parts[2].isdigit():
                 verb = self.requests.get(int(parts[2]))
                 if verb and parts[1] == verb.encode("ascii"):
@@ -36,13 +38,16 @@ class AutomaticQueryFilter:
             self.line.append(byte)
             if byte == 10:
                 reply = parse_reply(bytes(self.line).rstrip(b"\r\n"))
-                if reply and self.requests.get(reply[0]) == reply[1]:
-                    del self.requests[reply[0]]
+                if reply and (self.requests.get(reply[0]) == reply[1] or
+                              (self.requests.get(reply[0]) == "SD" and reply[1].startswith("SD_"))):
+                    # Keep SD IDs briefly: retransmissions may have late duplicates.
+                    if self.requests.get(reply[0]) != "SD":
+                        del self.requests[reply[0]]
                 else:
                     visible.extend(self.line)
                 self.line.clear()
             elif ((len(self.line) <= len(prefix) and not prefix.startswith(self.line))
-                  or len(self.line) > 1024):
+                  or len(self.line) > MAX_REPLY_LINE):
                 # Ordinary debug bytes are displayed immediately, including
                 # partial UTF-8 characters; only possible protocol lines wait.
                 visible.extend(self.line)

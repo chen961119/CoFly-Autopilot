@@ -5,6 +5,8 @@ import math
 import struct
 import re
 
+SD_MAX_BLOCK_SIZE = 4096
+MAX_REPLY_LINE = SD_MAX_BLOCK_SIZE * 2 + 128
 
 @dataclass(frozen=True)
 class Parameter:
@@ -61,7 +63,7 @@ class ReplyFramer:
                 self.buffer.clear()
                 self.discarding = False
             elif not self.discarding:
-                if len(self.buffer) >= 1024:
+                if len(self.buffer) >= MAX_REPLY_LINE:
                     self.buffer.clear()
                     self.discarding = True
                 else:

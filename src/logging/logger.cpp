@@ -3,6 +3,7 @@
 #include "control/control_modes.h"
 #include "parameters/control_parameters.h"
 #include "logging/logger.h"
+#include "ground_station_service/sd_file_service.h"
 #include "actuators/actuator_output.h"
 #include "config/serial_config.h"
 #include "control/command_generation.h"
@@ -263,6 +264,7 @@ namespace
 
 // 单机、编队和主从角色使用同一日志格式。
 void logFlightData() {
+  if (sdFileSessionActive()) return;
   if (!sdReady || !dataFile) return;
   const unsigned long now = micros();
   if (now - lastLogTime < 1000000UL / logfreq) return;

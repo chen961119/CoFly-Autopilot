@@ -125,7 +125,7 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     const char *radio = "DISABLED";
 #endif
     snprintf(response, capacity,
-      "@COFLY\t%lu\tCAPS\tversion=1\timu=%s\texternal=%s\tairspeed=MS4525\trotate=MT6701\tbarometer=%s\tradio=%s\tcalibration=STUB\tsensor_setting=STUB\tflight_modes=REMOVED\treboot=SUPPORTED\tradio_calibration=SUPPORTED\n",
+      "@COFLY\t%lu\tCAPS\tversion=1\timu=%s\texternal=%s\tairspeed=MS4525\trotate=MT6701\tbarometer=%s\tradio=%s\tcalibration=STUB\tsensor_setting=STUB\tflight_modes=REMOVED\treboot=SUPPORTED\tradio_calibration=SUPPORTED\tsd_files=USB_V1\tsd_block=4096\n",
       static_cast<unsigned long>(id), imu, external, barometer, radio);
     return;
   }
