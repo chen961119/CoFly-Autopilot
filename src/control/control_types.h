@@ -34,10 +34,12 @@ struct IndiPitchControlOutput {
 
 struct PitchPidControlOutput {
   float pidOutput = 0; // 俯仰 PID 控制意图：正值要求抬头，由分配器转换为下偏正的舵面量。
+  float rateTarget = 0; // rad/s；耦合补偿、限幅和外环滤波后实际进入内环的机体俯仰角速度指令；未启用时为 0。
 };
 
 struct RollDampingControlOutput {
   float dampingCommand = 0; // 归一化滚转阻尼指令：与舵面命令相加，最终按本机两侧行程映射。
+  float rateTarget = 0; // rad/s；本机滚转阻尼的角速度指令，固定为 0。
 };
 
 struct RollControlOutput {
@@ -45,6 +47,7 @@ struct RollControlOutput {
   float filteredPidOutput = 0; // PID 控制量的低通滤波值。
   float filteredPidOutputDerivative = 0; // PID 控制量对时间的导数，经低通滤波。
   float equivalentRollAngle = 0; // 反馈使用的等效滚转角，单位 rad；单机时为本机滚转角。
+  float rateTarget = 0; // rad/s；限幅和外环滤波后实际进入内环的滚转角速度指令，编队时对应平均角速度反馈；未启用时为 0。
 };
 
 struct YawRateControlOutput {
@@ -54,6 +57,7 @@ struct YawRateControlOutput {
   float integralTerm = 0; // 乘 Ki 后限幅的 I 项。
   float derivativeTerm = 0;
   float feedforwardTerm = 0;
+  float rateTarget = 0; // rad/s；遥控偏航角速度目标加协调转弯前馈后的机体 Z 轴角速度指令；未启用时为 0。
 };
 
 struct ThrottleControlOutput {
@@ -71,6 +75,7 @@ struct ConfigurationControlOutput {
   float angleErrors[6] = {}; // rad； 目标构型角减去测量构型角。
   float measuredAngles[6] = {}; // rad； 相连两机的滚转角之差。
   float measuredRates[6] = {}; // rad/s； 相连两机的滚转角速度之差。
+  float rateTargets[6] = {}; // rad/s；限幅后实际进入各构型内环的相对角速度指令；未启用时为 0。
 };
 
 // 舵面逻辑量为 -1..1，油门为 0..1；不含本机 PWM 参数，混控贡献可超过标准范围。

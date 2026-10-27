@@ -13,6 +13,8 @@ static void mixLegacyMaster()
   const bool manual = currentFlightMode == MANUAL_MODE;
   const float roll_PID = manual ? manual_input[0] : rollControlOutput.pidOutput;
   const float rollThrottleCommand = manual ? manual_input[0] : 0.5f * rollControlOutput.pidOutput;
+  // 这里/2是因为tag0.1中对aileron在映射到混控器时乘0.4，而throttle是直接映射到混控器。然后aileron的pwm限幅现在变成tag0.2的1/5，两者结合变成了/2。
+
   // 手动/PID/INDI均为抬头正的控制意图；在分配入口取负，转换为下偏正的舵面量。
   const float elevatorCommand = manual ? -manual_input[1] :
       (activePitchController == PitchController::INDI ?
@@ -22,9 +24,9 @@ static void mixLegacyMaster()
   const float throttleCommand = manual ? manual_input[2] : throttleControlOutput.throttleCommand;
   const float roll_PID_lpf = rollControlOutput.filteredPidOutput;
   const float roll_PID_dot_lpf = rollControlOutput.filteredPidOutputDerivative;
-  const float Phiab_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[0], Phiac_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[1];
-  const float Phibd_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[2], Phice_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[3];
-  const float Phidf_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[4], Phieg_PID = (manual ? 0.5f : 1.0f) * configurationControlOutput.pidOutputs[5];
+  const float Phiab_PID = configurationControlOutput.pidOutputs[0], Phiac_PID = configurationControlOutput.pidOutputs[1];
+  const float Phibd_PID = configurationControlOutput.pidOutputs[2], Phice_PID = configurationControlOutput.pidOutputs[3];
+  const float Phidf_PID = configurationControlOutput.pidOutputs[4], Phieg_PID = configurationControlOutput.pidOutputs[5];
   const float error_Phiab = configurationControlOutput.angleErrors[0], error_Phiac = configurationControlOutput.angleErrors[1];
   const float error_Phibd = configurationControlOutput.angleErrors[2], error_Phice = configurationControlOutput.angleErrors[3];
   const float error_Phidf = configurationControlOutput.angleErrors[4], error_Phieg = configurationControlOutput.angleErrors[5];

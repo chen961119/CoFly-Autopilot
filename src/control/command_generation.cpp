@@ -19,7 +19,7 @@ void generateSlaveCommand() {
   }
 
   const float roll = targets.roll;
-  const float rollCommand = currentFlightMode == MANUAL_MODE ? 2.0f * manual_input[0] : rollControlOutput.pidOutput;
+  const float rollCommand = rollControlOutput.pidOutput;
   const bool strategy1 = mixerStrategyCommand > 0.2f;
   const bool strategy2 = mixerStrategyCommand < 0.2f && mixerStrategyCommand > -0.2f;
   if (aircraftCount() == 3) {

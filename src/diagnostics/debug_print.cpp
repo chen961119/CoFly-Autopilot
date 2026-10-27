@@ -95,7 +95,7 @@ void printControlMode(int enabled) {
       "=============\n",
       static_cast<unsigned long>(frame + 1), static_cast<int>(currentFlightMode),
       static_cast<int>(previousFlightMode), static_cast<int>(activePitchController),
-      static_cast<int>(previousPitchController), mixerStrategyCommand, configurationControlScale,
+      static_cast<int>(previousPitchController), mixerStrategyCommand, ControlParameters::configurationControlScale,
       configurationAngle, static_cast<int>(brakeEnabled), static_cast<int>(controlModeChanged),
       static_cast<int>(ControlParameters::integralControlEnabled));
   if (length <= 0 || static_cast<size_t>(length) >= sizeof(text)) return;

@@ -6,6 +6,6 @@
 using namespace ControlParameters;
 
 void RollDampingController::update() const {
-  const float Clp_PID = k_Clp * (0 - ang_vel[0]);
-  rollDampingControlOutput.dampingCommand = Clp_PID;
+  rollDampingControlOutput.rateTarget = 0.0f;
+  rollDampingControlOutput.dampingCommand = - k_Clp * ang_vel[0];
 }

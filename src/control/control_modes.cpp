@@ -14,7 +14,6 @@ PitchController previousPitchController = PitchController::PID;
 SlaveCommand slaveCommand{MANUAL_MODE, {}, {0, 0, 0, 0, 0}};
 
 float mixerStrategyCommand = 1.0f;
-float configurationControlScale = 1.0f;
 float configurationAngle = 0.0f;
 bool brakeEnabled = false;
 bool controlModeChanged = false;
@@ -31,7 +30,6 @@ void initializeInitialControlMode() {
   activePitchController = PitchController::PID;
   previousPitchController = PitchController::PID;
   mixerStrategyCommand = 1.0f;
-  configurationControlScale = 1.0f;
   configurationAngle = 0.0f;
   brakeEnabled = false;
   controlModeChanged = false;
@@ -45,9 +43,8 @@ void prepareControlMode() {
     // 主机：由本机遥控输入准备模式及混控配置。
     currentFlightMode = radio_channel5_normalized > 0.0f ? MANUAL_MODE : STABILIZE_MODE;
     mixerStrategyCommand = 1.0f; // radio_channel6_normalized;
-    configurationControlScale = 1.0f;
-    configurationAngle = Units::toRadians(radio_channel7_normalized > 0.2f ? 10.0f :
-        (radio_channel7_normalized < -0.2f ? -10.0f : 0.0f));
+    configurationAngle = Units::toRadians(radio_channel7_normalized > 0.2f ? 5.0f :
+        (radio_channel7_normalized < -0.2f ? -5.0f : 0.0f));
     // 子机减父机的滚转差：上反时左侧为正、右侧为负，相邻飞机相差 10 度。
     for (unsigned i = 0; i < 6; ++i)
       targets.configuration[i] = i % 2 == 0 ? configurationAngle : -configurationAngle;

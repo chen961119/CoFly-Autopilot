@@ -46,4 +46,5 @@ void YawRatePidController::update(float yawRateTarget, float rollTarget, float p
   yawRateControlOutput.integralTerm = integral_yaw_rate;
   yawRateControlOutput.derivativeTerm = derivative_yaw_rate;
   yawRateControlOutput.feedforwardTerm = feedforward_yaw_rate;
+  yawRateControlOutput.rateTarget = yawRateTarget + coordinatedRate;
 }

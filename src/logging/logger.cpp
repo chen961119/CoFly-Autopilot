@@ -11,6 +11,7 @@
 #include <SD.h>
 
 using ControlParameters::integralControlEnabled;
+using ControlParameters::configurationControlScale;
 
 namespace
 {
@@ -191,7 +192,7 @@ namespace
     // 4. 本机最终物理 PWM，单位 us。
     LOG_ARRAY(ActuatorOutput);
 
-    // 5. initializeInitialControlMode() 初始化的全部模式变量。
+    // 5. 模式变量和构型控制输出系数参数。
     LOG_FIELD(currentFlightMode);
     LOG_FIELD(previousFlightMode);
     LOG_FIELD(activePitchController);
@@ -216,7 +217,9 @@ namespace
     LOG_FIELD(rollControlOutput.filteredPidOutput);
     LOG_FIELD(rollControlOutput.filteredPidOutputDerivative);
     LOG_FIELD(rollControlOutput.equivalentRollAngle);
+    LOG_FIELD(rollControlOutput.rateTarget);
     LOG_FIELD(pitchPidControlOutput.pidOutput);
+    LOG_FIELD(pitchPidControlOutput.rateTarget);
     LOG_FIELD(pitchIndiControlOutput.q_dot_ref);
     LOG_FIELD(pitchIndiControlOutput.q_ref);
     LOG_FIELD(pitchIndiControlOutput.q_f);
@@ -226,11 +229,13 @@ namespace
     LOG_FIELD(pitchIndiControlOutput.delta_e_cmd);
     LOG_FIELD(pitchIndiControlOutput.delta_e_hat);
     LOG_FIELD(rollDampingControlOutput.dampingCommand);
+    LOG_FIELD(rollDampingControlOutput.rateTarget);
     LOG_FIELD(yawRateControlOutput.pidOutput);
     LOG_FIELD(yawRateControlOutput.proportionalTerm);
     LOG_FIELD(yawRateControlOutput.integralTerm);
     LOG_FIELD(yawRateControlOutput.derivativeTerm);
     LOG_FIELD(yawRateControlOutput.feedforwardTerm);
+    LOG_FIELD(yawRateControlOutput.rateTarget);
     LOG_FIELD(throttleControlOutput.throttleCommand);
     LOG_FIELD(throttleControlOutput.airspeedTarget);
     LOG_FIELD(throttleControlOutput.filteredAirspeed);
@@ -241,6 +246,7 @@ namespace
     LOG_ARRAY(configurationControlOutput.angleErrors);
     LOG_ARRAY(configurationControlOutput.measuredAngles);
     LOG_ARRAY(configurationControlOutput.measuredRates);
+    LOG_ARRAY(configurationControlOutput.rateTargets);
 
 #undef LOG_ARRAY
 #undef LOG_FIELD

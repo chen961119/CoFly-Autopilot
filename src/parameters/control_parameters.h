@@ -32,6 +32,7 @@ extern float Kp_pitch_angle;
 extern float Ki_pitch_angle;
 extern float B_loop_pitch;
 extern float Kp_Flap;
+extern float configurationControlScale; // 构型控制输出总系数，SD 参数，范围 0.2～5，默认 1。
 extern float indi_pitch_q_gain;
 extern float indi_pitch_effectiveness;
 extern float indi_pitch_pwm_to_rad_k;

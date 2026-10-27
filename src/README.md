@@ -51,7 +51,7 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 构型角目标统一使用 `targets.configuration[0～5]`，依次对应 AB、AC、BD、CE、DF、EG，初始值为零。主机 `prepareControlMode()` 每周期根据第 7 通道更新构型目标：归一化值 >0.2 时上反，左侧差值为 +10°、右侧为 -10°；<-0.2 时下反，符号相反；其余为零。每对相邻飞机的目标滚转差为 10°，外侧飞机相对 A 的目标角度逐级累加。
 
-构型控制输出系数 `configurationControlScale` 由控制模式模块持有，固定为 `1.0f`，构型控制器直接读取该全局系数。
+构型控制输出系数 `configurationControlScale` 由 `ControlParameters` 持有，是 Configuration 组的 float32 SD 参数，范围 0.2～5、默认 1，下一控制周期生效。主机六路构型控制输出统一乘该系数，模式初始化和每周期模式准备均不覆盖已加载或在线修改的值；日志及控制模式诊断继续记录当前参数值。
 
 `control/control_output.h/.cpp` 按控制器持有全局 `rollControlOutput`、`pitchPidControlOutput`、`pitchIndiControlOutput`、`rollDampingControlOutput`、`yawRateControlOutput`、`throttleControlOutput`、`configurationControlOutput`；mixer、日志及遥测直接读取。分配结果仅由 `commands.local/slaves[]` 持有。模式模块持有全局 `previousFlightMode`、`previousPitchController`；模式准备/接收阶段在覆盖当前值前保存旧值，控制入口仅判断切换。
 

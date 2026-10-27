@@ -24,8 +24,10 @@ void ConfigurationController::update(const float (&targets)[6]) {
   configurationControlOutput.measuredRates[3] = ang_vel_E[0] - ang_vel_C[0];
   configurationControlOutput.measuredRates[4] = ang_vel_F[0] - ang_vel_D[0];
   configurationControlOutput.measuredRates[5] = ang_vel_G[0] - ang_vel_E[0];
+
   // 非闭环周期不更新积分历史；保留最近的构型误差供主 mixer 使用。
   for (float &command : configurationControlOutput.pidOutputs) command = 0;
+  for (float &rateTarget : configurationControlOutput.rateTargets) rateTarget = 0;
   if (aircraftId() != 1 || aircraftIsSingle() || !isStabilizedMode(currentFlightMode)) return;
 
   configurationControlOutput.angleErrors[0] = targets[0] - configurationControlOutput.measuredAngles[0];
@@ -40,17 +42,26 @@ void ConfigurationController::update(const float (&targets)[6]) {
   Phidf_des_ol = Kp_Flap * configurationControlOutput.angleErrors[4];
   configurationControlOutput.angleErrors[5] = targets[5] - configurationControlOutput.measuredAngles[5];
   Phieg_des_ol = Kp_Flap * configurationControlOutput.angleErrors[5];
+
   Phiab_des_ol = constrain(Phiab_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
   Phiac_des_ol = constrain(Phiac_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
   Phibd_des_ol = constrain(Phibd_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
   Phice_des_ol = constrain(Phice_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
   Phidf_des_ol = constrain(Phidf_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
   Phieg_des_ol = constrain(Phieg_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
+
+  configurationControlOutput.rateTargets[0] = Phiab_des_ol;
+  configurationControlOutput.rateTargets[1] = Phiac_des_ol;
+  configurationControlOutput.rateTargets[2] = Phibd_des_ol;
+  configurationControlOutput.rateTargets[3] = Phice_des_ol;
+  configurationControlOutput.rateTargets[4] = Phidf_des_ol;
+  configurationControlOutput.rateTargets[5] = Phieg_des_ol;
+
   error_Phiab_RATE = Phiab_des_ol - configurationControlOutput.measuredRates[0];
+
   integral_Phiab_RATE_il = i_valid > 0.0f ? integral_Phiab_RATE_prev_il + error_Phiab_RATE * dt : 0.0f;
-  integral_Phiab_RATE_il =
-  constrain(integral_Phiab_RATE_il, -i_limit_FLAP_RATE,
-      i_limit_FLAP_RATE);
+  integral_Phiab_RATE_il = constrain(integral_Phiab_RATE_il, -i_limit_FLAP_RATE, i_limit_FLAP_RATE);
+
   configurationControlOutput.pidOutputs[0] = configurationControlScale *
   (Kff_FLAP_RATE * Phiab_des_ol + Kp_FLAP_RATE * error_Phiab_RATE +
       i_valid * Ki_FLAP_RATE *
@@ -100,12 +111,7 @@ void ConfigurationController::update(const float (&targets)[6]) {
   (Kff_FLAP_RATE * Phieg_des_ol + Kp_FLAP_RATE * error_Phieg_RATE +
       i_valid * Ki_FLAP_RATE *
       integral_Phieg_RATE_il);
-  Phiab_des_prev = Phiab_des_ol;
-  Phiac_des_prev = Phiac_des_ol;
-  Phibd_des_prev = Phibd_des_ol;
-  Phice_des_prev = Phice_des_ol;
-  Phidf_des_prev = Phidf_des_ol;
-  Phieg_des_prev = Phieg_des_ol;
+
   integral_Phiab_RATE_prev_il = integral_Phiab_RATE_il;
   integral_Phiac_RATE_prev_il = integral_Phiac_RATE_il;
   integral_Phibd_RATE_prev_il = integral_Phibd_RATE_il;

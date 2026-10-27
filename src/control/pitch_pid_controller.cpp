@@ -15,7 +15,7 @@ void PitchPidController::prepare(bool integralControlEnabled, bool controlModeCh
   }
 }
 void PitchPidController::update(float pitchTarget, bool enabled) {
-  pitchPidControlOutput.pidOutput = 0;
+  pitchPidControlOutput = {};
   if (!enabled) return;
   float pitch_des_ol;
   error_pitch = pitchTarget - att[1];
@@ -56,4 +56,5 @@ void PitchPidController::update(float pitchTarget, bool enabled) {
   previous_pitch_att = att[1];
   pitch_des_prev = pitch_des_ol;
   pitchPidControlOutput.pidOutput = pitch_PID;
+  pitchPidControlOutput.rateTarget = pitch_des_ol;
 }

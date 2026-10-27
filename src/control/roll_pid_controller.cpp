@@ -18,7 +18,7 @@ void RollPidController::prepare(bool integralControlEnabled, bool controlModeCha
   }
 }
 void RollPidController::update(float rollTarget, bool enabled) {
-  rollControlOutput = {0, roll_PID_lpf, roll_PID_dot_lpf, roll_eq};
+  rollControlOutput = {0, roll_PID_lpf, roll_PID_dot_lpf, roll_eq, 0};
   if (!enabled) return;
   float roll_des_ol = 0;
   if (aircraftIsSingle())
@@ -68,9 +68,7 @@ void RollPidController::update(float rollTarget, bool enabled) {
     integral_roll_ol = 0;
   }
   derivative_roll = (att[0] - previous_roll_att) / dt;
-  roll_des_ol = Kp_roll_angle * error_roll +
-  i_valid * Ki_roll_angle *
-  integral_roll_ol;
+  roll_des_ol = Kp_roll_angle * error_roll + i_valid * Ki_roll_angle * integral_roll_ol;
   roll_des_ol = constrain(roll_des_ol, -Units::toRadians(240.0f), Units::toRadians(240.0f));
   roll_des_ol = (1.0 - B_loop_roll) * roll_des_prev + B_loop_roll * roll_des_ol;
   float Rollrate;
@@ -109,11 +107,9 @@ void RollPidController::update(float rollTarget, bool enabled) {
     integral_roll_il = 0;
   }
   derivative_roll = (error_roll - error_roll_prev) / dt;
-  roll_PID =
-  (Kff_roll_rate * roll_des_ol + Kp_roll_rate * error_roll +
+  roll_PID = (Kff_roll_rate * roll_des_ol + Kp_roll_rate * error_roll +
       i_valid * Ki_roll_rate * integral_roll_il +
-      Kd_roll_rate *
-      derivative_roll);
+      Kd_roll_rate * derivative_roll);
   float tau_roll_pid = 1.0f / ((2 * PI) * roll_pid_lpf_fc);
   float alpha_roll_pid = dt / (tau_roll_pid + dt);
   roll_PID_lpf = roll_PID_lpf + alpha_roll_pid * (roll_PID - roll_PID_lpf);
@@ -152,5 +148,5 @@ void RollPidController::update(float rollTarget, bool enabled) {
   error_roll_prev = error_roll;
   previous_roll_att = att[0];
   roll_des_prev = roll_des_ol;
-  rollControlOutput = {roll_PID, roll_PID_lpf, roll_PID_dot_lpf, roll_eq};
+  rollControlOutput = {roll_PID, roll_PID_lpf, roll_PID_dot_lpf, roll_eq, roll_des_ol};
 }

@@ -39,6 +39,8 @@ macOS/Linux 使用 `python3 -m venv tools/flight_data_browser/.venv`，后续解
 
 偏航调参可搜索 `yawRateControlOutput`，对比 `proportionalTerm`、`integralTerm`、`derivativeTerm`、`feedforwardTerm` 和 `pidOutput`。四个分项均为已乘增益的混控尺度控制量，I 项已经限幅，四项之和为总输出；偏航控制未启用时均记录为 0。新字段按表头读取，旧日志不需要补列。
 
+角速度指令统一以 rad/s 记录：`rollControlOutput.rateTarget`、`pitchPidControlOutput.rateTarget`、`yawRateControlOutput.rateTarget` 和 `configurationControlOutput.rateTargets[0..5]`（AB、AC、BD、CE、DF、EG）。滚转／俯仰 PID 记录外环限幅及滤波后的内环指令，俯仰含耦合补偿；偏航记录叠加协调转弯前馈后的指令。构型指令对应相邻两机的相对滚转角速度，滚转编队指令对应平均滚转角速度反馈。未启用的控制器指令清零；滚转阻尼 `rollDampingControlOutput.rateTarget` 固定为 0。俯仰 INDI 沿用已有 `pitchIndiControlOutput.q_ref`，不另加重复列；油门控制沿用 `throttleControlOutput.airspeedTarget`（m/s）。
+
 ## 命令行与复用
 
 以下命令在本目录的环境中执行；把 `python` 换成 `.venv/Scripts/python.exe`（Windows）或 `.venv/bin/python`（macOS/Linux）。
