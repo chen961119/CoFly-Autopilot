@@ -1,5 +1,6 @@
 # PlatformIO build products and caches
 .pio/
+.nuttx/
 .pioenvs/
 .piolibdeps/
 .cache/

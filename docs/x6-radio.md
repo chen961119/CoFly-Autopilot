@@ -21,8 +21,16 @@ X6 使用透明串口传输 `GCS` / `PARAM` 文本协议。固件继续使用 Te
 1. 两端模块 UART 配置为 57600、8N1、关闭硬件流控。固件速率位于 `src/config/serial_config.h` 的 `TELEMETRY_BAUD`；修改天空端 UART 速率时也需修改固件并重新烧录，电脑串口速率与地面端 UART 匹配。
 2. 两端使用匹配的无线配置，如频段、NETID、空中速率；UART 波特率与空中速率是不同参数。
 3. 如果 X6 使用 SiK 固件，在独立配置工具中将两端 **MAVLINK 设为 0 / Raw Data**，关闭 RTS/CTS。项目传输自定义文本，需使用原始串口模式。参考 [SiK 配置说明](https://ardupilot.org/copter/docs/common-configuring-a-telemetry-radio-using-mission-planner.html)和 [SiK 高级配置](https://ardupilot.org/copter/docs/common-3dr-radio-advanced-configuration-and-technical-information.html)。非 SiK 版本按其手册选择透明模式，不能直接套用 SiK 的 AT 寄存器编号。
-4. 退出模块配置工具，启动 `tools/ground_station/start.cmd` 或 `dist/CoFlyGroundStation.exe`，选择 **3DR X6**、地面端 COM 口和 **57600** 后连接。也可在应用设置开启自动连接：同时检测 USB / X6，均可用时优先 USB；连接期间保持当前链路，中断或连续三次只读请求超时后重新选择。详细规则见 [地面站自动连接](../tools/ground_station/README.md#自动连接)。缺少 COM 口时按实际 USB 芯片安装对应驱动。
+4. 退出模块配置工具，启动 `tools/ground_station/start.cmd` 或 `dist/CoFlyGroundStation.exe`，选择 **3DR X6**、地面端 COM 口和 **57600** 后连接。也可在应用设置开启自动连接：同时检测 USB / X6，均可用时优先 USB；连接期间保持当前链路，请求超时仅提示，不主动断开或重新扫描；串口报错或关闭后重新选择。详细规则见 [地面站自动连接](../tools/ground_station/README.md#自动连接)。缺少 COM 口时按实际 USB 芯片安装对应驱动。
 5. 先识别固件，确认 CAPS 回复，再检查实时姿态、构型及参数读取。查看完整构型需连接 A 主机。USB 与 3DR X6 分别保存串口波特率。
+
+## 更高波特率
+
+57600 是项目预设，并非已确认的 X6 硬件上限。地面站已提供 115200、230400 等波特率选项；飞控通过 `TELEMETRY_BAUD` 配置 UART。上游 [SiK 串口实现](https://github.com/ArduPilot/SiK/blob/master/Firmware/radio/serial.c)的支持表包含 115200 和 230400，但尚未确认这对 X6 的厂家、硬件版本或固件，不能据此保证实物支持这些速率。
+
+确认模块支持后，可先以 115200 做地面验证：将天空端模块 UART 与飞控 `TELEMETRY_BAUD` 匹配并重新烧录飞控，将地面端模块 UART 与地面站波特率匹配；自动连接使用已保存的数传波特率。保持 8N1、透明模式、无硬件流控，检查 CAPS/DATA/CONFIG/PARAM 往返及持续收发稳定性。仅修改地面站或飞控一处会使对应 UART 无法正常通信。
+
+UART 速率与无线空中速率分开配置。根据 [SiK 高级配置说明](https://ardupilot.org/copter/docs/common-3dr-radio-advanced-configuration-and-technical-information.html)，空中速率、纠错及无线开销会限制实际吞吐；单独提高 UART 波特率不保证改善断联，透明模式下也不能假定有 MAVLink 自适应流量控制。未确认模块能力前，项目默认值继续保持 57600。
 
 ## 链路行为
 

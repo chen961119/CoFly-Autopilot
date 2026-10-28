@@ -36,7 +36,6 @@ class GroundStation(ParameterConsole):
         saved_link_type = settings.get("link_type")
         self.link_type = tk.StringVar(root, value=saved_link_type if saved_link_type in ("USB", "3DR X6") else "USB")
         self.auto_detector = None
-        self.link_timeouts = 0
         self.next_link_check = 0
         self.link_bauds = {"USB": settings.get("usb_baud", "921600"),
                            "3DR X6": settings.get("radio_baud", "57600")}
@@ -614,7 +613,6 @@ class GroundStation(ParameterConsole):
         self.gcs_pending = None
         try:
             if kind == "ERROR":
-                self.link_timeouts = 0
                 self.next_link_check = time.monotonic() + 3
                 code = fields[0] if fields else "UNKNOWN"
                 if pending["verb"] == "RC_SAVE":
@@ -641,7 +639,6 @@ class GroundStation(ParameterConsole):
                 if kind != pending["verb"]:
                     raise ValueError("回复类型与请求不匹配")
                 values = decode_fields(kind, fields)
-                self.link_timeouts = 0
                 self.next_link_check = time.monotonic() + 3
                 if kind in ("CALIBRATE", "CAL_STATUS"):
                     self._calibration_result(values)
@@ -824,11 +821,6 @@ class GroundStation(ParameterConsole):
                 self.radio_save = None  # Do not retry an unacknowledged SD write.
             self.status.set("地面站请求超时；请检查固件或重试识别" if verb == "CAPS" else "串口请求超时，结果未确认")
             self._update_controls()
-            if verb in ("CAPS", "DATA", "CONFIG"):
-                self.link_timeouts += 1
-                if self.auto_connect.get() and not self.auto_paused and self.link_timeouts >= 3:
-                    self.disconnect()
-                    self.status.set("飞控连续三次无响应，正在重新检测 USB / X6；未确认操作不会重发")
         self._run_deferred_action()
         if self.sensor_calibration and now >= self.sensor_calibration["deadline"]:
             self.sensor_calibration = None
@@ -870,7 +862,6 @@ class GroundStation(ParameterConsole):
         if self.sd_browser:
             self.sd_browser.destroy()
         self.terminal_filter = AutomaticQueryFilter()
-        self.link_timeouts = 0
         self.next_link_check = 0
         self.radio_save = None
         self.sensor_calibration = None
