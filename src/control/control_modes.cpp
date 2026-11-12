@@ -42,10 +42,10 @@ void prepareControlMode() {
   if (aircraftId() == 1) {
     // 主机：由本机遥控输入准备模式及混控配置。
     currentFlightMode = radio_channel5_normalized > 0.0f ? MANUAL_MODE : STABILIZE_MODE;
-    mixerStrategyCommand = 1.0f; // radio_channel6_normalized;
-    configurationAngle = Units::toRadians(radio_channel7_normalized > 0.2f ? 5.0f :
-        (radio_channel7_normalized < -0.2f ? -5.0f : 0.0f));
-    // 子机减父机的滚转差：上反时左侧为正、右侧为负，相邻飞机相差 10 度。
+    // CH6/CH7 专用于手动升降舵激励，不再切换混控策略或构型目标。
+    mixerStrategyCommand = 1.0f;
+    configurationAngle = 0.0f;
+    // 增稳时保持平直构型；子机减父机的目标滚转差均为 0。
     for (unsigned i = 0; i < 6; ++i)
       targets.configuration[i] = i % 2 == 0 ? configurationAngle : -configurationAngle;
     brakeEnabled = radio_channel8_normalized <= 0.2f;
