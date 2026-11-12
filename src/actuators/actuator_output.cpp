@@ -2,6 +2,7 @@
 #include "config/aircraft_config.h"
 #include "actuators/actuator_output.h"
 #include "control/control_modes.h"
+#include "control/elevator_excitation.h"
 #include "control/command_generation.h"
 #include "config/flight_config.h"
 #include "system/flight_lock.h"
@@ -84,6 +85,7 @@ void attachActuators()
 // 上电和锁定时的固定物理位置，不应用 rev 或控制量。
 void commandSafeActuatorPositions()
 {
+  cancelElevatorExcitation();
   ActuatorOutput[0] = static_cast<int>(pwm_channel1_trim);
   servo1.writeMicroseconds(ActuatorOutput[0]);
   ActuatorOutput[1] = static_cast<int>(pwm_channel2_trim);
@@ -105,7 +107,8 @@ void convertControlCommandsToPWM()
   ActuatorOutput[1] = actuatorCommandToPwm(commands.local.aileron2, pwm_channel2_rev,
       pwm_servo2_min_us, pwm_channel2_trim, pwm_servo2_max_us, pwm_channel2_mode);
   ActuatorOutput[2] = actuatorCommandToPwm(commands.local.elevator, pwm_channel3_rev,
-      pwm_servo3_min_us, pwm_channel3_trim, pwm_servo3_max_us, pwm_channel3_mode);
+      pwm_servo3_min_us, pwm_channel3_trim, pwm_servo3_max_us, pwm_channel3_mode)
+      + elevatorExcitationPwmDelta();
   ActuatorOutput[3] = actuatorCommandToPwm(commands.local.throttle, pwm_channel4_rev,
       pwm_servo4_min_us, pwm_channel4_trim, pwm_servo4_max_us, pwm_channel4_mode);
   ActuatorOutput[4] = actuatorCommandToPwm(commands.local.rudder, pwm_channel5_rev,

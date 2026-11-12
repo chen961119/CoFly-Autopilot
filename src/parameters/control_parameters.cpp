@@ -9,6 +9,9 @@ float Trim_pitch_angle = 3.0;// degree
 float k_Clp = 0.018;//0.0003125 / Units::toRadians(1.0f);
 float brake_aileron_offset = 0.2f; // 刹车副翼偏置，最终按各机 PWM 行程映射。
 float elevator_aileron_gain = -0.05f; // 本机升降舵到两路副翼交联，默认等效于 -elevator/20。
+int32_t elev_step_x_us = 100; // CH6/CH7 上打：最终升降舵 PWM 增量（μs）。
+int32_t elev_step_y_us = 100; // CH6/CH7 下打：最终升降舵 PWM 增量（μs）。
+float elev_step_t_s = 1.0f; // 单次阶跃持续时间（s），回中或切换增稳立即取消。
 // 滚转/俯仰/构型沿用原公共 i_limit 的误差积分限幅；偏航改为限制 I 项输出。
 float i_limit_roll_angle = 0.8f;//Units::toRadians(45.0f);
 float i_limit_roll_rate = 0.8f;//Units::toRadians(45.0f);

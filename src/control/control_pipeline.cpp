@@ -4,6 +4,7 @@
 #include "control/master_controller.h"
 #include "control/slave_controller.h"
 #include "control/control_modes.h"
+#include "control/elevator_excitation.h"
 #include "allocation/master_mixer.h"
 #include "allocation/slave_mixer.h"
 #include "allocation/command_fusion.h"
@@ -15,6 +16,7 @@ ControlCycleOutput commands{};
 void runControlCycle() {
   commands = {};
   prepareControlMode();
+  updateElevatorExcitation();
   if (aircraftId() == 1) {
     runMasterController();
     mixMasterCommands();

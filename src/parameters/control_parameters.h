@@ -11,6 +11,9 @@ extern float Trim_pitch_angle;
 extern float k_Clp;
 extern float brake_aileron_offset; // 主机刹车时两路副翼的归一化下偏偏置，0～1。
 extern float elevator_aileron_gain; // 本机升降舵到两路副翼的归一化交联系数，负值为反向。
+// 手动升降舵阶跃：A 机共用 CH6（仅 A）和 CH7（全机）的 x/y/t 配置。
+extern int32_t elev_step_x_us, elev_step_y_us; // 最终 PWM 增量，μs；上打 x，下打 y。
+extern float elev_step_t_s; // 单次激励持续时间，秒；触发时取参数快照。
 // 滚转、俯仰和构型限制乘 Ki 前的误差积分；偏航限制乘 Ki 后的 I 项。
 extern float i_limit_roll_angle, i_limit_roll_rate;
 extern float i_limit_pitch_angle, i_limit_pitch_rate;

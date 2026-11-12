@@ -16,7 +16,7 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 | `src/config/` | `flight_config.h` 定义硬件配置，`aircraft_config.h/.cpp` 定义数量和运行身份，`serial_config.h` 定义串口映射 |
 | `src/sensors/` | 采样、校准、滤波、姿态估计和统一测量接口 |
 | `src/radio_comm/` | 遥控接收和通道归一化 |
-| `src/control/` | 模式准备、主从目标、独立控制器及控制周期编排 |
+| `src/control/` | 模式准备、主从目标、独立控制器、手动升降舵激励及控制周期编排 |
 | `src/allocation/` | 主/从混控、交联和指令融合 |
 | `src/actuators/`、`src/system/flight_lock.cpp` | PWM 转换、锁定、限幅与硬件输出 |
 | `src/interaircraft_comm/` | 命令链 `AircraftCommandLink`、状态链 `AircraftSensorLink` 的收发与转发 |
@@ -34,8 +34,8 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 ```text
 时间更新、传感器采样、姿态估计、空速与夹角
   → 按键和相邻节点状态
-  → runControlCycle()：模式/目标 → 主或从控制 → 混控/融合
-  → convertControlCommandsToPWM()
+  → runControlCycle()：模式/目标 → 激励计时/取消 → 主或从控制 → 混控/融合
+  → convertControlCommandsToPWM()：本机映射后叠加升降舵激励
   → prepareActuatorCommands()
   → applyAndTransmitActuatorCommands()：锁定/限幅、输出与级联发送
   → SD 日志
@@ -48,6 +48,6 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 ## 兼容性边界
 
 - 参数仅支持共享文本 `COFLY_PARAMS_V8`，USB 响应前缀为 `@COFLY`。旧格式恢复规则见 [存储迁移](parameter-storage.md#格式与介质迁移)。
-- 当前级联命令帧为 40 字节，状态帧为 34 字节；所有节点需使用兼容的布局、缩放和舵面方向语义，详见 [机间通讯模块](../src/interaircraft_comm/README.md)。
+- 当前级联命令为 `55 61` / 52 字节，包含独立的全机升降舵激励字段；状态帧仍为 `55 71` / 34 字节。新固件不接收旧 `55 60` / 40 字节命令，所有节点须同步更新，详见 [机间通讯模块](../src/interaircraft_comm/README.md)。
 - 执行器锁定、最终限幅和升级时的升降舵方向参数调整统一在 [固件指南](firmware-guide.md) 维护。
 - 目标需求与尚待闭环的问题见 [软件需求](requirements.md)；需求条目和历史检查均不等同于当前实现已通过验收。

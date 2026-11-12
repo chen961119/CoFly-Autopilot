@@ -3,6 +3,7 @@
 #include "control/command_generation.h"
 #include "control/control_pipeline.h"
 #include "control/control_modes.h"
+#include "control/elevator_excitation.h"
 #include "config/aircraft_config.h"
 #include "parameters/control_parameters.h"
 #include <cmath>
@@ -87,5 +88,6 @@ void generateSlaveCommand() {
     slaveCommands[i].mode = currentFlightMode;
     slaveCommands[i].target = slaveTargets[i];
     slaveCommands[i].masterContribution = commands.slaves[i];
+    slaveCommands[i].elevatorExcitation = allAircraftElevatorExcitation();
   }
 }

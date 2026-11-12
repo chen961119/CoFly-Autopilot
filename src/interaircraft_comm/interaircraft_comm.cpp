@@ -32,6 +32,11 @@ void AircraftCommandLink::configure(Stream *output, Stream *input,
 bool AircraftCommandLink::setCommandLink(unsigned int index, const SlaveCommand &command) {
   if (index >= CHILD_COUNT || command.mode < MANUAL_MODE || command.mode > STABILIZE_MODE)
     return false;
+  const auto &excitation = command.elevatorExcitation;
+  if (excitation.pwmDeltaUs < -500 || excitation.pwmDeltaUs > 500 ||
+      excitation.remainingMs > 60000 ||
+      (excitation.remainingMs && (!excitation.eventId || command.mode != MANUAL_MODE)))
+    return false;
   const ActuatorCommand &output = command.masterContribution;
   // 分配层已统一舵面下偏为正；通信只编码数值，不引入安装方向或额外取反。
   const float values[] = {output.aileron1, output.aileron2, output.throttle,
@@ -62,6 +67,13 @@ bool AircraftCommandLink::setCommandLink(unsigned int index, const SlaveCommand 
   commandPayload.pitchAngles[index] = static_cast<int16_t>(
       scaledPitch + (scaledPitch >= 0.0f ? 0.5f : -0.5f));
   commandPayload.controlMode = static_cast<uint8_t>(command.mode);
+  ElevatorExcitationCommand wireExcitation = excitation;
+  if (!wireExcitation.remainingMs)
+    wireExcitation.pwmDeltaUs = 0;
+  // 载荷中该字段位于非对齐偏移；不要绑定自然对齐结构体引用。
+  std::memcpy(reinterpret_cast<uint8_t *>(&commandPayload) +
+                  offsetof(CommandPayload, elevatorExcitation),
+              &wireExcitation, sizeof(wireExcitation));
   return true;
 }
 
@@ -79,7 +91,7 @@ void AircraftCommandLink::sendPreparedChildCommands() {
 
   uint8_t buffer[FRAME_SIZE] = {};
   buffer[0] = 0x55;
-  buffer[1] = 0x60;
+  buffer[1] = COMMAND_HEADER;
   std::memcpy(buffer + HEADER_SIZE, &commandPayload, sizeof(commandPayload));
   uint8_t checksum = 0;
   for (size_t index = 0; index < FRAME_SIZE - CHECKSUM_SIZE; ++index)
@@ -96,7 +108,7 @@ void AircraftCommandLink::receiveCommandData() {
     const uint8_t byte = static_cast<uint8_t>(receivePort->read());
     if (receivePosition == 0 && byte != 0x55)
       continue;
-    if (receivePosition == 1 && byte != 0x60) {
+    if (receivePosition == 1 && byte != COMMAND_HEADER) {
       // 连续两个 0x55 时，第二个仍可作为下一帧起点。
       receivePosition = byte == 0x55 ? 1 : 0;
       continue;
@@ -123,6 +135,14 @@ const SlaveCommand &AircraftCommandLink::getCommandLink() {
   if (localAircraftLevel < 2 || localAircraftLevel > CHILD_COUNT + 1 ||
       commandPayload.controlMode > static_cast<uint8_t>(STABILIZE_MODE))
     return parsedCommand;
+  ElevatorExcitationCommand excitation;
+  std::memcpy(&excitation, reinterpret_cast<const uint8_t *>(&commandPayload) +
+                               offsetof(CommandPayload, elevatorExcitation),
+              sizeof(excitation));
+  if (excitation.pwmDeltaUs < -500 || excitation.pwmDeltaUs > 500 ||
+      excitation.remainingMs > 60000 ||
+      (excitation.remainingMs && (!excitation.eventId || commandPayload.controlMode != MANUAL_MODE)))
+    return parsedCommand;
   const unsigned localSlot = localAircraftLevel - 2;
   const unsigned offset = localSlot * 5;
   SlaveCommand command;
@@ -133,6 +153,9 @@ const SlaveCommand &AircraftCommandLink::getCommandLink() {
   command.masterContribution.throttle = commandPayload.controlOutputs[offset + 2] / CONTROL_OUTPUT_SCALE;
   command.masterContribution.rudder = commandPayload.controlOutputs[offset + 3] / CONTROL_OUTPUT_SCALE;
   command.masterContribution.elevator = commandPayload.controlOutputs[offset + 4] / CONTROL_OUTPUT_SCALE;
+  command.elevatorExcitation = excitation;
+  if (!excitation.remainingMs)
+    command.elevatorExcitation.pwmDeltaUs = 0;
   parsedCommand = command;
   return parsedCommand;
 }
@@ -155,6 +178,14 @@ void AircraftCommandLink::printReceivedData(int enabled) {
   output.print("\npitchAngles (deg): ");
   for (int16_t value : commandPayload.pitchAngles)
     output.printf("%.3f ", Units::toDegrees(value / CommandPayload::ANGLE_SCALE));
+  ElevatorExcitationCommand excitation;
+  std::memcpy(&excitation, reinterpret_cast<const uint8_t *>(&commandPayload) +
+                               offsetof(CommandPayload, elevatorExcitation),
+              sizeof(excitation));
+  output.printf("\nelevator excitation: sequence=%lu event=%lu delta=%d us remaining=%u ms",
+                static_cast<unsigned long>(excitation.sourceSequence),
+                static_cast<unsigned long>(excitation.eventId), static_cast<int>(excitation.pwmDeltaUs),
+                static_cast<unsigned>(excitation.remainingMs));
   output.println("\n=============");
   output.send();
 }

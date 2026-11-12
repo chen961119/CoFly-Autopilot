@@ -22,6 +22,7 @@ private:
   static constexpr unsigned int CHILD_COUNT = 3;
   static constexpr size_t HEADER_SIZE = 2;
   static constexpr size_t CHECKSUM_SIZE = 1;
+  static constexpr uint8_t COMMAND_HEADER = 0x61; // 55 61：含最终 PWM 激励，拒绝旧 55 60 帧。
   static constexpr uint32_t SEND_INTERVAL_US = 10000; // 100 Hz，每条链独立限频。
 
   static constexpr float CONTROL_OUTPUT_SCALE = 4096.0f; // int16 定点，分辨率 1/4096，范围约 ±8。
@@ -37,6 +38,8 @@ private:
     int16_t controlOutputs[CHILD_COUNT * 5] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int16_t pitchAngles[CHILD_COUNT] = {}; // 0.001 rad；范围 [-32.768, 32.767] rad。
+    // 同一份全机激励供三个槽位使用；物理 PWM 增量与上方逻辑量分开编码。
+    ElevatorExcitationCommand elevatorExcitation{};
   };
 #pragma pack(pop)
   static_assert(std::is_trivially_copyable<CommandPayload>::value,
@@ -45,7 +48,8 @@ private:
   CommandPayload commandPayload{};
   // 解码结果与链路对象同寿命，getCommandLink() 返回其稳定引用。
   SlaveCommand parsedCommand{MANUAL_MODE, {}, {0, 0, 0, 0, 0}};
-  static_assert(sizeof(int16_t) == 2 && sizeof(CommandPayload) == 37, "Command wire layout changed");
+  static_assert(sizeof(int16_t) == 2 && sizeof(ElevatorExcitationCommand) == 12 &&
+                sizeof(CommandPayload) == 49, "Command wire layout changed");
 
   bool dataReceived = false;
   Stream *transmitPort = nullptr;

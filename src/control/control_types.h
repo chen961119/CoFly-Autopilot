@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config/flight_config.h"
+#include <stdint.h>
 
 enum class PitchController { PID = 0, INDI = 1 };
 
@@ -86,11 +87,21 @@ struct ActuatorCommand {
   float aileron1 = 0, aileron2 = 0, elevator = 0, throttle = 0, rudder = 0;
 };
 
+// A 机统一计时的全机升降舵激励；PWM 增量不经过归一化混控或本机 rev。
+// sourceSequence 仅由 A 推进，中继转发不改变；remainingMs=0 表示取消/空闲。
+struct ElevatorExcitationCommand {
+  uint32_t sourceSequence = 0;
+  uint32_t eventId = 0;
+  int16_t pwmDeltaUs = 0;
+  uint16_t remainingMs = 0;
+};
+
 // 主机生成给从机的指令，后续通过机间通讯发给从机
 struct SlaveCommand {
   FlightMode mode = MANUAL_MODE;
   SlaveControlTargets target;
   ActuatorCommand masterContribution; // 上级已换算的执行器贡献；手动为全量，增稳升降舵为前馈。融合不再缩放，elevator 下偏为正。
+  ElevatorExcitationCommand elevatorExcitation{};
 };
 
 struct ControlCycleOutput {

@@ -2,7 +2,7 @@
 
 ## 主从流程
 
-A 主机（含单机配置）负责整体滚转、偏航角速度、油门、构型及本机俯仰；B～G 从机负责本机俯仰及本机副翼交联/阻尼。`control_pipeline.cpp` 每周期清空全局 `ControlCycleOutput commands`，调用一次 `prepareControlMode()`，再按角色运行：
+A 主机（含单机配置）负责整体滚转、偏航角速度、油门、构型及本机俯仰；B～G 从机负责本机俯仰及本机副翼交联/阻尼。`control_pipeline.cpp` 每周期清空全局 `ControlCycleOutput commands`，调用一次 `prepareControlMode()`，随后更新升降舵激励状态，再按角色运行：
 
 ```text
 A：模式/目标准备 → runMasterController() → mixMasterCommands()
@@ -18,6 +18,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 | 阶段 | 文件 | 输入 → 输出 |
 | --- | --- | --- |
 | 模式与主机目标 | `src/control/control_modes.cpp` | 遥控或接收命令 → 模式、`targets`、上级贡献 |
+| 手动升降舵激励 | `src/control/elevator_excitation.cpp`、`elevator_excitation_state.h` | 模式、锁定、CH6/7 或源命令 → 单次脉冲、物理 PWM 增量与下发元数据 |
 | 主机控制 | `src/control/master_controller.cpp` | 目标与测量 → 各控制器输出 |
 | 主机分配 | `src/allocation/master_mixer.cpp` | 手动目标或增稳控制器输出 → 本机最终指令、从机原始分配 |
 | 从机目标与发送命令 | `src/control/command_generation.cpp` | 当周期主分配 → `slaveTargets[]`、`slaveCommands[]` |
@@ -36,7 +37,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 | `targets.configuration[6]` | 构型角目标，deg，顺序 AB、AC、BD、CE、DF、EG |
 | `slaveTargets[0..5]` | B～G 的俯仰角目标，始终为 deg；A 单独存储 |
 | `commands.local` / `commands.slaves[0..5]` | 本机和 B～G 的 `ActuatorCommand`，五路逻辑控制偏移 |
-| `slaveCommands[]` / `slaveCommand` | 待发送/接收的模式、俯仰目标及 `masterContribution` |
+| `slaveCommands[]` / `slaveCommand` | 待发送/接收的模式、俯仰目标、`masterContribution` 及独立的 `elevatorExcitation` |
 | `ActuatorOutput[0..4]` | 最终物理 PWM，顺序为副翼1、副翼2、升降舵、油门、方向舵 |
 
 `ControlTargets` 只保存目标；模式、策略和刹车开关独立存储。主机分配完成后，`generateSlaveCommand()` 才初始化当周期从机俯仰目标、叠加滚转/构型策略修正，并原位叠加从机刹车偏置、整理发送命令，不使用上一周期分配。旧的手动副翼到升降舵反向交联已停用。
@@ -79,6 +80,8 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 各节点融合后调用 `convertControlCommandsToPWM()`；`prepareActuatorCommands()` 从独立的 `slaveCommands[]` 打包机间命令，随后 `applyAndTransmitActuatorCommands()` 执行锁定/限幅、本机输出和发送/转发。物理映射与安全位置见 [固件指南](firmware-guide.md#执行器映射与方向迁移)。
 
-机间传输 PWM 缩放前的 int16 定点逻辑输出，比例为 4096，范围为 `[-8,32767/4096]`；正常未饱和范围的最近整数舍入误差至多为 1/8192 逻辑量。俯仰目标按 0.1°编码，40 字节命令帧须在所有节点保持同一语义，详见 [机间通讯模块](../src/interaircraft_comm/README.md)。
+手动模式下，CH6 上/下打对 A 机、CH7 上/下打对全机施加一次 x/y PWM 阶跃，幅值和时长共用 A 机三项 SD 参数。激励在普通 PWM 映射之后、限幅之前叠加，不进入逻辑升降舵指令及副翼交联。对应开关回中、切换增稳、锁定或输入失效立即撤去增量并取消计时；保持拨出不重复触发，CH7 离开中位时优先且不会续跑被压制的 CH6 脉冲。增稳构型控制仍保留原 CH7 功能。参数、阈值和重新触发规则见 [手动升降舵阶跃激励](firmware-guide.md#手动升降舵阶跃激励)。
 
-当前保留首帧判断、有效帧缓存、校验和转发逻辑，没有新增命令超时后自动切换模式或覆盖输出的策略；`radioInputValid()` 仍用于原有地面站、解锁与校准入口。状态链新鲜度与本机锁定保护不能代替命令超时处理。INDI 计算和融合后舵面估计范围见 [INDI 说明](indi-variable-naming.md#模型与使用限制)；目标验收见 [软件需求](requirements.md)。
+机间传输 PWM 缩放前的 int16 定点逻辑输出，比例为 4096，范围为 `[-8,32767/4096]`；正常未饱和范围的最近整数舍入误差至多为 1/8192 逻辑量。俯仰目标按 0.001 rad 编码，新增激励使用独立整数 μs、剩余毫秒、源序列和事件编号。当前 `55 61` / 52 字节命令帧须在所有节点保持同一语义，不兼容旧 `55 60` / 40 字节命令，详见 [机间通讯模块](../src/interaircraft_comm/README.md)。
+
+激励接收状态以 A 机源序列判断新鲜度，100 ms 不推进即取消，即使中继还在转发旧缓存；本地剩余时间只能缩短，已取消事件不得恢复。首帧判断、普通控制命令缓存、校验和转发流程仍保留原实现；新增保护仅负责撤去激励，未增加普通命令超时后自动切换模式或覆盖基本控制输出的策略。`radioInputValid()` 也用于主机激励入口。状态链新鲜度与本机锁定保护不能代替完整的命令失联处理。INDI 计算和融合后舵面估计范围见 [INDI 说明](indi-variable-naming.md#模型与使用限制)；目标验收见 [软件需求](requirements.md)。
