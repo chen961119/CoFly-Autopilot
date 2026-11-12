@@ -52,6 +52,7 @@ class GroundStation(ParameterConsole):
         self.terminal_filter = AutomaticQueryFilter()
         self.gcs_pending = None
         self.deferred_action = None
+        self.reset_confirmation = False
         self.radio_calibration = None
         self.sensor_calibration = None
         self.radio_save = None
@@ -130,6 +131,8 @@ class GroundStation(ParameterConsole):
         self.parameter_load_file.pack(side="left", padx=8)
         self.parameter_save_file = ttk.Button(parameter_actions, text="保存到文件", command=self.save_parameters_to_file)
         self.parameter_save_file.pack(side="left")
+        self.parameter_reset_sd = ttk.Button(parameter_actions, text="恢复 SD 默认参数…", command=self.reset_sd_parameters)
+        self.parameter_reset_sd.pack(side="right")
         self._build_flight()
         self._build_calibration()
         self._build_radio()
@@ -416,7 +419,7 @@ class GroundStation(ParameterConsole):
         super()._update_controls()
         if hasattr(self, "parameter_read"):
             polling = self.gcs_pending is not None and self.gcs_pending["verb"] in ("DATA", "CONFIG")
-            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.sensor_calibration is None and self.deferred_action is None and self.radio_save is None and self.sd_browser is None
+            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.sensor_calibration is None and self.deferred_action is None and self.radio_save is None and self.sd_browser is None and not self.reset_confirmation
             self.radio_calibrate_button.configure(state="normal" if idle and self.caps.get("radio_calibration") == "SUPPORTED" and self.caps.get("radio") != "DISABLED" else "disabled")
             self.calibration_radio_button.configure(state=self.radio_calibrate_button.cget("state"))
             self.read_button.configure(state="normal" if idle else "disabled")
@@ -424,6 +427,7 @@ class GroundStation(ParameterConsole):
             files_ready = idle and bool(self.parameters) and self.parameter_file_version in SUPPORTED_FILE_VERSIONS
             self.parameter_load_file.configure(state="normal" if files_ready else "disabled")
             self.parameter_save_file.configure(state="normal" if files_ready else "disabled")
+            self.parameter_reset_sd.configure(state="normal" if idle and self.caps.get("param_reset_sd") == "1" else "disabled")
             self.probe_button.configure(state="normal" if idle else "disabled")
             self.reboot_button.configure(state="normal" if idle and self.caps.get("reboot") == "SUPPORTED" else "disabled")
             sd_ready = (idle and self.link_type.get() == "USB" and self.caps.get("sd_files") == "USB_V1"
@@ -436,7 +440,8 @@ class GroundStation(ParameterConsole):
                          "ROTATE": self.caps.get("rotate") == "MT6701"}
             self.sensor_buttons["CALIBRATE"].configure(state="normal" if idle and self.caps.get("calibration") == "SUPPORTED" and selected and supported.get(selected[0]) else "disabled")
             self.sensor_buttons["SENSOR_SET"].configure(state="normal" if idle and self.caps.get("sensor_setting") == "SUPPORTED" else "disabled")
-        if self.sd_browser or self.sensor_calibration:
+        if (self.sd_browser or self.sensor_calibration or self.reset_confirmation
+                or (self.pending and self.pending["kind"] == "RESET_SD")):
             self.send_button.configure(state="disabled")
             self.command_box.configure(state="disabled")
             self._cancel_edit()
@@ -444,7 +449,49 @@ class GroundStation(ParameterConsole):
         self.link_label.set(f"● {self.link_type.get()} 已连接" if self.connected else
                             "● 自动检测飞控" if self.auto_connect.get() and not self.auto_paused else "● 未连接")
 
+    def reset_sd_parameters(self):
+        if self.reset_confirmation:
+            return
+        if self._defer_for_poll(self.reset_sd_parameters):
+            return
+        if (not self.connected or self.pending or self.gcs_pending or self.file_import is not None
+                or self.radio_calibration or self.sensor_calibration or self.radio_save or self.sd_browser):
+            return
+        if self.caps.get("param_reset_sd") != "1":
+            self.status.set("当前固件不支持恢复 SD 默认参数，请更新飞控固件后重新识别")
+            return
+        self._cancel_edit()
+        connection_id = self.connection_id
+        self.reset_confirmation = True
+        self._update_controls()
+        try:
+            confirmed = messagebox.askyesno(
+                "恢复 SD 默认参数 — 风险提示",
+                "将使用飞控内置的默认值覆盖全部 SD 参数，并立即写入 SD 卡。\n\n"
+                "当前控制增益、舵机方向/行程/中位、遥控器校准等 SD 设置将被覆盖，"
+                "未保存的 SD 修改也会丢失。EEPROM 中的机号和传感器校准参数不变。\n\n"
+                "请先保存参数文件备份，并确保飞机已锁定、电机停转。操作期间请勿断电。\n"
+                "默认值不保证适合当前飞机；恢复后须检查控制方向、PWM 范围和遥控器校准，确认安全后再飞行。\n\n"
+                "确定恢复全部 SD 默认参数？",
+                parent=self.root, icon=messagebox.WARNING, default=messagebox.NO)
+        finally:
+            self.reset_confirmation = False
+            self._update_controls()
+        # Native dialogs run the Tk event loop, including disconnect/reconnect events.
+        if not self.connected or self.connection_id != connection_id:
+            self.status.set("连接已变化，已取消恢复；请重新确认目标飞控")
+            return
+        if not confirmed:
+            self.status.set("已取消恢复，未发送恢复命令")
+            return
+        if self.file_import is not None or self.caps.get("param_reset_sd") != "1":
+            self.status.set("操作状态已变化，请重新确认恢复")
+            return
+        self._start_request("RESET_SD")
+
     def _start_request(self, *args):
+        if self.reset_confirmation:
+            return
         if self._defer_for_poll(self._start_request, *args):
             return
         if self.gcs_pending or self.radio_calibration or self.sensor_calibration or self.radio_save or self.sd_browser:
@@ -508,10 +555,13 @@ class GroundStation(ParameterConsole):
         self.sd_browser.load("/")
 
     def send_command(self):
-        if not self.sd_browser and not self.sensor_calibration:
+        if (not self.sd_browser and not self.sensor_calibration and not self.reset_confirmation
+                and not (self.pending and self.pending["kind"] == "RESET_SD")):
             super().send_command()
 
     def _request(self, verb, *args, automatic=False):
+        if self.reset_confirmation:
+            return
         if self.sensor_calibration and verb not in ("CAL_STATUS", "DATA"):
             return
         if not automatic and verb not in ("DATA", "CONFIG") and self._defer_for_poll(self._request, verb, *args):
@@ -833,7 +883,7 @@ class GroundStation(ParameterConsole):
             self._update_controls()
         if self.radio_calibration and not self.radio_calibration.closed and now - self.last_data > 2:
             self.radio_calibration.cancel("数传数据中断，校准已取消，原参数保持不变")
-        if self.connected and not self.pending and not self.gcs_pending and self.file_import is None and self.sd_browser is None:
+        if self.connected and not self.pending and not self.gcs_pending and self.file_import is None and self.sd_browser is None and not self.reset_confirmation:
             if self.sensor_calibration:
                 self._request("DATA" if now - self.last_data > 0.8 else "CAL_STATUS", automatic=True)
             elif self.auto_probe:

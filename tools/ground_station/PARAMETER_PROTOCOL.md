@@ -14,6 +14,7 @@
 PARAM READ 1
 PARAM SET 2 aircraft_id 2
 PARAM SET 3 aircraft_id 1
+PARAM RESET_SD 5 CONFIRM
 PARAM HELP
 ```
 
@@ -30,6 +31,7 @@ PARAM HELP
 @COFLY\t0\tSTORAGE\tEEPROM\tSAVED
 @COFLY\t0\tSTORAGE\tSD\tSAVED
 @COFLY\t3\tERROR\tLOCK_REQUIRED\tLock aircraft before changing identity or calibration
+@COFLY\t5\tRESET_SD\t122\tSAVED
 ```
 
 `BEGIN` 的首字段为固定文件标识 `COFLY_PARAMS`，不包含板卡或宏配置名称；三个统计字段依次为所选 SD 文件的匹配项、未匹配项和跳过旧项。未匹配项可能来自 EEPROM 或默认值。最后一字段为固件参数名称上限（默认 27），电脑按此上限校验导出名称，不填充字段。SD 和 USB 回复不再携带代次。
@@ -39,6 +41,14 @@ PARAM HELP
 `OK` 依次携带名称、类型、当前值、`SAVED|PENDING`。`PENDING` 表示已接受，相关介质等待合并保存；`SAVED` 表示相关介质没有待保存变动。地面站也兼容旧固件的 `RAM_ONLY`。范围、只读和锁定验证失败不修改内存。错误包含 `UNKNOWN_PARAMETER`、`RANGE`、`READ_ONLY`、`LOCK_REQUIRED`、`NO_SD`、`SAVE_FAILED` 等。异步通知使用请求 ID 0：`@COFLY\t0\tSTORAGE\tSD|EEPROM\tSAVED|FAILED`；其中 `SAVED` 才表示本次合并写入及校验成功，`FAILED` 表示保留待保存状态并在 2 秒后重试。`BEGIN` 的来源状态 `PENDING` 表示仍有待写入参数。
 
 `GCS CONFIG` 返回当前生效的 `aircraft_id` 和 `config_valid`，以及构型数量/姿态。参数页的编号/数量是待启动值，飞行页显示当前生效身份。
+
+## 恢复 SD 默认参数
+
+`GCS CAPS` 通过 `param_reset_sd=1` 声明支持。USB 与 X6 均可发送 `PARAM RESET_SD id CONFIRM`；`CONFIRM` 是必需的显式确认参数。地面站在发送前显示默认取消的风险提示，并在成功后重新读取参数。该命令不拆成逐项 `SET`，不会自动重试。
+
+飞控要求飞机锁定、SD 可用且没有 SD 文件会话或正在进行的传感器校准。候选快照将所有 `ParameterStorage::SD` 项（包括只读项）设为注册表 `defaultValue`，EEPROM 项保留当前值。默认值在固件注册表构造时从变量初始值捕获，不使用开机时混入 EEPROM 值的加载缓冲。校验通过后同步写入一份完整 SD 快照并读回验证；成功才应用 RAM，清除原有 SD 待保存状态，保留 EEPROM 的值及待保存状态。重启生效项仍遵循原有重启锁存规则；整组 IMU 字段若改为 SD 存储，也随整组恢复。
+
+成功回复为 `@COFLY\tid\tRESET_SD\tcount\tSAVED`，`count` 是恢复的 SD 参数总数，示例中的 122 仅供说明。只有此回复表示 SD 写入及校验已成功；不返回 `PENDING`。拒绝或保存失败使用普通 `ERROR` 回复，代码包括 `SYNTAX`、`LOCK_REQUIRED`、`BUSY`、`NO_SD` 和 `SAVE_FAILED`；失败不应用候选 RAM 值。超时或断线表示结果未知，客户端应重新读取核对，不能推断板上未执行。原有 SD 主/备文件保护继续生效，备份可能保留恢复前的值。
 
 ## 文件与运行成本
 

@@ -12,6 +12,7 @@
 #include "parameters/parameter_sd.h"
 #include "parameters/parameter_text.h"
 #include "sensors/sensor_processing.h"
+#include "sensors/sensor_calibration.h"
 #include "system/device_reboot.h"
 #include "system/flight_lock.h"
 #include "radio_comm/radio_comm.h"
@@ -248,7 +249,7 @@ void ParameterSession::handleCommand(char *line) {
     return;
   }
   if (!strcmp(tokens[1], "HELP") && tokenCount <= 3) {
-    queueReply(id, "HELP\tPARAM READ [id]; PARAM SET id name value; PARAM HELP [id]");
+    queueReply(id, "HELP\tPARAM READ [id]; PARAM SET id name value; PARAM RESET_SD id CONFIRM; PARAM HELP [id]");
   } else if (!strcmp(tokens[1], "READ") && tokenCount <= 3) {
     for (size_t i = 0; i < count; ++i)
       snapshot[i] = table[i].read();
@@ -261,6 +262,54 @@ void ParameterSession::handleCommand(char *line) {
                static_cast<unsigned>(loadStats.matched),
                static_cast<unsigned>(loadStats.defaultsUsed),
                static_cast<unsigned>(loadStats.skipped), static_cast<unsigned>(MAX_PARAMETER_NAME));
+  } else if (!strcmp(tokens[1], "RESET_SD")) {
+    if (tokenCount != 4 || strcmp(tokens[3], "CONFIRM")) {
+      error(id, "SYNTAX", "Use PARAM RESET_SD id CONFIRM");
+      return;
+    }
+    if (!isFlightLocked()) {
+      error(id, "LOCK_REQUIRED", "Lock aircraft before restoring SD defaults");
+      return;
+    }
+    if (sdFileSessionActive() || sensorCalibrationBusy()) {
+      error(id, "BUSY", "Close SD file session and finish sensor calibration first");
+      return;
+    }
+    if (!storageReady) {
+      error(id, "NO_SD", "SD card unavailable; RAM unchanged");
+      return;
+    }
+    size_t resetCount = 0;
+    for (size_t i = 0; i < count; ++i) {
+      const bool onSD = table[i].storage == ParameterStorage::SD;
+      // defaults[] may contain migrated EEPROM values. Only the immutable
+      // registry snapshot represents the firmware's original defaults.
+      candidate[i] = onSD ? table[i].defaultValue : table[i].read();
+      if (onSD) ++resetCount;
+      if (!validValue(i, candidate[i])) {
+        error(id, "SAVE_FAILED", "Default configuration invalid; RAM unchanged");
+        return;
+      }
+    }
+    if (!validActuatorPwmParameters(table, count, candidate, indices.actuators) ||
+        !validAircraftConfiguration(candidate[indices.aircraftId])) {
+      error(id, "SAVE_FAILED", "Default configuration invalid; RAM unchanged");
+      return;
+    }
+    // Persist and verify one complete snapshot before touching live values.
+    // Do not use persist(): retiring migration sources would also write EEPROM.
+    if (!ParameterSD::save(candidate)) {
+      error(id, "SAVE_FAILED", "SD default snapshot write failed; RAM unchanged");
+      return;
+    }
+    applyCandidateParameters();
+    sdSave.completed(true, millis());
+    storageNotice(ParameterStorage::SD, StorageNotice::Saved);
+    loadState = "SAVED";
+    if (table[indices.imuValid].storage == ParameterStorage::SD)
+      loadImuCalibration();
+    updateRadioNormalized();
+    queueReply(id, "RESET_SD\t%u\tSAVED", static_cast<unsigned>(resetCount));
   } else if (!strcmp(tokens[1], "SET") && tokenCount == 5) {
     const size_t index = findParameterIndex(table, count, tokens[3]);
     if (index == count) {
@@ -295,7 +344,7 @@ void ParameterSession::handleCommand(char *line) {
     queueReply(id, "OK\t%s\t%s\t%s\t%s", table[index].name, table[index].type(), formatted,
                result == SaveResult::Saved ? "SAVED" : "PENDING");
   } else {
-    error(id, "SYNTAX", "Use PARAM READ [id] or PARAM SET id name value");
+    error(id, "SYNTAX", "Use PARAM HELP for supported commands");
   }
 }
 } // namespace

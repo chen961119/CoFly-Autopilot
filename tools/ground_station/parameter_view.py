@@ -282,13 +282,22 @@ class ParameterConsole:
         request_id = self.request_id
         if kind == "READ":
             command = f"PARAM READ {request_id}\n"
+        elif kind == "RESET_SD":
+            command = f"PARAM RESET_SD {request_id} CONFIRM\n"
         else:
             command = f"PARAM SET {request_id} {name} {format_value(value, self.parameters[name].dtype)}\n"
         self.pending = {"id": request_id, "kind": kind, "name": name,
-                        "deadline": time.monotonic() + 8, "count": None}
+                        "deadline": time.monotonic() + (10 if kind == "RESET_SD" else 8), "count": None}
         self.received_parameters = {}
+        if kind == "RESET_SD":
+            # Once sent, a lost acknowledgement can leave the old snapshot stale.
+            self.parameters.clear()
+            self.parameter_file_version = None
+            self._render_table()
         self.worker.send(command.encode("ascii"))
-        self.status.set("正在读取参数…" if kind == "READ" else f"正在保存 {name} 到 {self.parameters[name].storage}…")
+        self.status.set("正在读取参数…" if kind == "READ" else
+                        "正在恢复飞控内置默认参数并写入 SD 卡，请勿断电…" if kind == "RESET_SD" else
+                        f"正在保存 {name} 到 {self.parameters[name].storage}…")
         self._update_controls()
 
     def read_parameters(self):
@@ -425,6 +434,8 @@ class ParameterConsole:
 
     def _finish_request(self, message):
         importing = self.file_import
+        if self.pending and "reset_count" in self.pending:
+            message = f"已恢复并保存 {self.pending['reset_count']} 项 SD 默认参数；{message}"
         self.pending = None
         self.status.set(message)
         if importing is not None:
@@ -457,9 +468,21 @@ class ParameterConsole:
                     "RANGE": "数值超出范围或不是有效数字",
                     "READ_ONLY": "此参数由固件管理，只能读取",
                     "LOCK_REQUIRED": "请先锁定飞机再修改",
+                    "BUSY": "飞控正在访问 SD 文件或校准传感器，请关闭文件窗口并等待校准结束后重试",
                     "SAVE_FAILED": "配置组合无效，或持久存储写入/校验失败；请重新读取",
                 }
                 self._finish_request("失败：" + messages.get(fields[0], " / ".join(fields)))
+            elif self.pending["kind"] == "RESET_SD":
+                if (kind != "RESET_SD" or len(fields) != 2 or fields[1] != "SAVED"
+                        or not fields[0].isascii() or not fields[0].isdigit()
+                        or not 0 < int(fields[0]) <= MAX_PARAMETERS):
+                    raise ValueError("恢复确认无效，结果未确认；请重新读取参数，不要重复发送恢复命令")
+                restored_count = int(fields[0])
+                self._finish_request(f"已恢复并保存 {restored_count} 项 SD 默认参数；正在刷新参数表…")
+                self.read_parameters()
+                if self.pending and self.pending["kind"] == "READ":
+                    self.pending["reset_count"] = restored_count
+                    self.status.set(f"已恢复并保存 {restored_count} 项 SD 默认参数；正在刷新参数表…")
             elif self.pending["kind"] == "READ":
                 if kind == "BEGIN" and len(fields) in (4, 7, 8):
                     count = int(fields[1])
@@ -655,14 +678,17 @@ class ParameterConsole:
             elif kind == "tx":
                 terminal_chunks.append(self._remember_bytes("tx", payload))
             elif kind == "error":
-                unconfirmed_write = self.pending and self.pending["kind"] == "SET"
+                unconfirmed_write = self.pending and self.pending["kind"] in ("SET", "RESET_SD")
                 self.disconnect()
                 self.status.set(f"串口连接失败或中断：{payload}")
                 if unconfirmed_write:
                     self.status.set("串口中断，写入结果未确认；请重新连接并读取参数")
                 terminal_chunks.append(f"\n[连接错误] {payload}\n")
             elif kind == "closed" and self.worker:
+                unconfirmed_write = self.pending and self.pending["kind"] in ("SET", "RESET_SD")
                 self.disconnect()
+                if unconfirmed_write:
+                    self.status.set("串口中断，写入结果未确认；请重新连接并读取参数")
         self.display_pending.extend(terminal_chunks)
         if time.monotonic() - self.last_display >= 0.1:
             self._append_terminal("".join(self.display_pending))
@@ -670,7 +696,8 @@ class ParameterConsole:
             self.last_display = time.monotonic()
         if self.pending and time.monotonic() > self.pending["deadline"]:
             operation = self.pending["kind"]
-            self._finish_request("写入结果未确认，请重新读取参数；不要重复发送写入命令" if operation == "SET"
+            self._finish_request("恢复结果未确认，请重新读取参数；不要重复发送恢复命令" if operation == "RESET_SD" else
+                                 "写入结果未确认，请重新读取参数；不要重复发送写入命令" if operation == "SET"
                                  else "读取超时，请检查固件版本和串口后重新读取")
         self.poll_timer = self.root.after(1 if getattr(self, "sd_browser", None) else 30, self._poll)
 
