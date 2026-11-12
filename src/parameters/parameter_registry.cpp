@@ -73,7 +73,7 @@ const FlightParameter *flightParameterTable(size_t &count) {
       {"Kd_yaw", &Kd_yaw_rate, 0, 1, "Attitude", "Yaw rate D"},
       {"Kff_yaw_rate", &Kff_yaw_rate, 0, 10, "Attitude", "Yaw rate feedforward"},
       {"Kp_Flap", &Kp_Flap, 0, 300, "Configuration", "Relative angle P"},
-      {"configurationControlScale", &configurationControlScale, 0.2, 5.0,
+      {"configurationControlScale", &configurationControlScale, 0.0, 2.0,
        "Configuration", "Configuration output scale (default 1; master only)",
        ParameterStorage::SD, ParameterEffect::Immediate},
       {"Kp_FLAP_RATE", &Kp_FLAP_RATE, 0, 0.2f / Units::toRadians(1.0f), "Configuration", "Relative rate P (s/rad); default 0.004 / Units::toRadians(1.0f)"},

@@ -67,7 +67,7 @@ float Kd_yaw_rate = 0.0f;       // 偏航角速度微分增益；当前设为零
 
 
 float Kp_Flap = 6.0f;         // 襟翼角度比例增益。
-float configurationControlScale = 1.0f; // 六路构型控制输出总系数，范围 0.2～5。
+float configurationControlScale = 1.0f; // 六路构型控制输出总系数，范围 0～2。
 float Kff_FLAP_RATE = 0.114591561f;
 float Kp_FLAP_RATE = 0.229183123f;
 float Ki_FLAP_RATE = 0.229183123f;
