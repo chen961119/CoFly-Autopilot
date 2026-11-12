@@ -1,21 +1,18 @@
 @echo off
-setlocal
+setlocal DisableDelayedExpansion
 pushd "%~dp0"
 if errorlevel 1 goto failed
-if not exist ".venv\Scripts\python.exe" (
-    py -3 -m venv .venv
-    if errorlevel 1 goto failed
-)
-".venv\Scripts\python.exe" -c "import numpy, pandas, matplotlib, tkinter, tkinterdnd2" >nul 2>&1
-if errorlevel 1 (
-    ".venv\Scripts\python.exe" -m pip install -r requirements.txt
-    if errorlevel 1 goto failed
-)
+set "COFLY_PUSHED=1"
+echo [CoFly Autopilot] Working directory: "%CD%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\prepare_python.ps1" -ToolDirectory "%CD%" -Modules numpy,pandas,matplotlib,tkinterdnd2
+if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" main.py %*
 if errorlevel 1 goto failed
 popd
 exit /b 0
 :failed
-echo Unable to start. Install Python 3.10+ with Tcl/Tk and pip, then retry.
+echo.
+echo Unable to start. See the error above for details.
+if defined COFLY_PUSHED popd
 pause
 exit /b 1

@@ -12,11 +12,13 @@ USB 与 X6 使用同一套 GCS/PARAM 协议，各自维护收发和参数列表�
 
 1. 将本版本 `.pio/build/teensy41/firmware.hex` 烧录到飞控，插入 SD 卡后重新上电。
 2. 关闭占用串口的 PlatformIO/Arduino 串口监视器。
-3. 双击 `dist/CoFlyGroundStation.exe`，无需 Python。源码运行双击 `start.cmd`，首次需要含 Tcl/Tk 的 Python 3；脚本创建 `.venv` 并安装 pySerial。
+3. 双击 `dist/CoFlyGroundStation.exe`，无需 Python。源码运行双击 `start.cmd`，首次需要含 Tcl/Tk 和 pip 的 Python 3.10+；脚本创建 `.venv` 并安装 pySerial。
 4. 在“通讯连接”页选择连接方式、COM 端口和波特率（USB 默认 921600，X6 默认 57600），点击连接，自动识别固件。
 5. “参数”页点击读取参数，双击当前值编辑，Enter 提交、Esc 取消。EEPROM 参数仅在锁定时可改，普通 SD 参数解锁时也可改并先更新内存。EEPROM 与 SD 均在最后一次实际变动后 2 秒合并保存，SD 在解锁时也会保存。状态栏显示等待及保存结果；失败保留内存值并重试。重启生效参数修改的是待启动设置，立即提示需要重启并禁止解锁。
 
 旧固件仍支持参数页；数据和传感器页需要本版本固件。不同时运行旧控制台占用同一端口。
+
+换电脑或调整 Python 安装路径后仍可直接运行 `start.cmd`。启动和打包脚本共用 `../prepare_python.ps1`：检查 `.venv` 是否可运行；失效时先将旧环境保留为 `.venv.broken-<唯一编号>`，再使用当前电脑的 Python 重建并安装依赖。首次安装或重建需要网络，正常环境直接复用。自动查找顺序为 `py -3`、`python`、`python3`；创建或重建环境时也可用环境变量 `COFLY_PYTHON` 指定 `python.exe` 的完整路径（变量值不含额外引号）。失败时窗口保留具体报错。
 
 ## 页面与实现范围
 

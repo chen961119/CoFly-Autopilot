@@ -38,6 +38,7 @@ datalog*.csv
 
 # Desktop parameter console environment and Python caches
 .venv/
+.venv.broken-*/
 build/
 dist/
 __pycache__/

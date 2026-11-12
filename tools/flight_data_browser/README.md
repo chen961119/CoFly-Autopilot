@@ -6,6 +6,8 @@
 
 Windows 安装带 Tcl/Tk 和 pip 的 Python 3.10 或更新版本，双击本目录 `start.cmd`。首次启动会创建本目录 `.venv` 并安装依赖，需要网络；以后直接复用环境。已有环境缺少拖放依赖 `tkinterdnd2` 时，启动脚本会自动补装。
 
+换电脑或调整 Python 安装路径后仍可直接运行 `start.cmd`。脚本通过 `../prepare_python.ps1` 检查 `.venv` 是否可运行；失效时先将旧环境保留为 `.venv.broken-<唯一编号>`，再重建并安装依赖。自动查找顺序为 `py -3`、`python`、`python3`；创建或重建环境时也可用环境变量 `COFLY_PYTHON` 指定 `python.exe` 的完整路径（变量值不含额外引号）。重建需要网络，失败时窗口保留具体报错。
+
 也可在仓库根目录手动配置：
 
 ```powershell
