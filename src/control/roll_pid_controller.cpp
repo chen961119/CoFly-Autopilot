@@ -18,7 +18,7 @@ void RollPidController::prepare(bool integralControlEnabled, bool controlModeCha
   }
 }
 void RollPidController::update(float rollTarget, bool enabled) {
-  rollControlOutput = {0, roll_PID_lpf, roll_PID_dot_lpf, roll_eq, 0};
+  rollControlOutput = {0, roll_PID_lpf, roll_PID_dot_lpf, roll_eq, 0, rollControlOutput.equivalentRollRate};
   if (!enabled) return;
   float roll_des_ol = 0;
   if (aircraftIsSingle())
@@ -148,5 +148,5 @@ void RollPidController::update(float rollTarget, bool enabled) {
   error_roll_prev = error_roll;
   previous_roll_att = att[0];
   roll_des_prev = roll_des_ol;
-  rollControlOutput = {roll_PID, roll_PID_lpf, roll_PID_dot_lpf, roll_eq, roll_des_ol};
+  rollControlOutput = {roll_PID, roll_PID_lpf, roll_PID_dot_lpf, roll_eq, roll_des_ol, Rollrate};
 }
