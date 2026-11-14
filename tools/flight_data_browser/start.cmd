@@ -4,7 +4,7 @@ pushd "%~dp0"
 if errorlevel 1 goto failed
 set "COFLY_PUSHED=1"
 echo [CoFly Autopilot] Working directory: "%CD%"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\prepare_python.ps1" -ToolDirectory "%CD%" -Modules numpy,pandas,matplotlib,tkinterdnd2
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\prepare_python.ps1" -ToolDirectory "%CD%" -Modules numpy,pandas,matplotlib,tkinterdnd2
 if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" main.py %*
 if errorlevel 1 goto failed
