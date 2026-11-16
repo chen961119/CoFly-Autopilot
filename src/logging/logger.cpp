@@ -220,6 +220,7 @@ namespace
     LOG_FIELD(rollControlOutput.filteredPidOutputDerivative);
     LOG_FIELD(rollControlOutput.equivalentRollAngle);
     LOG_FIELD(rollControlOutput.rateTarget);
+    LOG_FIELD(rollControlOutput.equivalentRollRate);
     LOG_FIELD(pitchPidControlOutput.pidOutput);
     LOG_FIELD(pitchPidControlOutput.rateTarget);
     LOG_FIELD(pitchIndiControlOutput.q_dot_ref);

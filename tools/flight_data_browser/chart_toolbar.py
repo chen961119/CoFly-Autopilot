@@ -8,24 +8,26 @@ class ChartToolbar(NavigationToolbar2Tk):
     toolitems = (
         ("Back", "上一视图", "back", "back"),
         ("Forward", "下一视图", "forward", "forward"),
-        ("Home", "恢复当前子图初始视图", "home", "home"),
+        ("Home", "恢复统一时间范围和当前子图纵轴", "home", "home"),
         (None, None, None, None),
         ("Zoom", "框选缩放：左键放大，右键缩小", "zoom_to_rect", "zoom"),
+        ("纵轴自适应", "按当前可见曲线调整当前子图纵轴", None, "autoscale_y"),
         ("Subplots", "设置图表布局", "subplots", "configure_subplots"),
         ("Save", "保存图片", "filesave", "save_figure"),
         ("CSV", "导出当前子图所选变量为 CSV", None, "export_csv"),
     )
 
-    def __init__(self, canvas, window, on_action, on_export, on_home):
+    def __init__(self, canvas, window, on_action, on_export, on_home, on_autoscale_y):
         self.on_action = on_action
         self.on_export = on_export
         self.on_home = on_home
+        self.on_autoscale_y = on_autoscale_y
         super().__init__(canvas, window)
 
     def _Button(self, text, image_file, toggle, command):
-        if text != "CSV":
+        if text not in ("CSV", "纵轴自适应"):
             return super()._Button(text, image_file, toggle, command)
-        button = tk.Button(self, text="CSV", font="TkDefaultFont", command=command, width=3,
+        button = tk.Button(self, text=text, font="TkDefaultFont", command=command, width=3 if text == "CSV" else 0,
                            padx=5, pady=3, relief="flat", overrelief="groove", borderwidth=1)
         button._image_file = None
         button.pack(side=tk.LEFT)
@@ -33,6 +35,9 @@ class ChartToolbar(NavigationToolbar2Tk):
 
     def export_csv(self):
         self.on_export()
+
+    def autoscale_y(self):
+        self.on_autoscale_y()
 
     def style_mode_buttons(self):
         from ui_style import COLORS

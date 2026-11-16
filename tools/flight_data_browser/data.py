@@ -1,6 +1,7 @@
 """Flight-log loading and analysis, independent of the graphical interface."""
 from __future__ import annotations
 
+from array import array
 import csv
 from dataclasses import dataclass
 import io
@@ -25,6 +26,11 @@ class FlightLog:
     time_source: str
     time_unit: str
     warnings: tuple[str, ...]
+    source_rows: np.ndarray
+    source_time: np.ndarray
+    source_delimiter: str
+    source_encoding: str
+    source_signature: tuple[int, int]
 
     def column(self, name: str) -> np.ndarray:
         return self.data[:, self.columns.index(name)]
@@ -33,7 +39,7 @@ class FlightLog:
         return dict(file=str(self.path), samples=len(self.time), columns=list(self.columns),
                     duration_seconds=float(self.time[-1]), sample_rate_hz=self.sample_rate,
                     time_source=self.time_source, time_unit=self.time_unit,
-                    memory_bytes=self.data.nbytes + self.time.nbytes,
+                    memory_bytes=self.data.nbytes + self.time.nbytes + self.source_rows.nbytes + self.source_time.nbytes,
                     warnings=list(self.warnings))
 
 
@@ -60,6 +66,7 @@ class _ValidatedReader(io.TextIOBase):
         self.stream, self.delimiter, self.columns = stream, delimiter, columns
         self.pending = ""
         self.line = 1
+        self.rows = array("q")
 
     def readable(self):
         return True
@@ -72,6 +79,7 @@ class _ValidatedReader(io.TextIOBase):
             self.line += 1
             if not line.strip():
                 continue
+            self.rows.append(self.line)
             count = len(next(csv.reader([line], delimiter=self.delimiter))) if '"' in line else line.count(self.delimiter) + 1
             if count != self.columns:
                 raise LogError(f"物理行 {self.line} 有 {count} 列，表头有 {self.columns} 列")
@@ -79,7 +87,8 @@ class _ValidatedReader(io.TextIOBase):
 
 
 def _read_table(path: Path, delimiter: str | None, encoding: str,
-                skip_bad_rows: bool, chunk_rows: int) -> tuple[tuple[str, ...], np.ndarray, list[str]]:
+                skip_bad_rows: bool, chunk_rows: int
+                ) -> tuple[tuple[str, ...], np.ndarray, list[str], np.ndarray, str]:
     warnings = []
     with path.open(encoding=encoding, newline="") as stream:
         first = stream.readline()
@@ -104,11 +113,12 @@ def _read_table(path: Path, delimiter: str | None, encoding: str,
             if not chunks:
                 raise LogError("表头后没有数据。")
             data = chunks[0] if len(chunks) == 1 else np.concatenate(chunks)
+            source_rows = np.asarray(validated.rows, dtype=np.int64)
         except (pd.errors.ParserError, ValueError) as exc:
             if not skip_bad_rows:
                 raise LogError(f"数据格式不一致：{exc}。可使用 --skip-bad-rows 显式跳过坏行。") from exc
             stream.seek(body_position)
-            rows, skipped = [], []
+            rows, skipped, source_rows = [], [], []
             for number, row in enumerate(csv.reader(stream, delimiter=delimiter), start=2):
                 if not row or not any(cell.strip() for cell in row):
                     continue
@@ -120,14 +130,16 @@ def _read_table(path: Path, delimiter: str | None, encoding: str,
                     skipped.append(number)
                     continue
                 rows.append(values)
+                source_rows.append(number)
             if not rows:
                 raise LogError("没有有效数据行。")
             data = np.asarray(rows, dtype=np.float64)
+            source_rows = np.asarray(source_rows, dtype=np.int64)
             warnings.append(f"跳过 {len(skipped)} 个坏行；物理行号示例：{skipped[:10]}。")
     invalid = int(np.count_nonzero(~np.isfinite(data)))
     if invalid:
         warnings.append(f"存在 {invalid} 个空白/非有限值；绘图保留缺口，FFT 单独检查。")
-    return columns, data, warnings
+    return columns, data, warnings, source_rows, delimiter
 
 
 def _time_base(columns, data, requested_column, requested_unit, fallback_hz, warnings):
@@ -145,7 +157,8 @@ def _time_base(columns, data, requested_column, requested_unit, fallback_hz, war
                       re.match(r"^(timestamp|time|stamp)(?:\b|_|\()", name, re.I)), None)
     if index is None:
         warnings.append(f"没有时间列，使用样本序号与显式默认采样率 {fallback_hz:g} Hz。")
-        return data, np.arange(len(data), dtype=float) / fallback_hz, fallback_hz, "Sample index", "s"
+        time = np.arange(len(data), dtype=float) / fallback_hz
+        return data, time, fallback_hz, "Sample index", "s", time.copy()
     name = columns[index]
     raw = data[:, index]
     finite = np.isfinite(raw)
@@ -181,6 +194,9 @@ def _time_base(columns, data, requested_column, requested_unit, fallback_hz, war
     if wraps.any():
         raw = raw + np.r_[0, np.cumsum(wraps)] * 2**32
         warnings.append(f"修复 {int(wraps.sum())} 次 uint32 微秒计数器回绕。")
+    # Retain a time for every source record, including duplicate timestamps.
+    source_time = np.full(len(finite), np.nan)
+    source_time[finite] = (raw - raw[0]) * {"s": 1, "ms": 1e-3, "us": 1e-6}[unit]
     keep = np.r_[True, np.diff(raw) > 0]
     if not keep.all():
         warnings.append(f"删除 {int((~keep).sum())} 个重复时间戳，保留第一次记录。")
@@ -195,7 +211,7 @@ def _time_base(columns, data, requested_column, requested_unit, fallback_hz, war
         warnings.append(f"采样间隔抖动 {100 * jitter:.2f}%；FFT 根据所选区段检查并重采样。")
     if rate < 1 or rate > 5000:
         warnings.append(f"估计采样率 {rate:g} Hz 超出常见范围；请检查时间单位。")
-    return data, time, rate, name, unit
+    return data, time, rate, name, unit, source_time
 
 
 def load_log(file, *, delimiter=None, encoding="utf-8-sig", time_column=None,
@@ -204,13 +220,23 @@ def load_log(file, *, delimiter=None, encoding="utf-8-sig", time_column=None,
     if chunk_rows < 1:
         raise LogError("分块行数必须大于零。")
     path = Path(file).expanduser().resolve()
-    columns, data, warnings = _read_table(path, delimiter, encoding, skip_bad_rows, chunk_rows)
+    stat = path.stat()
+    signature = (stat.st_size, stat.st_mtime_ns)
+    columns, data, warnings, source_rows, delimiter = _read_table(path, delimiter, encoding, skip_bad_rows, chunk_rows)
     if not len(data):
         raise LogError("文件没有数据样本。")
-    data, time, rate, source, unit = _time_base(columns, data, time_column, time_unit, fallback_hz, warnings)
+    data, time, rate, source, unit, source_time = _time_base(columns, data, time_column, time_unit, fallback_hz, warnings)
+    stat = path.stat()
+    if signature != (stat.st_size, stat.st_mtime_ns):
+        raise LogError("读取期间源文件发生变化，请重新加载。")
+    if len(source_rows) != len(source_time):
+        raise LogError("源文件行号与数据记录不一致，请检查日志格式。")
     data.setflags(write=False)
     time.setflags(write=False)
-    return FlightLog(path, columns, data, time, rate, source, unit, tuple(warnings))
+    source_rows.setflags(write=False)
+    source_time.setflags(write=False)
+    return FlightLog(path, columns, data, time, rate, source, unit, tuple(warnings),
+                     source_rows, source_time, delimiter, encoding, signature)
 
 
 @dataclass(frozen=True)

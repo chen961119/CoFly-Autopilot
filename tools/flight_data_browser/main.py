@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-import csv
 import json
 import os
 from pathlib import Path
 import queue
 import sys
+import tempfile
 
 import numpy as np
 
@@ -38,15 +38,56 @@ def remember_directory(folder):
 
 
 def export_csv(log, destination, columns, bounds):
-    indices = [log.columns.index(name) for name in columns]
-    left, right = np.searchsorted(log.time, bounds[0]), np.searchsorted(log.time, bounds[1], side="right")
-    with Path(destination).open("w", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(["Time_elapsed(s)", *columns])
-        for start in range(left, right, 8192):
-            stop = min(start + 8192, right)
-            for elapsed, values in zip(log.time[start:stop], log.data[start:stop, indices]):
-                writer.writerow([format(elapsed, ".17g"), *[format(value, ".17g") for value in values]])
+    destination = Path(destination).resolve()
+    if destination == log.path or (destination.exists() and destination.samefile(log.path)):
+        raise LogError("不能覆盖原始日志。")
+    indices = {log.columns.index(name) for name in columns}
+    if log.time_source in log.columns:
+        indices.add(log.columns.index(log.time_source))
+    indices = sorted(indices)
+    lower, upper = sorted(bounds)
+    rows = iter(log.source_rows[(log.source_time >= lower) & (log.source_time <= upper)])
+    target = next(rows, None)
+    stat = log.path.stat()
+    if (stat.st_size, stat.st_mtime_ns) != log.source_signature:
+        raise LogError("源文件已改变，请重新加载后导出。")
+    encoding = log.source_encoding
+    if encoding.lower().replace("_", "-") == "utf-8-sig":
+        with log.path.open("rb") as source:
+            encoding = "utf-8-sig" if source.read(3) == b"\xef\xbb\xbf" else "utf-8"
+    temporary = None
+    try:
+        with log.path.open(encoding=log.source_encoding, newline="") as source, tempfile.NamedTemporaryFile(
+                mode="w", encoding=encoding, newline="", dir=destination.parent,
+                prefix=".cofly-export-", suffix=".tmp", delete=False) as output:
+            temporary = Path(output.name)
+            for number, line in enumerate(source, start=1):
+                if number == 1 or number == target:
+                    # Split outside quotes while retaining the original field text,
+                    # including padding, quotes, decimal precision and exponents.
+                    body = line.rstrip("\r\n")
+                    fields, start, quoted = [], 0, False
+                    for index, char in enumerate(body):
+                        if char == '"':
+                            quoted = not quoted
+                        elif char == log.source_delimiter and not quoted:
+                            fields.append(body[start:index])
+                            start = index + 1
+                    fields.append(body[start:])
+                    output.write(log.source_delimiter.join(fields[index] for index in indices) + line[len(body):])
+                    if number != 1:
+                        target = next(rows, None)
+                if target is None:
+                    break
+            if target is not None:
+                raise LogError("源文件记录不完整，请重新加载后导出。")
+        stat = log.path.stat()
+        if (stat.st_size, stat.st_mtime_ns) != log.source_signature:
+            raise LogError("导出期间源文件发生变化，请重新加载。")
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 class Browser:
@@ -90,6 +131,9 @@ class Browser:
         self.lines = []
         self.plotted_groups = []
         self.initial_views = {}
+        self.shared_xlim = None
+        self.fft_window = None
+        self.fft_ax = None
         self.series_styles = {}
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="flight-log")
         self.events = queue.Queue()
@@ -207,8 +251,6 @@ class Browser:
             self.transform_inputs[name] = editor
         ttk.Button(transform, text="恢复", command=self.reset_transform).pack(side="left")
         self.hide_legend = tk.BooleanVar(value=False)
-        ttk.Checkbutton(controls, text="隐藏图例", variable=self.hide_legend,
-                        command=lambda: self.toggle_display("legend")).pack(anchor="w", pady=(10, 0))
         self.smooth = tk.BooleanVar(value=False)
         self.fft_enabled = tk.BooleanVar(value=False)
         toggles = ttk.Frame(controls, style="Surface.TFrame")
@@ -217,6 +259,8 @@ class Browser:
                         command=lambda: self.toggle_display("smooth")).pack(side="left")
         ttk.Checkbutton(toggles, text="区段 FFT", variable=self.fft_enabled,
                         command=lambda: self.toggle_display("fft")).pack(side="left", padx=(14, 0))
+        ttk.Checkbutton(toggles, text="隐藏图例", variable=self.hide_legend,
+                        command=lambda: self.toggle_display("legend")).pack(side="left", padx=(14, 0))
         self.status = tk.StringVar(value="选择或拖入一个或多个 CSV/TXT/LOG/DAT 文件。")
         ttk.Label(root, textvariable=self.status, anchor="w", style="Status.TLabel").pack(side="bottom", fill="x", before=pane)
 
@@ -228,7 +272,7 @@ class Browser:
         self.figure = Figure(figsize=(10, 8), dpi=100, facecolor=COLORS["surface"])
         self.canvas = ChartCanvas(self.figure, master=right)
         self.toolbar = ChartToolbar(self.canvas, right, self.report_action, self.export_current_csv,
-                                    self.restore_current_view)
+                                    self.restore_current_view, self.autoscale_current_y)
         self.toolbar.configure(background=COLORS["surface"])
         for widget in self.toolbar.winfo_children():
             if isinstance(widget, (tk.Button, tk.Checkbutton)):
@@ -315,7 +359,7 @@ class Browser:
             except (OSError, ValueError):
                 ignored.append(raw)
         settings_error = None
-        accepted, duplicates = False, []
+        accepted = False
         if files:
             self.last_directory = files[0].parent
             try:
@@ -323,34 +367,25 @@ class Browser:
             except OSError as exc:
                 settings_error = exc
             for file in dict.fromkeys(files):
-                if self.filename_conflict(file):
-                    duplicates.append(file)
-                else:
-                    accepted = self.load(file) or accepted
+                accepted = self.load(file) or accepted
         if ignored:
             self.status.set(f"已忽略 {len(ignored)} 个目录、无效路径或不支持的文件；请选择 CSV/TXT/LOG/DAT 文件。")
         elif settings_error:
             self.status.set(f"文件已选择，但无法保存下次打开的位置：{settings_error}")
-        if duplicates:
-            self.report_duplicate_files(duplicates)
         return accepted
 
-    def filename_conflict(self, path):
-        return any(other != path and other.name.casefold() == path.name.casefold()
-                   for other in self.logs.keys() | self.requests.keys())
-
-    def report_duplicate_files(self, paths):
-        from tkinter import messagebox
-        names = "、".join(path.name for path in paths)
-        message = f"无法载入：{names}。已有同名文件正在读取或已加载，请先重命名文件或移除原同名文件。"
-        self.status.set(message)
-        messagebox.showerror("无法载入同名文件", message, parent=self.root)
+    def file_label(self, path):
+        peers = [other for other in self.file_order
+                 if other != path and other.name.casefold() == path.name.casefold()]
+        depth = 1
+        while depth < len(path.parts) and any(
+                tuple(part.casefold() for part in other.parts[-depth:]) ==
+                tuple(part.casefold() for part in path.parts[-depth:]) for other in peers):
+            depth += 1
+        return Path(*path.parts[-depth:]).as_posix()
 
     def load(self, file):
         path = Path(file).expanduser().resolve()
-        if self.filename_conflict(path):
-            self.report_duplicate_files([path])
-            return False
         options = dict(self.options)
         try:
             stat = path.stat()
@@ -359,10 +394,10 @@ class Browser:
             return False
         signature = (stat.st_size, stat.st_mtime_ns, tuple(sorted(options.items())))
         if path in self.requests:
-            self.status.set(f"正在读取：{path.name}；待完成 {self.pending} 个文件…")
+            self.status.set(f"正在读取：{self.file_label(path)}；待完成 {self.pending} 个文件…")
             return True
         if self.signatures.get(path) == signature:
-            self.status.set(f"已加载，直接复用内存：{path.name}")
+            self.status.set(f"已加载，直接复用内存：{self.file_label(path)}")
             return True
         self.request_id += 1
         request_id = self.request_id
@@ -370,7 +405,7 @@ class Browser:
         if path not in self.file_order:
             self.file_order.append(path)
         self.refresh_tree()
-        self.status.set(f"后台读取 {path.name}；待完成 {self.pending} 个文件…")
+        self.status.set(f"后台读取 {self.file_label(path)}；待完成 {self.pending} 个文件…")
 
         def work():
             try:
@@ -393,14 +428,14 @@ class Browser:
                 if path not in self.logs:
                     self.file_order.remove(path)
                 self.refresh_tree()
-                self.status.set(f"加载失败：{path.name}")
+                self.status.set(f"加载失败：{self.file_label(path)}")
                 messagebox.showerror("日志读取失败", f"{path}\n\n{error}", parent=self.root)
                 continue
             self.logs[path] = log
             self.signatures[path] = signature
             self.refresh_tree()
             self.plot()
-            self.report_action(f"加载完成 · {path.name} · {len(log.time):,} 行 × {len(log.columns)} 列 · "
+            self.report_action(f"加载完成 · {self.file_label(path)} · {len(log.time):,} 行 × {len(log.columns)} 列 · "
                                f"{log.sample_rate:.3f} Hz · {log.data.nbytes / 2**20:.1f} MiB"
                                f" · {len(log.warnings)} 条提示 · 待完成 {self.pending}")
         if not self.closed:
@@ -416,7 +451,7 @@ class Browser:
         self.file_items.clear()
         query = self.search.get().casefold()
         for path in self.file_order:
-            label = path.name + ("（加载中…）" if path in self.requests else "")
+            label = self.file_label(path) + ("（加载中…）" if path in self.requests else "")
             parent = self.tree.insert("", "end", iid=f"file:{path}", text=label,
                                       open=expanded.get(path, True), tags=("file",))
             self.file_items[parent] = path
@@ -453,9 +488,9 @@ class Browser:
                     self.replace_selection_group = self.group_ids[max(0, self.group_box.current())]
                     self.selection_job = self.root.after_idle(self.finish_tree_selection)
                 path, column = self.entries[item]
-                self.report_action(f"点选变量 · {path.name} / {self.logs[path].columns[column]}")
+                self.report_action(f"点选变量 · {self.file_label(path)} / {self.logs[path].columns[column]}")
             elif item in self.file_items:
-                self.report_action(f"点选文件 · {self.file_items[item].name}")
+                self.report_action(f"点选文件 · {self.file_label(self.file_items[item])}")
             return
         # The default Treeview press selects the file header before toggling it,
         # discarding variable selections from this and other files.
@@ -469,7 +504,7 @@ class Browser:
                 self.tree.event_generate("<<TreeviewOpen>>")
                 self.tree.item(item, open=True)
             action = "展开文件" if self.tree.tk.getboolean(self.tree.item(item, "open")) else "折叠文件"
-            self.report_action(f"{action} · {self.file_items[item].name}")
+            self.report_action(f"{action} · {self.file_label(self.file_items[item])}")
         return "break"
 
     def finish_tree_selection(self):
@@ -562,7 +597,7 @@ class Browser:
             self.plot()
         if changed:
             affected = self.ordered_entries(added or removed)
-            names = "、".join(f"{path.name}/{self.logs[path].columns[column]}" for path, column in affected[:2])
+            names = "、".join(f"{self.file_label(path)}/{self.logs[path].columns[column]}" for path, column in affected[:2])
             if len(affected) > 2:
                 names += f" 等 {len(affected)} 个"
             self.report_action(f"{'点选变量' if added else '取消选择'} · 子图 {index + 1} · {names} · 共 {len(updated)} 个变量")
@@ -614,7 +649,7 @@ class Browser:
         except (OSError, ValueError) as exc:
             self.status.set(f"导出 CSV 失败：{exc}")
             return
-        self.report_action(f"导出 CSV · {Path(destination).name}（原始数值，当前时间范围）")
+        self.report_action(f"导出 CSV · {Path(destination).name}（源文件行列，当前时间范围）")
 
     def apply_layout(self, _event=None):
         try:
@@ -681,14 +716,25 @@ class Browser:
 
     def toggle_display(self, option):
         if option == "legend":
-            for ax in self.figure.axes:
+            display_axes = self.axes.copy()
+            if self.fft_ax is not None:
+                display_axes.append(self.fft_ax)
+            for ax in display_axes:
                 legend = ax.get_legend()
                 if legend is not None:
                     legend.set_visible(not self.hide_legend.get())
             self.canvas.draw_idle()
+            if self.fft_window is not None:
+                self.fft_canvas.draw_idle()
             self.report_action("隐藏图例" if self.hide_legend.get() else "显示图例")
             return
-        self.plot()
+        if option == "fft":
+            if self.fft_enabled.get():
+                self.open_fft_window()
+            else:
+                self.close_fft_window()
+        else:
+            self.plot()
         enabled = self.smooth.get() if option == "smooth" else self.fft_enabled.get()
         name = "显示平滑" if option == "smooth" else "区段 FFT"
         self.report_action(f"{'开启' if enabled else '关闭'}{name}")
@@ -811,7 +857,7 @@ class Browser:
         path, column = entry
         log = self.logs[path]
         scale, offset = self.transforms.get(entry, (1, 0))
-        label = f"{path.name} | {log.columns[column]}"
+        label = f"{self.file_label(path)} | {log.columns[column]}"
         changes = []
         if scale != 1:
             changes.append(f"缩放 ×{scale:g}")
@@ -832,7 +878,7 @@ class Browser:
     def style_active_group(self):
         from ui_style import COLORS
         active = max(0, self.group_box.current())
-        dense = len(self.groups) + int(self.fft_enabled.get()) > 4
+        dense = len(self.groups) > 4
         for index, ax in enumerate(self.axes):
             ax.spines["left"].set_color(COLORS["accent"] if index == active else COLORS["border"])
             ax.spines["left"].set_linewidth(1.3 if index == active else 0.8)
@@ -859,15 +905,20 @@ class Browser:
         count = sum(len(group) for group in self.groups)
         self.view_summary.set(f"{self.layout_rows} 行 × {self.layout_columns} 列 · {len(self.groups)} 个子图 · {count} 条曲线")
         self.refresh_transform_selector()
+        limits = self.time_limits()
+        if not self.logs:
+            self.shared_xlim = None
+        if limits is not None:
+            self.shared_xlim = self.bounded_limits(self.shared_xlim or limits, limits)
         if not self.groups:
-            self.fft_ax = None
+            self.update_fft()
             self.figure.text(0.5, 0.54, "尚无子图", ha="center", fontsize=16, color=COLORS["text"])
             self.figure.text(0.5, 0.48, "设置行列布局以绘制变量", ha="center", fontsize=10, color=COLORS["muted"])
             self.toolbar.update()
             self.canvas.draw_idle()
             return
-        grid = self.figure.add_gridspec(self.layout_rows + int(self.fft_enabled.get()), self.layout_columns)
-        dense = len(self.groups) + int(self.fft_enabled.get()) > 4
+        grid = self.figure.add_gridspec(self.layout_rows, self.layout_columns)
+        dense = len(self.groups) > 4
         for group_index, group in enumerate(self.groups):
             column, row = divmod(group_index, self.layout_rows)
             ax = self.figure.add_subplot(grid[row, column])
@@ -876,7 +927,7 @@ class Browser:
             signature = (self.smooth.get(), frozenset(
                 (entry, self.transforms.get(entry, (1, 0)), id(self.logs.get(entry[0])))
                 for entry in group))
-            # Stable IDs preserve each subplot's own view across layout changes.
+            # Stable IDs preserve vertical views across layout changes.
             self.plotted_groups.append((group_id, signature))
             previous = self.group_views.get(group_id)
             style_axes(ax, f"子图 {group_index + 1}", active=group_index == max(0, self.group_box.current()), dense=dense)
@@ -900,20 +951,15 @@ class Browser:
                         ha="center", va="center", fontsize=11, color=COLORS["muted"])
                 ax.grid(False)
                 ax.tick_params(labelbottom=False, labelleft=False, bottom=False, left=False)
-            limits = self.time_limits(group_index)
             if limits is not None:
                 ax.set_xlim(limits)
-            # Keep full-data defaults separately from the current independent view.
+            # All time axes use one view, with independent vertical defaults.
             self.initial_views[ax] = (ax.get_xlim(), ax.get_ylim())
-            if previous is not None and previous[2]:
-                ax.set_xlim(self.bounded_limits(previous[1][0], limits))
-                if signature == previous[0]:
-                    ax.set_ylim(previous[1][1])
-        if self.fft_enabled.get():
-            self.fft_ax = self.figure.add_subplot(grid[-1, :])
-            self.update_fft()
-        else:
-            self.fft_ax = None
+            if self.shared_xlim is not None:
+                ax.set_xlim(self.shared_xlim)
+            if previous is not None and previous[2] and signature == previous[0]:
+                ax.set_ylim(previous[1][1])
+        self.update_fft()
         self.layout_plot()
         self.toolbar.update()
         self.toolbar.push_current()
@@ -923,26 +969,20 @@ class Browser:
 
     def layout_plot(self):
         if self.axes:
-            dense = len(self.groups) + int(self.fft_enabled.get()) > 4
+            dense = len(self.groups) > 4
             self.figure.tight_layout(pad=1.0 if dense else 1.6, h_pad=0.6 if dense else 2.0)
 
     def figure_resized(self, _event):
         self.layout_plot()
 
-    def time_limits(self, group_index=None):
-        if not self.groups:
-            return None
-        group_index = max(0, self.group_box.current()) if group_index is None else group_index
-        paths = {path for path, column in self.groups[group_index]
+    def time_limits(self):
+        paths = {path for group in self.groups for path, column in group
                  if path in self.logs and column < len(self.logs[path].columns)}
         if not paths:
             return None
         lower = min(float(self.logs[path].time[0]) for path in paths)
         upper = max(float(self.logs[path].time[-1]) for path in paths)
         return (lower, upper) if upper > lower else None
-
-    def bounded_time_xlim(self, xlim, group_index=None):
-        return self.bounded_limits(xlim, self.time_limits(group_index))
 
     def restore_current_view(self):
         if not self.axes:
@@ -955,7 +995,44 @@ class Browser:
             ax.set_ylim(ylim)
             self.toolbar.push_current()
             self.canvas.draw_idle()
-        self.report_view("恢复当前子图初始视图", ax)
+        self.report_view("恢复统一时间范围和当前子图纵轴", ax)
+
+    def autoscale_current_y(self):
+        if not self.axes:
+            self.status.set("请先选择变量以绘制曲线。")
+            return
+        if self.view_job is not None:
+            self.refresh_view()
+        ax = self.axes[max(0, self.group_box.current())]
+        bounds = sorted(ax.get_xlim())
+        extents = []
+        for line in ax.lines:
+            if not line.get_visible():
+                continue
+            x, y = line.get_data()
+            visible = y[(x >= bounds[0]) & (x <= bounds[1]) & np.isfinite(y)]
+            if len(visible):
+                extents.extend((float(visible.min()), float(visible.max())))
+            # Include clipped line segments when a view boundary falls between
+            # samples. Adjacent invalid samples retain a gap in the curve.
+            for boundary in bounds:
+                right = np.searchsorted(x, boundary, side="right")
+                if 0 < right < len(x) and np.isfinite(y[right - 1:right + 1]).all():
+                    fraction = (boundary - x[right - 1]) / (x[right] - x[right - 1])
+                    extents.append(float((1 - fraction) * y[right - 1] + fraction * y[right]))
+        if not extents:
+            self.status.set("当前子图的可见时间范围内没有有效曲线。")
+            return
+        lower, upper = ax.yaxis.get_major_locator().nonsingular(min(extents), max(extents))
+        padding = (upper - lower) * ax.margins()[1]
+        limits = (lower - padding, upper + padding)
+        if ax.yaxis_inverted():
+            limits = limits[::-1]
+        self.toolbar.push_current()
+        ax.set_ylim(limits)
+        self.toolbar.push_current()
+        self.canvas.draw_idle()
+        self.report_view("纵轴自适应", ax)
 
     @staticmethod
     def bounded_limits(view, bounds):
@@ -977,11 +1054,13 @@ class Browser:
         if self.drag_axes is not None:
             self.drag_axes.end_pan()
             self.drag_axes = None
-        if self.toolbar.mode and event.button in (1, 3) and event.inaxes in self.figure.axes:
+        toolbar = event.canvas.toolbar
+        if toolbar.mode and event.button in (1, 3) and event.inaxes in event.canvas.figure.axes:
             ax = event.inaxes
-            self.navigation_start = (str(self.toolbar.mode), ax, ax.get_xlim(), ax.get_ylim())
-        elif not self.toolbar.mode and event.button == 1 and event.inaxes in self.figure.axes and event.inaxes.has_data():
+            self.navigation_start = (str(toolbar.mode), ax, ax.get_xlim(), ax.get_ylim())
+        elif not toolbar.mode and event.button == 1 and event.inaxes in event.canvas.figure.axes and event.inaxes.has_data():
             ax = event.inaxes
+            toolbar.push_current()
             self.navigation_start = ("drag", ax, ax.get_xlim(), ax.get_ylim())
             self.drag_axes = ax
             ax.start_pan(event.x, event.y, 1)
@@ -989,11 +1068,11 @@ class Browser:
     def navigation_moved(self, event):
         if self.drag_axes is None:
             return
-        if 1 not in (event.buttons or set()) or self.drag_axes not in self.figure.axes:
+        if 1 not in (event.buttons or set()) or self.drag_axes not in event.canvas.figure.axes:
             self.navigation_released(event)
             return
         self.drag_axes.drag_pan(1, event.key, event.x, event.y)
-        self.canvas.draw_idle()
+        event.canvas.draw_idle()
 
     def navigation_released(self, _event):
         if self.drag_axes is not None:
@@ -1004,14 +1083,14 @@ class Browser:
         if start is None:
             return
         mode, ax, xlim, ylim = start
-        if ax in self.figure.axes and (ax.get_xlim() != xlim or ax.get_ylim() != ylim):
+        if ax.figure is not None and ax in ax.figure.axes and (ax.get_xlim() != xlim or ax.get_ylim() != ylim):
             if mode == "drag":
-                self.toolbar.push_current()
+                ax.figure.canvas.toolbar.push_current()
             self.report_view("拖动平移" if mode == "drag" else "Zoom 框选缩放", ax)
 
     def scroll_zoom(self, event):
         ax = event.inaxes
-        if ax not in self.figure.axes or not ax.has_data() or not event.step:
+        if ax not in event.canvas.figure.axes or not ax.has_data() or not event.step:
             return
         if event.xdata is None or event.ydata is None or not np.isfinite(event.step):
             return
@@ -1021,24 +1100,25 @@ class Browser:
         if not np.isfinite([xlim, ylim]).all() or xlim[0] == xlim[1] or ylim[0] == ylim[1]:
             return
         initial = self.initial_views.get(ax)
-        x_bounds = self.time_limits(self.axes.index(ax)) if ax in self.axes else initial[0] if initial else None
+        x_bounds = self.time_limits() if ax in self.axes else initial[0] if initial else None
         xlim = self.bounded_limits(xlim, x_bounds)
         ylim = self.bounded_limits(ylim, initial[1] if initial else None)
         if np.array_equal(xlim, ax.get_xlim()) and np.array_equal(ylim, ax.get_ylim()):
             return
+        event.canvas.toolbar.push_current()
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
-        self.toolbar.push_current()
-        self.canvas.draw_idle()
+        event.canvas.toolbar.push_current()
+        event.canvas.draw_idle()
         self.report_view("Zoom 滚轮放大" if event.step > 0 else "Zoom 滚轮缩小", ax)
 
     def view_changed(self, _ax):
         if _ax not in self.axes:
             return
-        bounded = self.bounded_time_xlim(_ax.get_xlim(), self.axes.index(_ax))
-        if not np.array_equal(_ax.get_xlim(), bounded):
-            _ax.set_xlim(bounded, emit=False)
-        self.dirty_view_axes.add(_ax)
+        self.shared_xlim = self.bounded_limits(_ax.get_xlim(), self.time_limits())
+        for ax in self.axes:
+            ax.set_xlim(self.shared_xlim, emit=False)
+        self.dirty_view_axes.update(self.axes)
         if self.view_job:
             self.root.after_cancel(self.view_job)
         self.view_job = self.root.after(180, self.refresh_view)
@@ -1054,7 +1134,7 @@ class Browser:
         for line, entry in self.lines:
             if line.axes not in targets:
                 continue
-            bounds = line.axes.get_xlim()
+            bounds = sorted(line.axes.get_xlim())
             log, values = self.series(entry)
             left = max(0, int(np.searchsorted(log.time, bounds[0])) - 1)
             right = min(len(log.time), int(np.searchsorted(log.time, bounds[1], side="right")) + 1)
@@ -1064,30 +1144,68 @@ class Browser:
             self.update_fft()
         self.canvas.draw_idle()
 
+    def open_fft_window(self):
+        import tkinter as tk
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        from chart_canvas import ChartCanvas
+        from ui_style import COLORS
+        if self.fft_window is None:
+            self.fft_window = tk.Toplevel(self.root)
+            self.fft_window.title("CoFly · 区段 FFT")
+            self.fft_window.geometry("1000x600")
+            self.fft_window.protocol("WM_DELETE_WINDOW", self.close_fft_window)
+            figure = Figure(figsize=(10, 6), dpi=100, facecolor=COLORS["surface"])
+            self.fft_ax = figure.add_subplot(111)
+            self.fft_canvas = ChartCanvas(figure, master=self.fft_window)
+            NavigationToolbar2Tk(self.fft_canvas, self.fft_window)
+            self.fft_canvas.get_tk_widget().pack(fill="both", expand=True)
+            self.fft_canvas.mpl_connect("scroll_event", self.scroll_zoom)
+            self.fft_canvas.mpl_connect("button_press_event", self.navigation_pressed)
+            self.fft_canvas.mpl_connect("motion_notify_event", self.navigation_moved)
+            self.fft_canvas.mpl_connect("button_release_event", self.navigation_released)
+            self.fft_canvas.mpl_connect("resize_event", lambda _event: figure.tight_layout())
+        self.fft_window.lift()
+        self.update_fft()
+
+    def close_fft_window(self):
+        self.fft_enabled.set(False)
+        if self.fft_window is not None:
+            if self.drag_axes is self.fft_ax:
+                self.drag_axes.end_pan()
+                self.drag_axes = None
+            self.navigation_start = None
+            self.fft_canvas.cancel_pending_draws()
+            self.initial_views.pop(self.fft_ax, None)
+            self.fft_window.destroy()
+            self.fft_window = None
+            self.fft_ax = None
+
     def update_fft(self):
         from ui_style import COLORS, style_axes, style_legend
-        if not self.fft_enabled.get() or not hasattr(self, "fft_ax") or self.fft_ax is None or not self.axes:
+        if not self.fft_enabled.get() or self.fft_ax is None:
             return
         ax = self.fft_ax
         ax.clear()
-        dense = len(self.groups) + int(self.fft_enabled.get()) > 4
-        style_axes(ax, "频域分析 · FFT", dense=dense)
+        active = max(0, self.group_box.current())
+        style_axes(ax, f"频域分析 · FFT · 子图 {active + 1}")
         errors = []
-        for entry in self.ordered_entries(self.groups[max(0, self.group_box.current())]):
+        group = self.groups[active] if self.groups else set()
+        for entry in self.ordered_entries(group):
             if entry[0] not in self.logs:
                 continue
             log, values = self.series(entry)
             label = self.series_label(entry)
             try:
                 spectrum = compute_spectrum(log.time, values,
-                                            self.axes[max(0, self.group_box.current())].get_xlim())
+                                            sorted(self.axes[active].get_xlim()))
                 ax.plot(spectrum.frequency, spectrum.amplitude, linewidth=1.35, label=label, **self.line_style(entry))
             except LogError as exc:
-                errors.append(f"{log.path.name}/{log.columns[entry[1]]}: {exc}")
+                errors.append(f"{self.file_label(log.path)}/{log.columns[entry[1]]}: {exc}")
         ax.set_xlabel("频率 (Hz)", color=COLORS["muted"])
         ax.set_ylabel("幅值", color=COLORS["muted"])
         if ax.lines:
-            style_legend(ax, dense=dense).set_visible(not self.hide_legend.get())
+            style_legend(ax).set_visible(not self.hide_legend.get())
         else:
             ax.text(0.5, 0.5, "\n".join(errors[:2]) if errors else "选择变量与时间范围以查看频谱", transform=ax.transAxes,
                     ha="center", va="center", fontsize=10, color=COLORS["muted"])
@@ -1095,10 +1213,14 @@ class Browser:
             ax.text(0.01, 0.03, "\n".join(errors[:2]), transform=ax.transAxes, fontsize=8,
                     color=COLORS["danger"], clip_on=True).set_in_layout(False)
         self.initial_views[ax] = (ax.get_xlim(), ax.get_ylim())
-        self.canvas.draw_idle()
+        ax.figure.tight_layout()
+        self.fft_canvas.toolbar.update()
+        self.fft_canvas.toolbar.push_current()
+        self.fft_canvas.draw_idle()
 
     def close(self):
         self.closed = True
+        self.close_fft_window()
         if self.drag_axes is not None:
             self.drag_axes.end_pan()
             self.drag_axes = None

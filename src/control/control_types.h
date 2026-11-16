@@ -48,6 +48,7 @@ struct RollControlOutput {
   float filteredPidOutputDerivative = 0; // PID 控制量对时间的导数，经低通滤波。
   float equivalentRollAngle = 0; // 反馈使用的等效滚转角，单位 rad；单机时为本机滚转角。
   float rateTarget = 0; // rad/s；限幅和外环滤波后实际进入内环的滚转角速度指令，编队时对应平均角速度反馈；未启用时为 0。
+  float equivalentRollRate = 0; // rad/s；内环实际使用的滚转角速度反馈，编队时为各机平均值；未启用时保留最后值。
 };
 
 struct YawRateControlOutput {
