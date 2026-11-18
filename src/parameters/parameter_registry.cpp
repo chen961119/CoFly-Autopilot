@@ -114,7 +114,11 @@ const FlightParameter *flightParameterTable(size_t &count) {
       {"pitch_des_local_rate_lpf_fc", &pitch_des_local_rate_lpf_fc, 0.1, 200, "Control",
        "Local pitch command rate filter cutoff (Hz)"},
       {"indi_pitch_pwm_to_rad_k", &indi_pitch_pwm_to_rad_k, Units::toRadians(1e-5f), Units::toRadians(1.0f), "INDI",
-       "PWM slope (rad/us); default Units::toRadians(0.090909f), rev sets direction"},
+       "Fallback slope (rad/us) for a side with zero calibrated travel angle"},
+      {"indi_pitch_up_rad", &indi_pitch_up_rad, 0, Units::toRadians(90.0f), "INDI",
+       "Elevator upward travel from neutral (rad, positive magnitude; 0 uses PWM slope)"},
+      {"indi_pitch_down_rad", &indi_pitch_down_rad, 0, Units::toRadians(90.0f), "INDI",
+       "Elevator downward travel from neutral (rad, positive magnitude; 0 uses PWM slope)"},
       // 中位由 trim 确定，范围统一由通道3定义。
       {"indi_pitch_servo_delay_s", &indi_pitch_servo_delay_s, 0, 0.2, "INDI",
        "Servo pure delay (s; delay line clamps at 63 samples)"},

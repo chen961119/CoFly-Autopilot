@@ -25,7 +25,7 @@ bool readParameterFile(const char *path, double *values, bool *needsMigration = 
                        MigrationStats *stats = nullptr) {
   if (needsMigration)
     *needsMigration = false;
-  MigrationStats parsedStats{0, count, 0};
+  MigrationStats parsedStats{0, count, 0, 0};
   File file = SD.open(path, FILE_READ);
   if (!file || !file.size() || file.size() >= sizeof(fileData))
     return false;
@@ -35,6 +35,7 @@ bool readParameterFile(const char *path, double *values, bool *needsMigration = 
   ParameterText::View view;
   if (read != length || !ParameterText::valid(fileData, length, view) || view.used != length)
     return false;
+  parsedStats.sourceAircraftId = view.aircraftId;
   memcpy(values, defaults, count * sizeof(double));
   memset(fileSeen, 0, sizeof(fileSeen));
   size_t sdCount = 0;
@@ -86,15 +87,13 @@ bool sameSDValues(const double *a, const double *b) {
   return true;
 }
 
-bool writeSnapshot(const char *path, const double *values) {
+bool writeSnapshot(const char *path, const double *values, uint32_t sourceAircraftId) {
   size_t sdCount = 0;
-  const uint32_t identity = aircraftIdIndex < count
-      ? static_cast<uint32_t>(values[aircraftIdIndex]) : 0;
   for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::SD)
       ++sdCount;
   }
-  size_t used = ParameterText::begin(fileData, sizeof(fileData), sdCount, aircraftCount(), identity);
+  size_t used = ParameterText::begin(fileData, sizeof(fileData), sdCount, aircraftCount(), sourceAircraftId);
   if (!used)
     return false;
   for (size_t i = 0; i < count; ++i) {
@@ -115,7 +114,9 @@ bool writeSnapshot(const char *path, const double *values) {
   const size_t written = file.write(fileData, used);
   file.flush();
   file.close();
-  if (written != used || !readParameterFile(path, verified) || !sameSDValues(values, verified)) {
+  MigrationStats savedStats{};
+  if (written != used || !readParameterFile(path, verified, nullptr, &savedStats) ||
+      savedStats.sourceAircraftId != sourceAircraftId || !sameSDValues(values, verified)) {
     // Remove an incomplete replacement; the other validated file remains intact.
     SD.remove(path);
     return false;
@@ -123,7 +124,7 @@ bool writeSnapshot(const char *path, const double *values) {
   return true;
 }
 
-// Keep the exact validated old file as a rollback copy during schema migration.
+// Keep the validated file's original bytes, including its calibration source ID.
 bool copyValidatedSnapshot(const char *sourcePath, const char *destinationPath,
                            const double *expectedValues) {
   File source = SD.open(sourcePath, FILE_READ);
@@ -148,7 +149,7 @@ bool copyValidatedSnapshot(const char *sourcePath, const char *destinationPath,
   return true;
 }
 
-bool saveSnapshot(const double *values, bool preserveStoredFile) {
+bool saveSnapshot(const double *values, uint32_t sourceAircraftId) {
   if (!storageReady)
     return false;
   // Preserve the last successfully persisted values before replacing the primary.
@@ -156,12 +157,10 @@ bool saveSnapshot(const double *values, bool preserveStoredFile) {
   if (activePath) {
     if (!readParameterFile(activePath, previous))
       return false;
-    if (activePath != backupPath &&
-        !(preserveStoredFile ? copyValidatedSnapshot(activePath, backupPath, previous)
-                             : writeSnapshot(backupPath, previous)))
+    if (activePath != backupPath && !copyValidatedSnapshot(activePath, backupPath, previous))
       return false;
   }
-  if (!writeSnapshot(primaryPath, values)) {
+  if (!writeSnapshot(primaryPath, values, sourceAircraftId)) {
     // The primary may have been truncated; retry from the preserved backup.
     if (activePath)
       activePath = backupPath;
@@ -196,8 +195,8 @@ bool load(double *values, bool &needsMigration, MigrationStats &stats) {
   return activePath != nullptr;
 }
 
-bool save(const double *values, bool preserveStoredFile) {
-  return saveSnapshot(values, preserveStoredFile);
+bool save(const double *values, uint32_t sourceAircraftId) {
+  return saveSnapshot(values, sourceAircraftId);
 }
 
 bool hasRecord(size_t index) {

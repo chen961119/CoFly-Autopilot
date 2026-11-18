@@ -10,7 +10,7 @@
 | 组合数量 | `src/config/aircraft_config.h` 中 `COFLY_AIRCRAFT_COUNT`，默认 3，支持 1/3/4/5/7 |
 | 单机/多机 | 数量 1 为单机，身份设为 A；`TEAM` 只保留为存储配置标识 |
 | IMU 与接收机 | `src/config/flight_config.h` 当前定义 `INTIMU`、`USE_SBUS_RX` |
-| 俯仰与积分 | 本机 SD 参数 `pitch_controller=1`（INDI）、`integralControlEnabled=1` |
+| 俯仰与积分 | 本机 SD 参数 `pitch_controller=0`（PID，设为 1 选用 INDI）、`integralControlEnabled=1` |
 | 特定机型宏 | `expensive` 当前注释停用，硬件配置以 `flight_config.h` 为准 |
 
 同一数量和硬件配置的 A～G 共用固件，逐机设置身份并重启。改变数量需重新构建；已有参数不会因数量改变自动换成另一套增益。控制模式与策略入口见 [控制架构](control-architecture.md#模式策略和状态)。
@@ -35,7 +35,7 @@ USB 参数与地面站协议共用 `Serial`，3DR X6 通过 `Serial8` 独立收�
 
 ## 执行器映射与方向迁移
 
-本机五路通道依次为左副翼、右副翼、升降舵、油门、方向舵。安装参数为 `pwm_channel1_rev/trim/mode`～`pwm_channel5_rev/trim/mode`，trim 是绝对 PWM，编译默认均为 1500 μs；mode 默认均为 0，保存到各自 SD 卡。五路均直接调用 `actuatorCommandToPwm`，输入范围由 mode 决定，调用方负责匹配：
+本机五路通道依次为左副翼、右副翼、升降舵、油门、方向舵。安装参数为 `pwm_channel1_rev/trim/mode`～`pwm_channel5_rev/trim/mode`，trim 是绝对 PWM，升降舵按本机编号取出厂配平，其他通道默认为 1500 μs。各路 mode 默认为 0，参数保存到本机 SD 卡。五路均直接调用 `actuatorCommandToPwm`，输入范围由 mode 决定，调用方负责匹配：
 
 ```text
 mode_i == 0: command_i ∈ [-1,1]
@@ -50,7 +50,7 @@ trim 不随 rev 反向。模式 0 的 -1/0/+1 对应 min/trim/max；模式 1 的
 
 升降舵 `pwm_channel3_rev` 默认为 1。**同一安装从旧上偏正语义升级时，应把旧保存的 rev3 取反后保存，例如 -1 改为 1。若旧 trim 表示相对 1500 的偏置，则新绝对 trim=1500+旧 trim，例如 50 改为 1550、-500 改为 1000。** 固件不自动转换旧偏置参数文件，须更新文件或重新设置并保存参数。全链路节点须同步更新归一化尺度，即使命令帧长度未变也不能混用；PID、交联和混控系数需按新行程尺度重新检查。
 
-INDI 以通道3映射零点为零舵角：模式 0 为 trim，模式 1 为 min/max 中点；内部使用浮点物理 PWM，出口按对应模式逆变换。计算、单位和模型限制见 [俯仰 INDI](indi-variable-naming.md)。
+通道 3 的模式 0 以 trim 为零舵角。A/B/C 的上打约 15°、下打约 20°，INDI 按实测端点在配平两侧分别换算。三架飞机的 PWM 表和安装反向后的对应关系见[升降舵三点标定](indi-variable-naming.md#升降舵三点标定)。
 
 ## 执行器锁定与限幅
 
@@ -65,7 +65,7 @@ INDI 以通道3映射零点为零舵角：模式 0 为 trim，模式 1 为 min/m
 
 **默认油门 trim=1500、mode=0，锁定油门仍为 1500 μs。对于以 1000 μs 为停机输入、1000～2000 μs 为工作范围的普通单向 PWM 电调，可设置 `pwm_channel4_mode=1`、`pwm_channel4_trim=1000`、`pwm_servo4_min_us=1000`、`pwm_servo4_max_us=2000`、`pwm_channel4_rev=1`，保存并确认上电恢复。此时锁定输出 1000，解锁后最终油门命令 0/0.5/1 对应 1000/1500/2000 μs。实际启动还取决于电调协议与行程标定；首次上电、固件变更和身份切换均须拆桨核对实际输出。**
 
-五路软件上下限为 `pwm_servo1_min_us/max_us`～`pwm_servo5_min_us/max_us`，默认均为 1000～2000 μs。锁定或解锁时均可修改，接受后立即生效，在最后变动满 2 秒后保存到本机 SD，解锁时也会保存；每路须在驱动范围内满足 min≤max，相等允许。模式 0 另须满足 min≤trim≤max；模式 1 的 trim 允许在解锁范围外，但仍须在驱动范围内。零行程逆变换不会除以零。完整参数规则和异常恢复见 [参数声明](parameter-storage.md#参数声明)。
+五路软件上下限为 `pwm_servo1_min_us/max_us`～`pwm_servo5_min_us/max_us`。A/B/C 的通道 3 按编号取试飞端点，其余通道和无试飞标定的身份默认为 1000～2000 μs。锁定或解锁时均可修改，接受后立即生效，在最后变动满 2 秒后保存到本机 SD，解锁时也会保存；每路须在驱动范围内满足 min≤max，相等允许。模式 0 另须满足 min≤trim≤max；模式 1 的 trim 允许在解锁范围外，但仍须在驱动范围内。零行程逆变换不会除以零。完整参数规则和异常恢复见 [参数声明](parameter-storage.md#参数声明)。
 
 锁定输出不受软件限幅影响。例如油门 mode=1、trim=1000、软件下限=1100：锁定输出 1000 μs，解锁后有效输出最低 1100 μs，重新锁定回到 1000 μs。日志中的 `ActuatorOutput[0..4]` 保存锁定/最终限幅后的软件写出值。
 

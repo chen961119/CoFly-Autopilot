@@ -37,8 +37,10 @@ float B_loop_pitch = 1.0;    // 俯仰外环阻尼系数，范围 0～1。
 // INDI 的 q、dq 抬头为正；升降舵偏角 delta_e 下偏为正，单位 rad。
 float indi_pitch_q_gain = 25.0f;           // 单位 1/s；dq_des = Kq * (q_des - q_filtered)。
 float indi_pitch_effectiveness = -113.65f; // 局部舵效 G，单位 (rad/s^2)/rad；负值表示下偏使俯仰角加速度减小。
-// 零舵角 PWM：模式 0 为 trim，模式 1 为端点中点；delta_e=(PWM-零点)*rev*k。
-float indi_pitch_pwm_to_rad_k = Units::toRadians(0.090909f); // 正斜率大小，rad/us；安装方向由本机rev承担，不包含在k中。
+// 每侧为从零舵角到该端点的正幅值。参数服务按机号载入出厂标定及本机 SD 覆盖值。
+float indi_pitch_up_rad = 0.0f;
+float indi_pitch_down_rad = 0.0f;
+float indi_pitch_pwm_to_rad_k = Units::toRadians(0.090909f); // 某侧角度为 0 时使用的旧斜率，rad/μs。
 float indi_pitch_servo_delay_s = 0.03f; // 估计模型的纯延迟，s；按当前 dt 换算并取最近整数周期，最多 63 周期。
 float indi_pitch_servo_tau_s = 0.015f;  // 估计模型的一阶时间常数，s；延迟后的命令还需经过此响应过程。
 float indi_pitch_rate_limit_rad_s = Units::toRadians(800.0f); // 舵偏命令限速，rad/s；每周期允许变化量为该值乘 dt。

@@ -36,6 +36,8 @@ extern float configurationControlScale; // 构型控制输出总系数，SD 参�
 extern float indi_pitch_q_gain;
 extern float indi_pitch_effectiveness;
 extern float indi_pitch_pwm_to_rad_k;
+extern float indi_pitch_up_rad;
+extern float indi_pitch_down_rad;
 extern float indi_pitch_servo_delay_s;
 extern float indi_pitch_servo_tau_s;
 extern float indi_pitch_rate_limit_rad_s;
