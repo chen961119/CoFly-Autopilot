@@ -6,6 +6,6 @@
 void updateElevatorExcitation();
 // Immediately discard the current sequence; a new trigger needs neutral.
 void cancelElevatorExcitation();
-// Physical PWM increment, applied after mapping and before actuator limits.
+// Elevator increment in microseconds, positive down. Each board applies its own REV.
 int16_t elevatorExcitationPwmDelta();
 const ElevatorExcitationCommand &allAircraftElevatorExcitation();

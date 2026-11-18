@@ -87,7 +87,7 @@ struct ActuatorCommand {
   float aileron1 = 0, aileron2 = 0, elevator = 0, throttle = 0, rudder = 0;
 };
 
-// A 机统一计时的全机升降舵激励；PWM 增量不经过归一化混控或本机 rev。
+// A 机统一计时。pwmDeltaUs 以下偏为正，各机在本地输出时按升降舵安装方向换算。
 // sourceSequence 仅由 A 推进，中继转发不改变；remainingMs=0 表示取消/空闲。
 struct ElevatorExcitationCommand {
   uint32_t sourceSequence = 0;

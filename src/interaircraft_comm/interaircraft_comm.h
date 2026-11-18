@@ -38,7 +38,7 @@ private:
     int16_t controlOutputs[CHILD_COUNT * 5] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int16_t pitchAngles[CHILD_COUNT] = {}; // 0.001 rad；范围 [-32.768, 32.767] rad。
-    // 同一份全机激励供三个槽位使用；物理 PWM 增量与上方逻辑量分开编码。
+    // 三个槽位共用下偏为正的激励增量（μs），接收端应用本机升降舵方向。
     ElevatorExcitationCommand elevatorExcitation{};
   };
 #pragma pack(pop)

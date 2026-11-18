@@ -108,7 +108,7 @@ void convertControlCommandsToPWM()
       pwm_servo2_min_us, pwm_channel2_trim, pwm_servo2_max_us, pwm_channel2_mode);
   ActuatorOutput[2] = actuatorCommandToPwm(commands.local.elevator, pwm_channel3_rev,
       pwm_servo3_min_us, pwm_channel3_trim, pwm_servo3_max_us, pwm_channel3_mode)
-      + elevatorExcitationPwmDelta();
+      + pwm_channel3_rev * elevatorExcitationPwmDelta();
   ActuatorOutput[3] = actuatorCommandToPwm(commands.local.throttle, pwm_channel4_rev,
       pwm_servo4_min_us, pwm_channel4_trim, pwm_servo4_max_us, pwm_channel4_mode);
   ActuatorOutput[4] = actuatorCommandToPwm(commands.local.rudder, pwm_channel5_rev,

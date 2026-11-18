@@ -95,9 +95,9 @@ const FlightParameter *flightParameterTable(size_t &count) {
       {"elevator_aileron_gain", &elevator_aileron_gain, -1, 1, "Control",
        "Local elevator to both ailerons gain: 0 off, negative opposite deflection"},
       {"elev_step_x_us", &elev_step_x_us, -500, 500, "Excitation",
-       "Manual CH6 A / CH7 all: up-step final elevator PWM increment (us)"},
+       "CH6 A / CH7 all, switch up: elevator step (us, positive down)"},
       {"elev_step_y_us", &elev_step_y_us, -500, 500, "Excitation",
-       "Manual CH6 A / CH7 all: down-step final elevator PWM increment (us)"},
+       "CH6 A / CH7 all, switch down: elevator step (us, positive down)"},
       {"elev_step_t_s", &elev_step_t_s, 0.01f, 60, "Excitation",
        "Manual CH6 A / CH7 all: one-shot elevator step duration (s)"},
       // 原公共 i_limit 已移除；新名称缺项时使用各环默认值。

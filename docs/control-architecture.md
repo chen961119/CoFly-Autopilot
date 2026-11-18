@@ -18,7 +18,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 | 阶段 | 文件 | 输入 → 输出 |
 | --- | --- | --- |
 | 模式与主机目标 | `src/control/control_modes.cpp` | 遥控或接收命令 → 模式、`targets`、上级贡献 |
-| 手动升降舵激励 | `src/control/elevator_excitation.cpp`、`elevator_excitation_state.h` | 模式、锁定、CH6/7 或源命令 → 单次脉冲、物理 PWM 增量与下发元数据 |
+| 手动升降舵激励 | `src/control/elevator_excitation.cpp`、`elevator_excitation_state.h` | 模式、锁定、CH6/7 或源命令 → 单次脉冲、下偏为正的增量（μs）与下发元数据 |
 | 主机控制 | `src/control/master_controller.cpp` | 目标与测量 → 各控制器输出 |
 | 主机分配 | `src/allocation/master_mixer.cpp` | 手动目标或增稳控制器输出 → 本机最终指令、从机原始分配 |
 | 从机目标与发送命令 | `src/control/command_generation.cpp` | 当周期主分配 → `slaveTargets[]`、`slaveCommands[]` |
