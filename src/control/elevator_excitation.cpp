@@ -23,7 +23,8 @@ bool validAuxiliary(int raw, float normalized) {
 
 void updateElevatorExcitation() {
   const uint32_t now = millis();
-  const bool enabled = currentFlightMode == MANUAL_MODE && !isFlightLocked();
+  const bool unlocked = !isFlightLocked();
+  const bool manual = currentFlightMode == MANUAL_MODE;
   if (aircraftId() == 1) {
     using namespace ControlParameters;
     uint32_t durationBits;
@@ -35,17 +36,27 @@ void updateElevatorExcitation() {
     const uint16_t duration = parametersValid ? static_cast<uint16_t>(elev_step_t_s * 1000.0f + 0.5f) : 0;
     // Current SBUS provides all auxiliary channels in the same receiver frame.
     // PWM/PPM has no CH7 and no auxiliary freshness tracking; fail closed there.
-    bool receiverReady = false;
+    RadioInputStatus receiver = RadioInputStatus::Invalid;
 #if defined USE_SBUS_RX
-    receiverReady = radioInputValid() && validAuxiliary(radio_channel5_raw, radio_channel5_normalized);
+    receiver = radioInputStatus();
 #endif
-    master.update(now, enabled && receiverReady && parametersValid,
-        validAuxiliary(radio_channel6_raw, radio_channel6_normalized), radio_channel6_normalized,
-        validAuxiliary(radio_channel7_raw, radio_channel7_normalized), radio_channel7_normalized,
-        parametersValid ? elev_step_x_us : 0, parametersValid ? elev_step_y_us : 0, duration);
+    const bool manualInput = manual && validAuxiliary(radio_channel5_raw, radio_channel5_normalized);
+    const bool centerValid = validAuxiliary(radio_channel6_raw, radio_channel6_normalized);
+    const bool allValid = validAuxiliary(radio_channel7_raw, radio_channel7_normalized);
+    const bool ready = unlocked && parametersValid;
+    if (ready && receiver != RadioInputStatus::Valid) {
+      // Failsafe may supply preset CH5/6/7 positions. Only a good frame can
+      // establish a new switch position or confirm that manual mode was left.
+      const bool keepPulse = receiver == RadioInputStatus::LostFrame && manualInput;
+      master.skipSwitchSample(now, keepPulse && centerValid, keepPulse && allValid);
+    } else {
+      master.update(now, ready && manualInput, centerValid, radio_channel6_normalized,
+          allValid, radio_channel7_normalized, parametersValid ? elev_step_x_us : 0,
+          parametersValid ? elev_step_y_us : 0, duration);
+    }
     localDelta = master.localDelta();
   } else {
-    localDelta = follower.update(now, enabled, slaveCommand.elevatorExcitation);
+    localDelta = follower.update(now, unlocked, slaveCommand.elevatorExcitation, manual);
   }
 }
 

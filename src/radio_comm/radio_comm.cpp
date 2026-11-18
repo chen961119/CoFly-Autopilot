@@ -28,16 +28,21 @@ static void markRadioReceived(unsigned channel) {
   radioReceived[channel] = true;
 }
 
-bool radioInputValid() {
+RadioInputStatus radioInputStatus() {
   const uint32_t now = micros();
   for (unsigned i = 0; i < 4; ++i)
-    if (!radioReceived[i] || now - radioReceivedAt[i] > 250000u) return false;
-#if defined USE_SBUS_RX
-  if (sbusFailSafe || sbusLostFrame) return false;
-#endif
+    if (!radioReceived[i] || now - radioReceivedAt[i] > 250000u) return RadioInputStatus::Invalid;
   const int values[] = {radio_channel1_raw, radio_channel2_raw, radio_channel3_raw, radio_channel4_raw};
-  for (int value : values) if (value < 800 || value > 2200) return false;
-  return true;
+  for (int value : values) if (value < 800 || value > 2200) return RadioInputStatus::Invalid;
+#if defined USE_SBUS_RX
+  if (sbusFailSafe) return RadioInputStatus::Invalid;
+  if (sbusLostFrame) return RadioInputStatus::LostFrame;
+#endif
+  return RadioInputStatus::Valid;
+}
+
+bool radioInputValid() {
+  return radioInputStatus() == RadioInputStatus::Valid;
 }
 
 

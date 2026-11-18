@@ -14,6 +14,11 @@ public:
     direction_ = 0;
   }
 
+  // An unreadable switch cannot arm or consume the last confirmed neutral.
+  void skipSample(uint32_t now, bool keepPulse) {
+    if (!keepPulse || !remaining(now)) active_ = false;
+  }
+
   // Neutral arms one edge; holding either end never repeats a completed pulse.
   // A direct +end -> -end transition cancels but cannot retrigger without neutral.
   bool update(uint32_t now, bool enabled, float position,
@@ -69,8 +74,6 @@ public:
 
   void update(uint32_t now, bool enabled, bool centerValid, float centerPosition,
               bool allValid, float allPosition, int16_t x, int16_t y, uint16_t duration) {
-    // Only A advances this counter. Relays forward it unchanged, including idle.
-    if (++command_.sourceSequence == 0) ++command_.sourceSequence;
     if (all_.update(now, enabled && allValid, allPosition, x, y, duration)) {
       if (++command_.eventId == 0) ++command_.eventId;
     }
@@ -78,15 +81,27 @@ public:
     // Suppressed center requests are cancelled, never queued or resumed.
     const bool allSelected = allValid && (allPosition < -0.1f || allPosition > 0.1f);
     center_.update(now, enabled && centerValid && !allSelected, centerPosition, x, y, duration);
-    command_.remainingMs = all_.remaining(now);
-    command_.pwmDeltaUs = all_.delta(now);
-    localDelta_ = allSelected ? command_.pwmDeltaUs : center_.delta(now);
+    publish(now);
+  }
+
+  void skipSwitchSample(uint32_t now, bool keepCenterPulse, bool keepAllPulse) {
+    center_.skipSample(now, keepCenterPulse);
+    all_.skipSample(now, keepAllPulse);
+    publish(now);
   }
 
   int16_t localDelta() const { return localDelta_; }
   const ElevatorExcitationCommand &command() const { return command_; }
 
 private:
+  void publish(uint32_t now) {
+    // Only A advances the sequence, including while its radio is unavailable.
+    if (++command_.sourceSequence == 0) ++command_.sourceSequence;
+    command_.remainingMs = all_.remaining(now);
+    command_.pwmDeltaUs = all_.delta(now);
+    localDelta_ = command_.remainingMs ? command_.pwmDeltaUs : center_.delta(now);
+  }
+
   Pulse center_, all_;
   ElevatorExcitationCommand command_{};
   int16_t localDelta_ = 0;
@@ -98,7 +113,8 @@ public:
     active_ = baseline_ = false;
   }
 
-  int16_t update(uint32_t now, bool enabled, const ElevatorExcitationCommand &command) {
+  int16_t update(uint32_t now, bool unlocked, const ElevatorExcitationCommand &command,
+                 bool manual = true) {
     if (!command.sourceSequence || command.pwmDeltaUs < -500 || command.pwmDeltaUs > 500 ||
         command.remainingMs > 60000 || (command.remainingMs && !command.eventId)) {
       cancel();
@@ -125,9 +141,19 @@ public:
       sourceAdvancedAt_ = now;
       restartPending_ = false;
     }
-    if (!enabled || !haveSequence_ || now - sourceAdvancedAt_ >= SOURCE_TIMEOUT_MS) {
+    if (!unlocked || !haveSequence_ || now - sourceAdvancedAt_ >= SOURCE_TIMEOUT_MS) {
       cancel();
       blockedEvent_ = command.eventId;
+      return 0;
+    }
+    if (!manual) {
+      // A receiver's failsafe can select stabilize. Fresh idle commands still
+      // establish a baseline for a new event in the first recovered manual frame.
+      active_ = false;
+      if (progressed) {
+        baseline_ = !command.remainingMs;
+        blockedEvent_ = command.eventId;
+      }
       return 0;
     }
     if (progressed) {

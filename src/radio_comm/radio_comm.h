@@ -26,5 +26,8 @@ extern int radio_channel5_raw, radio_channel6_raw, radio_channel7_raw, radio_cha
 extern float radio_channel1_normalized, radio_channel2_normalized, radio_channel3_normalized, radio_channel4_normalized;
 extern float radio_channel5_normalized, radio_channel6_normalized, radio_channel7_normalized, radio_channel8_normalized;
 void updateRadioNormalized();
-// Four primary channels have recent, plausible receiver measurements.
+// LostFrame means only the receiver's RF loss bit is set; failsafe, stale or
+// implausible primary channels always take precedence.
+enum class RadioInputStatus { Invalid, LostFrame, Valid };
+RadioInputStatus radioInputStatus();
 bool radioInputValid();
