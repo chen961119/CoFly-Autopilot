@@ -37,9 +37,9 @@ EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均
 
 八路遥控归一化参数为 `RC1_MIN/MAX/TRIM/REV/DZ` 至 `RC8_MIN/MAX/TRIM/REV/DZ`，直接绑定 `radio_comm` 的参数，全部位于 SD，可通过普通参数读写接口修改。
 
-五路执行器软件限幅为整数 SD 参数 `pwm_servo1_min_us/max_us` 至 `pwm_servo5_min_us/max_us`，默认每路 1000～2000 us。`pwm_channel1_mode` 至 `pwm_channel5_mode` 默认均为 0：模式 0 接收 -1～1，按 min/绝对 trim/max 三点插值；模式 1 接收 0～1，按 min/max 两点插值。五路统一调用 `actuatorCommandToPwm`，调用方负责匹配范围；当前舵面应使用 mode=0，油门必须设置并保存 mode=1，不再有油门专用转换函数。模式 0 要求 min<=trim<=max，模式 1 的 trim 仅为安全位置、可在解锁范围外（仍需在驱动范围内）。锁定或解锁时均可修改并立即生效，最后变动满 2 秒后保存；行程每周期使用当前参数，不缓存。各路锁定输出均直接使用绝对 trim（默认 1500）；普通单向电调可设置油门 mode=1、trim=1000。旧 SD 文件缺少模式时补默认 0，因此油门模式须核对；已存上下限倒置或模式 0 中位越界时整组限值恢复默认并迁移保存。旧相对偏置 trim 须按 1500+旧值手动转换后保存，不自动迁移。
+五路执行器软件限幅为整数 SD 参数 `pwm_servo1_min_us/max_us` 至 `pwm_servo5_min_us/max_us`。A/B/C 的通道 3 默认使用各机升降舵的试飞端点，其余通道和无试飞标定的身份默认为 1000～2000 μs。`pwm_channel1_mode` 至 `pwm_channel5_mode` 默认均为 0：模式 0 接收 -1～1，按 min/绝对 trim/max 三点插值；模式 1 接收 0～1，按 min/max 两点插值。五路统一调用 `actuatorCommandToPwm`，调用方负责匹配范围；当前舵面应使用 mode=0，油门必须设置并保存 mode=1，不再有油门专用转换函数。模式 0 要求 min<=trim<=max，模式 1 的 trim 仅为安全位置、可在解锁范围外（仍需在驱动范围内）。锁定或解锁时均可修改并立即生效，最后变动满 2 秒后保存；行程每周期使用当前参数，不缓存。各路锁定输出均直接使用本机绝对 trim。普通单向电调可设置油门 mode=1、trim=1000。旧 SD 文件缺少模式时补默认 0，因此油门模式须核对；已存上下限倒置或模式 0 中位越界时，按本机默认值修复问题通道的行程或中位，并迁移保存。旧相对偏置 trim 须按 1500+旧值手动转换后保存，不自动迁移。
 
-本机俯仰算法由整数 SD 参数 `pitch_controller` 选择：0 PID、1 INDI，默认 1；增稳模式使用此选择，修改下一周期生效。各机独立设置，原 `TESTINDI` 宏已移除。控制历史状态由 `control/` 下各控制器对象持有，模式切换由 `control/control_modes.cpp` 管理。
+本机俯仰算法由整数 SD 参数 `pitch_controller` 选择：0 为默认 PID，1 为 INDI。增稳模式使用此选择，修改下一周期生效。各机独立设置，原 `TESTINDI` 宏已移除。控制历史状态由 `control/` 下各控制器对象持有，模式切换由 `control/control_modes.cpp` 管理。
 
 `V_cruise` 为 float32 SD 参数，默认 13 m/s，允许范围 0.1～100 m/s。偏航协调转弯计算直接读取该参数，修改后下一控制周期生效；通过现有参数保存/加载流程持久化，旧文件缺少该项时保留默认值。
 
@@ -81,7 +81,7 @@ Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊�
 
 ## 当前控制参数单位
 
-控制参数直接使用当前弧度值，不提供旧度制参数自动换算、旧控制参数名称别名或控制单位版本标记。`indi_pitch_pwm_to_rad_k` 和 `indi_pitch_rate_limit_rad_s` 分别使用 rad/μs 和 rad/s，原 P/I/D/FF 名称保留，参数总数不变。固件加载、在线 PARAM SET 和电脑文件导入都直接按当前数值读写。遥控角度显示与 IMU 原始零偏仍按既有边界约定使用度。
+控制参数直接使用当前弧度值，不提供旧度制参数自动换算、旧控制参数名称别名或控制单位版本标记。`indi_pitch_up_rad` 和 `indi_pitch_down_rad` 分别记录升降舵的上、下角行程。角行程设为 0 的一侧使用后备斜率 `indi_pitch_pwm_to_rad_k`（rad/μs）。`indi_pitch_rate_limit_rad_s` 的单位为 rad/s。端点表及换算见[升降舵三点标定](../../docs/indi-variable-naming.md#升降舵三点标定)。固件加载、在线 PARAM SET 和电脑文件导入都直接按当前数值读写。遥控角度显示与 IMU 原始零偏仍按既有边界约定使用度。
 
 ## 换算表达式与参数说明
 

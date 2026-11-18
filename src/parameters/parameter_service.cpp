@@ -3,6 +3,7 @@
 #include "ground_station_service/sd_file_service.h"
 #include "config/serial_config.h"
 #include "config/aircraft_config.h"
+#include "math/units.h"
 #include "parameters/imu_calibration_integrity.h"
 #include "parameters/parameter_eeprom.h"
 #include "parameters/parameter_indices.h"
@@ -82,6 +83,59 @@ using ParameterRecord::parseUnsigned;
 bool validValue(size_t index, double value) {
   return validParameterValue(table[index], value);
 }
+
+double firmwareDefault(size_t index, int aircraft) {
+  // 2026-11-12 rigidly connected flexible wing, CH3 min/neutral/max (us).
+  static constexpr int elevatorPwm[][3] = {
+      {1350, 1580, 1900}, {1213, 1439, 1750}, {1033, 1436, 1800}};
+  if (aircraft >= 1 && aircraft <= 3) {
+    const auto &pwm = elevatorPwm[aircraft - 1];
+    const auto &elevator = indices.actuators[2];
+    if (index == elevator.minimum) return pwm[0];
+    if (index == elevator.trim) return pwm[1];
+    if (index == elevator.maximum) return pwm[2];
+    if (index == indices.elevatorUp) return Units::toRadians(15.0f);
+    if (index == indices.elevatorDown) return Units::toRadians(20.0f);
+  }
+  return table[index].defaultValue;
+}
+
+// Carry factory settings over an identity change. Preserve custom travel as a
+// group; on boot, fill individual missing records after resolving the local ID.
+bool resolveElevatorDefaults(int sourceId, int targetId, bool legacy) {
+  const auto &e = indices.actuators[2];
+  const bool genericSource = legacy || sourceId == 0;
+  const bool factoryPwm = sourceId != targetId &&
+      (genericSource || (candidate[e.mode] == 0 && candidate[indices.elevatorRev] == 1)) &&
+      candidate[e.minimum] == firmwareDefault(e.minimum, sourceId) &&
+      candidate[e.trim] == firmwareDefault(e.trim, sourceId) &&
+      candidate[e.maximum] == firmwareDefault(e.maximum, sourceId);
+  bool changed = false;
+  const size_t members[] = {e.minimum, e.trim, e.maximum, indices.elevatorUp, indices.elevatorDown};
+  for (size_t index : members) {
+    const bool angle = index == indices.elevatorUp || index == indices.elevatorDown;
+    const bool inherited = angle
+        ? sourceId != targetId && candidate[index] == firmwareDefault(index, sourceId)
+        : factoryPwm;
+    // Old files often calibrated only the center, direction, or one endpoint.
+    const bool genericLimit = genericSource && (index == e.minimum || index == e.maximum) &&
+                              candidate[index] == table[index].defaultValue;
+    const bool missing = !ParameterSD::hasRecord(index) && !eepromLoaded[index];
+    const double value = firmwareDefault(index, targetId);
+    if ((inherited || genericLimit || missing) && candidate[index] != value) {
+      candidate[index] = value;
+      changed = true;
+    }
+  }
+  // The lock path writes trim directly, including in endpoint-only mode.
+  if (genericSource && targetId >= 1 && targetId <= 3 && candidate[e.minimum] <= candidate[e.maximum] &&
+      (candidate[e.trim] < candidate[e.minimum] || candidate[e.trim] > candidate[e.maximum])) {
+    candidate[e.trim] = constrain(firmwareDefault(e.trim, targetId), candidate[e.minimum], candidate[e.maximum]);
+    changed = true;
+  }
+  return changed;
+}
+
 bool parseValue(size_t index, const char *text, double &value) {
   return ParameterRecord::parseValue(table[index], text, value) && validValue(index, value);
 }
@@ -99,7 +153,7 @@ bool retireMigratedSources(const double *values) {
 bool persist(const double *values, ParameterStorage medium) {
   if (medium == ParameterStorage::EEPROM)
     return saveEEPROMParameters(values);
-  if (!ParameterSD::save(values))
+  if (!ParameterSD::save(values, aircraftId()))
     return false;
   loadState = "SAVED";
   if (!retireMigratedSources(values)) {
@@ -282,9 +336,8 @@ void ParameterSession::handleCommand(char *line) {
     size_t resetCount = 0;
     for (size_t i = 0; i < count; ++i) {
       const bool onSD = table[i].storage == ParameterStorage::SD;
-      // defaults[] may contain migrated EEPROM values. Only the immutable
-      // registry snapshot represents the firmware's original defaults.
-      candidate[i] = onSD ? table[i].defaultValue : table[i].read();
+      // Keep the active airframe's calibration until a pending ID change takes effect.
+      candidate[i] = onSD ? firmwareDefault(i, aircraftId()) : table[i].read();
       if (onSD) ++resetCount;
       if (!validValue(i, candidate[i])) {
         error(id, "SAVE_FAILED", "Default configuration invalid; RAM unchanged");
@@ -298,7 +351,7 @@ void ParameterSession::handleCommand(char *line) {
     }
     // Persist and verify one complete snapshot before touching live values.
     // Do not use persist(): retiring migration sources would also write EEPROM.
-    if (!ParameterSD::save(candidate)) {
+    if (!ParameterSD::save(candidate, aircraftId())) {
       error(id, "SAVE_FAILED", "SD default snapshot write failed; RAM unchanged");
       return;
     }
@@ -392,7 +445,7 @@ void initializeParameterService(bool sdReady) {
     }
   }
   loadState = "DEFAULTS";
-  loadStats = {0, count, 0};
+  loadStats = {0, count, 0, 0};
   const bool haveEEPROM = initializeEEPROMParameters(table, count);
   for (size_t i = 0; i < count; ++i) {
     defaults[i] = table[i].defaultValue;
@@ -416,16 +469,6 @@ void initializeParameterService(bool sdReady) {
   const bool loadedSD = ParameterSD::load(candidate, needsMigration, loadStats);
   if (!loadedSD)
     memcpy(candidate, defaults, count * sizeof(double));
-  // Individual SD values may be in range while a min/max pair is reversed
-  // or a servo center falls outside its endpoints.
-  // Restore the PWM-limit group only; retain all other compatible parameters.
-  if (!validActuatorPwmParameters(table, count, candidate, indices.actuators)) {
-    for (size_t i = 0; i < count; ++i)
-      if (indices.isActuatorLimit(i))
-        candidate[i] = table[i].defaultValue;
-    needsMigration = true;
-    USBSerial.printf("[PARAM] Invalid actuator PWM limits; restored default limits\n");
-  }
   bool completeCalibration = true;
   for (size_t i = 0; i < count; ++i) {
     if (table[i].storage == ParameterStorage::EEPROM && eepromLoaded[i])
@@ -456,6 +499,26 @@ void initializeParameterService(bool sdReady) {
   if (!validAircraftConfiguration(candidate[idIndex])) {
     candidate[idIndex] = 0;
   }
+  const int targetId = static_cast<int>(candidate[idIndex]);
+  // Older firmware used the unconfigured PWM defaults for every ID.
+  const bool oldCalibration = !ParameterSD::hasRecord(indices.elevatorUp) && !eepromLoaded[indices.elevatorUp] &&
+                              !ParameterSD::hasRecord(indices.elevatorDown) && !eepromLoaded[indices.elevatorDown];
+  const int sourceId = oldCalibration ? 0 : static_cast<int>(loadStats.sourceAircraftId);
+  if (resolveElevatorDefaults(sourceId, targetId, oldCalibration) && loadedSD)
+    needsMigration = true;
+  // A damaged channel must not discard another channel's valid calibration.
+  for (const auto &a : indices.actuators) {
+    if (validActuatorPwmChannel(table, count, candidate, a)) continue;
+    if (candidate[a.minimum] > candidate[a.maximum]) {
+      candidate[a.minimum] = firmwareDefault(a.minimum, targetId);
+      candidate[a.maximum] = firmwareDefault(a.maximum, targetId);
+    }
+    if (candidate[a.mode] == 0 &&
+        (candidate[a.trim] < candidate[a.minimum] || candidate[a.trim] > candidate[a.maximum]))
+      candidate[a.trim] = constrain(firmwareDefault(a.trim, targetId), candidate[a.minimum], candidate[a.maximum]);
+    needsMigration = true;
+    USBSerial.printf("[PARAM] Repaired actuator PWM calibration for %s\n", table[a.trim].name);
+  }
   const bool eeSaved = saveEEPROMParameters(candidate);
   if (!eeSaved) {
     candidate[idIndex] = 0;
@@ -472,7 +535,7 @@ void initializeParameterService(bool sdReady) {
       if (table[i].storage == ParameterStorage::SD && !ParameterSD::hasRecord(i) && eepromLoaded[i])
         missingSD = true;
     if (storageReady && (needsMigration || missingSD)) {
-      if (!ParameterSD::save(candidate, true) || !retireMigratedSources(candidate))
+      if (!ParameterSD::save(candidate, targetId) || !retireMigratedSources(candidate))
         loadState = "MIGRATION_PENDING";
       else
         loadState = "MIGRATED";
@@ -503,7 +566,7 @@ bool saveRadioCalibrationParameters(const char *const *values) {
         group[1] - group[2] <= deadzone) return false;
   }
   // Write and read back the complete snapshot before changing live values.
-  if (!ParameterSD::save(candidate)) return false;
+  if (!ParameterSD::save(candidate, aircraftId())) return false;
   applyCandidateParameters();
   sdSave.completed(true, millis());
   storageNotice(ParameterStorage::SD, StorageNotice::Saved);

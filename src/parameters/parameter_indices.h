@@ -12,6 +12,7 @@ struct ActuatorParameterIndices {
 struct ParameterIndices {
   size_t aircraftId;
   ActuatorParameterIndices actuators[5];
+  size_t elevatorRev, elevatorUp, elevatorDown;
   size_t imuOffsets[IMU_CALIBRATION_OFFSET_COUNT];
   size_t imuValid, imuModel, imuChecksum;
   // Calibration protocol order is MIN/MAX/TRIM/REV, independent of display order.
@@ -19,10 +20,14 @@ struct ParameterIndices {
 
   bool initialize(const FlightParameter *table, size_t count) {
     aircraftId = findParameterIndex(table, count, "aircraft_id");
+    elevatorRev = findParameterIndex(table, count, "pwm_channel3_rev");
+    elevatorUp = findParameterIndex(table, count, "indi_pitch_up_rad");
+    elevatorDown = findParameterIndex(table, count, "indi_pitch_down_rad");
     imuValid = findParameterIndex(table, count, "imu_calibration_valid");
     imuModel = findParameterIndex(table, count, "imu_calibration_model");
     imuChecksum = findParameterIndex(table, count, "imu_calibration_crc");
-    if (aircraftId == count || imuValid == count ||
+    if (aircraftId == count || elevatorRev == count || elevatorUp == count ||
+        elevatorDown == count || imuValid == count ||
         imuModel == count || imuChecksum == count) return false;
     const char *const offsetNames[] = {
         "imu_accerrorx_6050", "imu_accerrory_6050", "imu_accerrorz_6050",
@@ -66,10 +71,5 @@ struct ParameterIndices {
     if (member < IMU_CALIBRATION_OFFSET_COUNT) return imuOffsets[member];
     if (member == IMU_CALIBRATION_OFFSET_COUNT) return imuValid;
     return member == IMU_CALIBRATION_OFFSET_COUNT + 1 ? imuModel : imuChecksum;
-  }
-  bool isActuatorLimit(size_t index) const {
-    for (const auto &a : actuators)
-      if (index == a.minimum || index == a.maximum) return true;
-    return false;
   }
 };

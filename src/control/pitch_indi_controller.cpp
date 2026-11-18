@@ -25,15 +25,22 @@ using namespace ControlParameters;
 //   这里 q 是俯仰角速度，不是四元数，也不是动压；r 是机体 Z 轴角速度。
 //   delta_e_*：升降舵偏角，rad，下偏为正，上偏为负。
 //   当前标定的 indi_pitch_effectiveness < 0：下偏产生负俯仰角加速度。
-//   pwm_*_us：内部物理PWM，us，用于命令换算和延迟队列。
+//   pwm_*_us：内部物理 PWM，μs，用于命令换算和延迟队列。
 //   indiOutput：通道逆映射后取负；模式 0 为抬头正的有符号控制量，不是角加速度。
 //   模式 1 取负后为 -1..0，不具备以配平为零的有符号语义；当前升降舵应使用模式 0。
 //   参数对应：K_q = indi_pitch_q_gain，G_qe = indi_pitch_effectiveness。
 //   K_q 单位 1/s，G_qe 单位 (rad/s^2)/rad；参数存储名和参数值保持原约定。
 //
 // 模式 0 的零舵角 PWM=trim；模式 1 的零舵角 PWM=(min+max)/2。
-// delta_e = (PWM - 配平PWM) * rev * k，角度标定仍使用同一个物理斜率。
+// 从零舵角到上、下端点分别线性插值，通道 rev 决定两个端点的安装方向。
 // 当前交联/前馈融合使用有符号贡献，通道3应保持模式0；模式1不自动转换整套混控坐标。
+
+namespace {
+float elevatorTravelRad(float measured_rad, float span_us) {
+  if (span_us <= 0.0f) return 0.0f;
+  return measured_rad > 0.0f ? measured_rad : span_us * indi_pitch_pwm_to_rad_k;
+}
+}
 
 void PitchIndiController::reset(float theta_ref_rad) {
   // 下次有效 update 重填延迟队列并重置舵机估计。
@@ -50,16 +57,14 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
   //    正常切换流程会另外调用 reset()，不能把 enabled=false 当成一次 reset。
   pitchIndiControlOutput = {};
   if (!enabled) return;
-  // 2. 只从通道3的物理范围、配平中位和rev推导角度范围，不另设INDI边界参数。
-  //    物理PWM始终以配平中位为零舵角；rev=-1时两个角度端点的顺序会反转。
+  // 2. 两侧分别使用实测角行程。某侧未标定时按该侧的 PWM 行程和旧斜率换算。
   const float pwm_trim_us = actuatorNeutralPwm(pwm_servo3_min_us, pwm_channel3_trim,
       pwm_servo3_max_us, pwm_channel3_mode);
-  const float delta_e_at_pwm_min_rad =
-      (pwm_servo3_min_us - pwm_trim_us) * pwm_channel3_rev * indi_pitch_pwm_to_rad_k;
-  const float delta_e_at_pwm_max_rad =
-      (pwm_servo3_max_us - pwm_trim_us) * pwm_channel3_rev * indi_pitch_pwm_to_rad_k;
-  const float delta_e_min_rad = fminf(delta_e_at_pwm_min_rad, delta_e_at_pwm_max_rad);
-  const float delta_e_max_rad = fmaxf(delta_e_at_pwm_min_rad, delta_e_at_pwm_max_rad);
+  const float low_span_us = pwm_trim_us - pwm_servo3_min_us;
+  const float high_span_us = pwm_servo3_max_us - pwm_trim_us;
+  const bool reversed = pwm_channel3_rev < 0;
+  const float up_rad = elevatorTravelRad(indi_pitch_up_rad, reversed ? high_span_us : low_span_us);
+  const float down_rad = elevatorTravelRad(indi_pitch_down_rad, reversed ? low_span_us : high_span_us);
   if (!initialized)
   {
     // 配平零舵角为0 rad；命令/估计从0开始，物理PWM历史填充配平中位。
@@ -147,8 +152,7 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
   float delta_e_step_rad = delta_e_cmd_rad - delta_e_cmd_prev_rad;
   delta_e_step_rad = constrain(delta_e_step_rad, -delta_e_step_max_rad, delta_e_step_max_rad);
   delta_e_cmd_rad = delta_e_cmd_prev_rad + delta_e_step_rad;
-  // 角度范围由通道3推导；先约束低通目标，再进行一次命令低通。
-  delta_e_cmd_rad = constrain(delta_e_cmd_rad, delta_e_min_rad, delta_e_max_rad);
+  delta_e_cmd_rad = constrain(delta_e_cmd_rad, -up_rad, down_rad);
   if (indi_pitch_cmd_lpf_fc_hz > 0.0f && dt > 1.0e-6f)
   {
     // 只在角度域低通一次，保持舵面运动的物理含义。
@@ -159,15 +163,14 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
   }
   // 低通前限制目标；低通后确保 trim 在线修改导致范围变化时，旧滤波状态也不会越界。
   // 边界固定且上一状态合法时，一阶低通为凸组合，这第二次限幅通常不改变结果。
-  delta_e_cmd_rad = constrain(delta_e_cmd_rad, delta_e_min_rad, delta_e_max_rad);
+  delta_e_cmd_rad = constrain(delta_e_cmd_rad, -up_rad, down_rad);
   delta_e_cmd_prev_rad = delta_e_cmd_rad;
   delta_e_cmd_f_prev_rad = delta_e_cmd_rad;
-  // 恢复物理PWM计算；k始终是正斜率大小，安装方向由rev负责。
-  // rev只允许+/-1，因此这里除以rev与乘以rev等价。
-  float pwm_cmd_float_us = pwm_trim_us +
-      delta_e_cmd_rad / (pwm_channel3_rev * indi_pitch_pwm_to_rad_k);
-  // 与推导角度边界使用同一通道3范围，也消除浮点换算可能出现的微小越界。
-  pwm_cmd_float_us = constrain(pwm_cmd_float_us, pwm_servo3_min_us, pwm_servo3_max_us);
+  // 物理行程坐标始终为 -1（上端点）到 +1（下端点），0 是该模式的零舵角。
+  const float travel_rad = delta_e_cmd_rad < 0.0f ? up_rad : down_rad;
+  const float deflection = travel_rad > 0.0f ? delta_e_cmd_rad / travel_rad : 0.0f;
+  const float pwm_cmd_float_us = actuatorCommandToPwm(deflection, pwm_channel3_rev,
+      pwm_servo3_min_us, pwm_trim_us, pwm_servo3_max_us, 0);
   // 8. 估计舵机实际到达的位置，供下一个控制周期作为增量反演基准。
   //    模型是“纯延迟 + 一阶响应”，并非读取了实际舵角，也不等同于命令瞬时到位。
   //    队列保存限幅后的浮点物理PWM，不在控制器内部量化为整数us。
@@ -189,8 +192,10 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
     pwm_delay_read_index += pwm_delay_buffer_length;
   }
   const float pwm_delayed_us = pwm_delay_buffer_us[pwm_delay_read_index];
-  const float delta_e_delayed_rad =
-      (pwm_delayed_us - pwm_trim_us) * pwm_channel3_rev * indi_pitch_pwm_to_rad_k;
+  // 用相同的两段标定解读历史 PWM。在线收窄端点时，旧命令限制到新行程。
+  const float delayed_deflection = constrain(actuatorPwmToCommand(pwm_delayed_us,
+      pwm_channel3_rev, pwm_servo3_min_us, pwm_trim_us, pwm_servo3_max_us, 0), -1.0f, 1.0f);
+  const float delta_e_delayed_rad = delayed_deflection * (delayed_deflection < 0.0f ? up_rad : down_rad);
   // 一阶舵机模型：估计舵偏逐渐追随“延迟后的目标舵偏”。
   // tau_actuator_s 很小时按即时跟随处理；否则 alpha=dt/(tau_actuator_s+dt)，tau_actuator_s 越大响应越慢。
   float tau_actuator_s = indi_pitch_servo_tau_s;
