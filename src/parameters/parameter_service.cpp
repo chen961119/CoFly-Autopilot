@@ -487,7 +487,7 @@ bool saveParameterValue(const char *name, double value) {
   return saveOne(findParameterIndex(table, count, name), value) != SaveResult::Rejected;
 }
 bool saveRadioCalibrationParameters(const char *const *values) {
-  if (sdFileSessionActive() || !table || !count || !storageReady || !values || !isFlightLocked() || !radioInputValid())
+  if (sdFileSessionActive() || !table || !count || !storageReady || !values || !isFlightLocked())
     return false;
   for (size_t i = 0; i < count; ++i) candidate[i] = table[i].read();
   for (unsigned channel = 0; channel < 4; ++channel) {

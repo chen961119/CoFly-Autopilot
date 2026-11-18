@@ -97,6 +97,6 @@ CRC32=xxxxxxxx
 
 `CAPS` 增加 `radio_calibration=SUPPORTED`，`DATA` 增加 `radio_valid=0/1`（主通道近期有效接收，包含 SBUS 失控/丢帧检查）。九步采样在地面站完成，确认前不改动飞控参数。
 
-命令：`GCS RC_SAVE id min1 max1 trim1 rev1 min2 max2 trim2 rev2 min3 max3 trim3 rev3 min4 max4 trim4 rev4`。严格要求 16 个数值，分别绑定 CH1–4 的 MIN/MAX/TRIM/REV，范围以注册表为准；每轴总行程至少 400 μs，中位与端点距离必须大于现有死区。保留 DZ 和辅助通道。必须锁定且接收机有效，整组验证后同步写入一次 SD 快照，读回校验成功才更新 RAM。
+命令：`GCS RC_SAVE id min1 max1 trim1 rev1 min2 max2 trim2 rev2 min3 max3 trim3 rev3 min4 max4 trim4 rev4`。严格要求 16 个数值，分别绑定 CH1–4 的 MIN/MAX/TRIM/REV，范围以注册表为准；每轴总行程至少 400 μs，中位与端点距离必须大于现有死区。保留 DZ 和辅助通道。地面站在每步采样时检查 `radio_valid`，确认保存后立即发送这 16 个值。飞控检查锁定状态，验证整组参数后同步写入 SD 快照，读回校验成功才更新 RAM。
 
-成功：`@COFLY\tid\tRC_SAVE\tstatus=SAVED`，不使用普通逐项 SET 的 PENDING 状态。失败：`ERROR / LOCK_REQUIRED`、`RADIO_INVALID` 或 `SAVE_FAILED`（参数无效或 SD 保存失败）。失败不应用新的遥控 RAM 参数。保存请求超时为 10 秒；超时不能推断板上保存失败，应重新读取核对。该操作同时持久化快照中已有的其他待保存 SD 参数。
+成功：`@COFLY\tid\tRC_SAVE\tstatus=SAVED`，不使用普通逐项 SET 的 PENDING 状态。飞控在传感器校准期间返回 `BUSY`，飞机解锁时返回 `LOCK_REQUIRED`，参数验证或 SD 保存失败时返回 `SAVE_FAILED`。失败不应用新的遥控 RAM 参数。保存请求超时为 10 秒；超时不能推断板上保存失败，应重新读取核对。该操作同时持久化快照中已有的其他待保存 SD 参数。

@@ -55,7 +55,6 @@ class GroundStation(ParameterConsole):
         self.reset_confirmation = False
         self.radio_calibration = None
         self.sensor_calibration = None
-        self.radio_save = None
         self.sd_browser = None
         self.last_data = 0
         self.data = {}
@@ -419,7 +418,7 @@ class GroundStation(ParameterConsole):
         super()._update_controls()
         if hasattr(self, "parameter_read"):
             polling = self.gcs_pending is not None and self.gcs_pending["verb"] in ("DATA", "CONFIG")
-            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.sensor_calibration is None and self.deferred_action is None and self.radio_save is None and self.sd_browser is None and not self.reset_confirmation
+            idle = self.connected and self.pending is None and (self.gcs_pending is None or polling) and self.file_import is None and self.radio_calibration is None and self.sensor_calibration is None and self.deferred_action is None and self.sd_browser is None and not self.reset_confirmation
             self.radio_calibrate_button.configure(state="normal" if idle and self.caps.get("radio_calibration") == "SUPPORTED" and self.caps.get("radio") != "DISABLED" else "disabled")
             self.calibration_radio_button.configure(state=self.radio_calibrate_button.cget("state"))
             self.read_button.configure(state="normal" if idle else "disabled")
@@ -455,7 +454,7 @@ class GroundStation(ParameterConsole):
         if self._defer_for_poll(self.reset_sd_parameters):
             return
         if (not self.connected or self.pending or self.gcs_pending or self.file_import is not None
-                or self.radio_calibration or self.sensor_calibration or self.radio_save or self.sd_browser):
+                or self.radio_calibration or self.sensor_calibration or self.sd_browser):
             return
         if self.caps.get("param_reset_sd") != "1":
             self.status.set("当前固件不支持恢复 SD 默认参数，请更新飞控固件后重新识别")
@@ -494,7 +493,7 @@ class GroundStation(ParameterConsole):
             return
         if self._defer_for_poll(self._start_request, *args):
             return
-        if self.gcs_pending or self.radio_calibration or self.sensor_calibration or self.radio_save or self.sd_browser:
+        if self.gcs_pending or self.radio_calibration or self.sensor_calibration or self.sd_browser:
             self.status.set("正在接收串口数据，请稍后再试")
             return
         super()._start_request(*args)
@@ -541,7 +540,7 @@ class GroundStation(ParameterConsole):
         if self._defer_for_poll(self._open_sd_files):
             return
         if (self.sd_browser or not self.connected or self.pending or self.gcs_pending or self.file_import
-                or self.radio_calibration or self.radio_save):
+                or self.radio_calibration):
             return
         if self.link_type.get() != "USB" or self.caps.get("sd_files") != "USB_V1":
             self.status.set("请通过 USB 连接，并更新支持 SD 文件下载的飞控固件")
@@ -577,39 +576,13 @@ class GroundStation(ParameterConsole):
         self._update_controls()
 
     def save_radio_calibration(self, values):
-        self.radio_save = {"values": values, "deadline": time.monotonic() + 5,
-                           "valid_since": None, "last_data": None, "last_ms": None, "frames": 0}
-        self.status.set("校准数据已保留，等待遥控信号连续有效后写入 SD 卡…")
-        self._update_controls()
-
-    def _try_radio_save(self, data, now):
-        job = self.radio_save
-        if job is None:
-            return
-        if data.get("locked") != 1:
-            self.radio_save = None
-            self.status.set("飞机已解锁，取消校准保存；原参数保持不变")
-            return
-        if data.get("radio_valid") != 1 or (job["last_data"] is not None and now - job["last_data"] > 0.5):
-            job["valid_since"], job["frames"] = None, 0
-        job["last_data"] = now
-        if data.get("radio_valid") != 1:
-            return
-        if data["ms"] == job["last_ms"]:
-            job["valid_since"], job["frames"] = None, 0
-            return
-        job["last_ms"] = data["ms"]
-        if job["valid_since"] is None:
-            job["valid_since"] = now
-        job["frames"] += 1
-        if now < job["deadline"] and now - job["valid_since"] >= 1 and job["frames"] >= 6:
-            self.status.set("遥控信号有效，正在写入校准参数…")
-            self._request("RC_SAVE", *job["values"])
+        self.status.set("正在将已确认的遥控校准参数写入 SD 卡…")
+        self._request("RC_SAVE", *values)
 
     def _sensor_action(self, verb):
         if self._defer_for_poll(self._sensor_action, verb):
             return
-        if self.sensor_calibration or self.radio_calibration or self.radio_save:
+        if self.sensor_calibration or self.radio_calibration:
             return
         selected = self.sensor_tree.selection()
         active = {"IMU": self.caps.get("imu") == "BMI088_SPI",
@@ -666,13 +639,7 @@ class GroundStation(ParameterConsole):
                 self.next_link_check = time.monotonic() + 3
                 code = fields[0] if fields else "UNKNOWN"
                 if pending["verb"] == "RC_SAVE":
-                    if code == "RADIO_INVALID" and self.radio_save and time.monotonic() < self.radio_save["deadline"]:
-                        self.radio_save.update(valid_since=None, last_data=None, last_ms=None, frames=0)
-                        self.status.set("保存时遥控信号暂时无效，保留本次校准数据并等待恢复…")
-                        self._update_controls()
-                        return
-                    self.radio_save = None
-                    messagebox.showerror("遥控器校准保存失败", f"未确认保存成功（{code}）。请检查飞机锁定状态、接收机和 SD 卡，然后重新校准。", parent=self.root)
+                    messagebox.showerror("遥控器校准保存失败", f"飞控拒绝保存校准参数（{code}）。", parent=self.root)
                 self.status.set(f"遥控校准保存失败：{code}；原遥控参数保持不变" if pending["verb"] == "RC_SAVE" else
                                 "该接口暂未实现，待下一版本开放；飞控状态未修改。" if code == "NOT_IMPLEMENTED" else
                                 "请先锁定飞机，再执行此操作" if code == "LOCK_REQUIRED" else
@@ -693,7 +660,6 @@ class GroundStation(ParameterConsole):
                 if kind in ("CALIBRATE", "CAL_STATUS"):
                     self._calibration_result(values)
                 if kind == "RC_SAVE":
-                    self.radio_save = None
                     self.parameters.clear()
                     self.parameter_file_version = None
                     self._render_table()
@@ -714,7 +680,6 @@ class GroundStation(ParameterConsole):
                     self._render_data()
                     if self.radio_calibration:
                         self.radio_calibration.feed(values, self.last_data)
-                    self._try_radio_save(values, self.last_data)
                 elif kind == "CONFIG":
                     self.configuration = values
                     self.last_configuration = time.monotonic()
@@ -727,13 +692,11 @@ class GroundStation(ParameterConsole):
                     self._draw_horizon()
                     self._draw_configuration()
         except (ValueError, IndexError, KeyError) as exc:
-            if pending["verb"] == "RC_SAVE":
-                self.radio_save = None
             self.status.set(f"地面站响应错误：{exc}")
         self._update_controls()
         if self._run_deferred_action():
             return
-        if kind == "DATA" and self.page == "飞行" and self.config_supported and self.radio_save is None:
+        if kind == "DATA" and self.page == "飞行" and self.config_supported:
             self._request("CONFIG", automatic=True)
 
     def _render_sensors(self):
@@ -867,8 +830,6 @@ class GroundStation(ParameterConsole):
         if self.gcs_pending and now > self.gcs_pending["deadline"]:
             verb = self.gcs_pending["verb"]
             self.gcs_pending = None
-            if verb == "RC_SAVE":
-                self.radio_save = None  # Do not retry an unacknowledged SD write.
             self.status.set("地面站请求超时；请检查固件或重试识别" if verb == "CAPS" else "串口请求超时，结果未确认")
             self._update_controls()
         self._run_deferred_action()
@@ -877,13 +838,11 @@ class GroundStation(ParameterConsole):
             self.sensor_note.set("校准结果未确认，请检查连接；飞控不会自动重复校准，可通过 GCS CAL_STATUS 查询结果。")
             self.status.set(self.sensor_note.get())
             self._update_controls()
-        if self.radio_save and now >= self.radio_save["deadline"] and not (self.gcs_pending and self.gcs_pending["verb"] == "RC_SAVE"):
-            self.radio_save = None
-            self.status.set("五秒内遥控信号未恢复稳定，未保存校准参数；请检查接收机连接")
-            self._update_controls()
         if self.radio_calibration and not self.radio_calibration.closed and now - self.last_data > 2:
             self.radio_calibration.cancel("数传数据中断，校准已取消，原参数保持不变")
-        if self.connected and not self.pending and not self.gcs_pending and self.file_import is None and self.sd_browser is None and not self.reset_confirmation:
+        if (self.connected and not self.pending and not self.gcs_pending and self.file_import is None
+                and self.sd_browser is None and not self.reset_confirmation
+                and not (self.radio_calibration and self.radio_calibration.closed)):
             if self.sensor_calibration:
                 self._request("DATA" if now - self.last_data > 0.8 else "CAL_STATUS", automatic=True)
             elif self.auto_probe:
@@ -891,7 +850,7 @@ class GroundStation(ParameterConsole):
                 self._request("CAPS", automatic=True)
             elif self.caps and (self.page in ("飞行", "遥控器", "校准")
                                or (self.page == "串口助手" and self.link_type.get() == "USB" and self.caps.get("sd_files") == "USB_V1")
-                               or self.radio_calibration or self.radio_save) and not (self.radio_calibration and self.radio_calibration.closed):
+                               or self.radio_calibration):
                 self._request("DATA", automatic=True)
             elif self.auto_connect.get() and not self.auto_paused and now >= self.next_link_check:
                 self._request("CAPS", automatic=True)
@@ -913,7 +872,6 @@ class GroundStation(ParameterConsole):
             self.sd_browser.destroy()
         self.terminal_filter = AutomaticQueryFilter()
         self.next_link_check = 0
-        self.radio_save = None
         self.sensor_calibration = None
         self.deferred_action = None
         if self.radio_calibration:

@@ -195,7 +195,8 @@ class RadioCalibrationDialog:
         self.closed = True
         self.window.destroy()
         if messagebox.askyesno("遥控器校准", "所有校准工作已完成，是否将新参数写入sd卡参数中？", parent=self.station.root):
-            if self.station.connected and not self.station.pending and not self.station.gcs_pending and self.station.file_import is None:
+            if (self.station.radio_calibration is self and self.station.connected and not self.station.pending
+                    and not self.station.gcs_pending and self.station.file_import is None):
                 self.station.save_radio_calibration(values)
             else:
                 self.station.status.set("连接状态已变化，未发送校准保存请求；请重新校准")

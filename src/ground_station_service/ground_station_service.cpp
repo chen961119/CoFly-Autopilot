@@ -86,7 +86,6 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
   if (!strcmp(tokens[1], "RC_SAVE") && count == 19) {
     if (sensorCalibrationBusy()) { code = "BUSY"; message = "Sensor calibration in progress"; }
     else if (!isFlightLocked()) { code = "LOCK_REQUIRED"; message = "Lock aircraft before radio calibration"; }
-    else if (!radioInputValid()) { code = "RADIO_INVALID"; message = "Receiver signal missing or invalid"; }
     else if (!saveRadioCalibrationParameters(const_cast<const char *const *>(tokens + 3))) {
       code = "SAVE_FAILED"; message = "Invalid calibration or SD write failed; live parameters unchanged";
     } else {
