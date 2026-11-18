@@ -8,9 +8,40 @@
 #include "system/flight_clock.h"
 
 namespace {
-PX4LowPassFilter2p gyroFiltX, gyroFiltY, gyroFiltZ;
+PX4LowPassFilter2p gyroLowpass[3];
+
+struct GyroNotch {
+  void configure(float center_hz, float bandwidth_hz) {
+    const float beta = tanf(PI * bandwidth_hz / CONTROL_LOOP_RATE_HZ);
+    gain = beta / (1.0f + beta);
+    a1 = -2.0f * cosf(2.0f * PI * center_hz / CONTROL_LOOP_RATE_HZ) *
+         (1.0f - gain);
+    a2 = 1.0f - 2.0f * gain;
+  }
+
+  float apply(unsigned int axis, float sample, bool reset) {
+    State &s = state[axis];
+    if (reset) {
+      // 将带通支路置于当前输入的直流稳态。
+      s.z1 = s.z2 = -gain * sample;
+      return sample;
+    }
+    // 输入减去二阶带通的输出，形成单位直流增益的陷波。
+    const float drive = gain * sample;
+    const float band = drive + s.z1;
+    s.z1 = s.z2 - a1 * band;
+    s.z2 = -drive - a2 * band;
+    return sample - band;
+  }
+
+  struct State { float z1, z2; };
+  State state[3]{};
+  float gain{0.0f}, a1{0.0f}, a2{0.0f};
+};
+
+GyroNotch gyroNotches[3];
+bool gyroNotchesInitialized = false;
 }
-PX4LowPassFilter2p gyroFiltYIndi, gyroFiltXIndi, gyroFiltZIndi;
 
 // 按采样频率和截止频率（Hz）计算二阶低通系数；非正参数时改为直接透传。
 void PX4LowPassFilter2p::set_cutoff_frequency(float sample_freq, float cutoff_freq) {
@@ -43,33 +74,34 @@ void PX4LowPassFilter2p::reset(float sample) {
   _delay_element_1 = _delay_element_2 = sample / (1.0f + _a1 + _a2);
 }
 
-// 初始化姿态控制和 INDI 控制所用的独立角速度滤波器。
+// 各机在本地采样频率下生成所有控制器共用的角速度反馈。
 void initializeControlFilters() {
-  // 控制环按 500 Hz 采样；INDI 与常规姿态控制使用独立滤波器状态。
-  // 保持原反馈行为：默认内置路径 40 Hz，外置路径直接透传。
-#if defined USE_MPU6050_I2C && !defined EXTIMU
-  constexpr float feedbackCutoff = 40.0f;
-#else
-  constexpr float feedbackCutoff = 0.0f;
-#endif
-  gyroFiltX.set_cutoff_frequency(500, feedbackCutoff);
-  gyroFiltY.set_cutoff_frequency(500, feedbackCutoff);
-  gyroFiltZ.set_cutoff_frequency(500, feedbackCutoff);
-  gyroFiltX.reset(0.0f);
-  gyroFiltY.reset(0.0f);
-  gyroFiltZ.reset(0.0f);
+  constexpr float feedbackCutoffHz = 40.0f;
+  // 2026-11-12 刚接柔性翼试飞，按 A 机日志的 current_time 校正报告峰频。
+  // 参数依次为中心频率和单节 -3 dB 带宽，单位 Hz。
+  gyroNotches[0].configure(5.80f, 0.55f);
+  gyroNotches[1].configure(7.72f, 0.55f);
+  gyroNotches[2].configure(9.64f, 0.65f);
+  gyroNotchesInitialized = false;
+  for (auto &lowpass : gyroLowpass) {
+    lowpass.set_cutoff_frequency(CONTROL_LOOP_RATE_HZ, feedbackCutoffHz);
+    lowpass.reset(0.0f);
+  }
   for (float &value : ang_vel_filtered) value = 0.0f;
   initializeAngularAccelerationFilters();
-  gyroFiltYIndi.set_cutoff_frequency(500, 40);
-  gyroFiltXIndi.set_cutoff_frequency(500, 100);
-  gyroFiltZIndi.set_cutoff_frequency(500, 100);
 }
 
 // 每次传感器测量发布时推进一次，控制器仅读取结果，不重复推进滤波状态。
 void updateAngularVelocityFilters() {
-  ang_vel_filtered[0] = gyroFiltX.apply(ang_vel[0]);
-  ang_vel_filtered[1] = gyroFiltY.apply(ang_vel[1]);
-  ang_vel_filtered[2] = gyroFiltZ.apply(ang_vel[2]);
+  const bool resetNotches = !gyroNotchesInitialized || dt <= 0.0f || dt > 0.01f;
+  for (unsigned int axis = 0; axis < 3; ++axis) {
+    float rate = ang_vel[axis];
+    for (auto &notch : gyroNotches) {
+      rate = notch.apply(axis, rate, resetNotches);
+    }
+    ang_vel_filtered[axis] = gyroLowpass[axis].apply(rate);
+  }
+  gyroNotchesInitialized = true;
 }
 
 float B_madgwick_adaptive = 0.04; // 动态权重

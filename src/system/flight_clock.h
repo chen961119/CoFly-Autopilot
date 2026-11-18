@@ -1,5 +1,7 @@
 #pragma once
 
+constexpr int CONTROL_LOOP_RATE_HZ = 500;
+
 // current_time 为本轮起点的 micros() 时间戳（μs），dt 为相邻两轮间隔（秒）。
 extern float dt;
 extern unsigned long current_time;

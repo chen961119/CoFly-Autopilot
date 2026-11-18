@@ -247,7 +247,7 @@ void AircraftSensorLink::printReceivedData(int enabled) {
 
 // 汇总本机和下游状态；固定槽位不移位，转换为协议类型后再复制发送。
 void AircraftSensorLink::setSensorLink() {
-  const float localRollRate = ang_vel[0];
+  const float localRollRate = ang_vel_filtered[0];
   const bool left = aircraftIsLeft();
   sensorPayload.isLeft = left;
   const unsigned int localSlot = static_cast<unsigned int>((aircraftId() - 2) / 2);

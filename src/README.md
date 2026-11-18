@@ -35,11 +35,11 @@ PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录�
 
 ## 统一惯性测量接口
 
-`sensors/sensor_processing.h` 提供 `ang_vel[3]` 和 `ang_vel_filtered[3]`（rad/s，后者为传感器层统一滤波结果）、`ang_acc[3]`（rad/s²）和 `acc[3]`（m/s²），数组按 X/Y/Z 排列。`sensors/filters.h` 提供 `att[3]`（rad，滚转/俯仰/偏航）和 `quat[4]`，按 W/X/Y/Z 排列，沿用现有姿态算法约定。内置 IMU 的 X 轴符号在传感器层统一到原控制和日志方向，外置 IMU 保持其安装轴映射。
+`sensors/sensor_processing.h` 提供 `ang_vel[3]`（采集角速度）和 `ang_vel_filtered[3]`（所有控制器共用的角速度反馈），单位均为 rad/s。各机在 500 Hz 控制周期内对每轴依次做三级陷波和 40 Hz 二阶低通。`ang_acc[3]` 由相邻的 `ang_vel_filtered` 样本差分，再经角加速度低通得到，单位为 rad/s²。`acc[3]` 单位为 m/s²。数组按 X/Y/Z 排列。`sensors/filters.h` 提供 `att[3]`（rad，滚转/俯仰/偏航）和 `quat[4]`，按 W/X/Y/Z 排列，沿用现有姿态算法约定。内置 IMU 的 X 轴符号在传感器层统一到原控制和日志方向，外置 IMU 保持其安装轴映射。
 
 主循环调用 `updateInertialSensors()`，按外置优先、否则当前 BMI088 路径进行采样和姿态估计，发布统一测量后计算角加速度。控制、日志、诊断、地面站和机间通信使用统一数组，具体型号的采样变量仅在 `sensors` 内部使用。
 
-机间角速度为 `ang_vel_B[3]` 至 `ang_vel_G[3]`；现有协议仅传输滚转角速度，接收端只更新 `[0]`，`[1]`/`[2]` 保持 0，不能视为有效测量。协议包布局保持不变。SD 日志列名使用 `ang_vel[i]`、`ang_acc[i]`、`acc[i]` 和 `quat[i]`；所有飞机使用统一日志格式，仅记录本机选定数据源及统一滤波结果。
+各机发送本机的 `ang_vel_filtered[0]`。接收机解码后直接将它作为对应飞机的滚转角速度反馈，机间数组 `ang_vel_B[3]` 至 `ang_vel_G[3]` 中仅 `[0]` 有测量。SD 日志使用 `ang_vel[i]` 和 `ang_vel_filtered[i]` 记录本机滤波前后的角速度，并记录 `ang_acc[i]`、`acc[i]` 和 `quat[i]`。
 
 五路应变测量统一通过 `strain_value[5]`（`int32_t` 数组）读取，索引 0～4 对应传感器通道 1～5；保持原报文解析和数值单位。SD 日志中的姿态和应变列分别使用 `att[i]`、`strain_value[i]`。
 

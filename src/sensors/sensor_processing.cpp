@@ -895,20 +895,10 @@ void initializeInitialAttitude() {
 }
 
 namespace {
-// 角加速度低通滤波器（三轴）
-static PX4LowPassFilter2p gyroDerivFiltX, gyroDerivFiltY,
-    gyroDerivFiltZ; // getAngularACC() 求 ang_acc[0]/ang_acc[1]/ang_acc[2] 前的角速度滤波
-
-static PX4LowPassFilter2p angularAccFiltX, angularAccFiltY, angularAccFiltZ;
-
-// 前次滤波后陀螺仪值（用于差分）
-float gyroX_filt_prev = 0.0f;
-float gyroY_filt_prev = 0.0f;
-float gyroZ_filt_prev = 0.0f;
-// 前次差分时间（微秒）
-unsigned long prev_time_gyro_deriv = 0;
-
-
+PX4LowPassFilter2p angularAccLowpass[3];
+float previousRate[3] = {};
+unsigned long previousRateTimeUs = 0;
+bool havePreviousRate = false;
 } // namespace
 
 float ang_vel[3] = {};
@@ -916,55 +906,35 @@ float ang_vel_filtered[3] = {};
 float ang_acc[3] = {};
 float acc[3] = {};
 
-// 为角速度差分前后两级滤波器设置 500 Hz 采样参数。
+// 差分后的角加速度低通，按 X/Y/Z 顺序配置。
 void initializeAngularAccelerationFilters() {
-  angularAccFiltX.set_cutoff_frequency(500, 100);
-  angularAccFiltY.set_cutoff_frequency(500, 20);
-  angularAccFiltZ.set_cutoff_frequency(500, 100);
-  gyroDerivFiltX.set_cutoff_frequency(500, 100);
-  gyroDerivFiltY.set_cutoff_frequency(500, 40);
-  gyroDerivFiltZ.set_cutoff_frequency(500, 100);
+  constexpr float cutoffHz[] = {100.0f, 20.0f, 100.0f};
+  for (unsigned int axis = 0; axis < 3; ++axis) {
+    angularAccLowpass[axis].set_cutoff_frequency(CONTROL_LOOP_RATE_HZ, cutoffHz[axis]);
+    angularAccLowpass[axis].reset(0.0f);
+  }
+  havePreviousRate = false;
 }
 
-// 由选定 IMU 的 ang_vel 估计 ang_acc，单位为 rad/s²；异常采样间隔时清零输出。
+// 对连续的控制反馈样本差分并低通，ang_acc 的单位为 rad/s²。
 void getAngularACC() {
-  // 先平滑角速度再差分，最后滤波并限幅，避免差分放大传感器噪声。
-  unsigned long now = micros();
-
-  float dt_deriv = (now - prev_time_gyro_deriv) * 1.0e-6f;
-  prev_time_gyro_deriv = now;
-
-  if (dt_deriv <= 0.0f || dt_deriv > 0.01f) {
-    // 首次调用或采样中断后重建历史值，跳过本次角加速度计算。
-    gyroX_filt_prev = Units::toRadians(gyroDerivFiltX.apply(Units::toDegrees(ang_vel[0])));
-    gyroY_filt_prev = Units::toRadians(gyroDerivFiltY.apply(Units::toDegrees(ang_vel[1])));
-    gyroZ_filt_prev = Units::toRadians(gyroDerivFiltZ.apply(Units::toDegrees(ang_vel[2])));
-    ang_acc[0] = 0.0f;
-    ang_acc[1] = 0.0f;
-    ang_acc[2] = 0.0f;
-    return;
+  constexpr float limitRadS2 = Units::toRadians(3000.0f);
+  const unsigned long now = micros();
+  const float interval = (now - previousRateTimeUs) * 1.0e-6f;
+  const bool canDifferentiate = havePreviousRate && interval > 0.0f && interval <= 0.01f;
+  for (unsigned int axis = 0; axis < 3; ++axis) {
+    const float rate = ang_vel_filtered[axis];
+    if (canDifferentiate) {
+      const float derivative = (rate - previousRate[axis]) / interval;
+      const float acceleration = angularAccLowpass[axis].apply(derivative);
+      ang_acc[axis] = constrain(acceleration, -limitRadS2, limitRadS2);
+    } else {
+      ang_acc[axis] = 0.0f;
+    }
+    previousRate[axis] = rate;
   }
-
-  float gyroX_now = gyroDerivFiltX.apply(Units::toDegrees(ang_vel[0]));
-  float gyroY_now = gyroDerivFiltY.apply(Units::toDegrees(ang_vel[1]));
-  float gyroZ_now = gyroDerivFiltZ.apply(Units::toDegrees(ang_vel[2]));
-
-  float dp_raw = (gyroX_now - Units::toDegrees(gyroX_filt_prev)) / dt_deriv;
-  float dq_raw = (gyroY_now - Units::toDegrees(gyroY_filt_prev)) / dt_deriv;
-  float dr_raw = (gyroZ_now - Units::toDegrees(gyroZ_filt_prev)) / dt_deriv;
-
-  ang_acc[0] = Units::toRadians(angularAccFiltX.apply(dp_raw));
-  ang_acc[1] = Units::toRadians(angularAccFiltY.apply(dq_raw));
-  ang_acc[2] = Units::toRadians(angularAccFiltZ.apply(dr_raw));
-
-  gyroX_filt_prev = Units::toRadians(gyroX_now);
-  gyroY_filt_prev = Units::toRadians(gyroY_now);
-  gyroZ_filt_prev = Units::toRadians(gyroZ_now);
-
-  const float deriv_limit = 3000.0f;
-  ang_acc[0] = Units::toRadians(constrain(Units::toDegrees(ang_acc[0]), -deriv_limit, deriv_limit));
-  ang_acc[1] = Units::toRadians(constrain(Units::toDegrees(ang_acc[1]), -deriv_limit, deriv_limit));
-  ang_acc[2] = Units::toRadians(constrain(Units::toDegrees(ang_acc[2]), -deriv_limit, deriv_limit));
+  previousRateTimeUs = now;
+  havePreviousRate = true;
 }
 
 

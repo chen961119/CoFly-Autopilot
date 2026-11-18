@@ -24,7 +24,7 @@ struct IndiPitchControlOutput {
   // ref=参考值，f=滤波值，meas=测量值，hat=模型估计值，cmd=命令值。
   float q_dot_ref = 0; // q_dot_ref：目标俯仰角加速度，rad/s^2，不是舵偏或速度。
   float q_ref = 0; // q_ref：机体俯仰角速度参考值，rad/s，不是欧拉俯仰角变化率。
-  float q_f = 0; // q_f：控制器专用低通后的机体俯仰角速度反馈，rad/s。
+  float q_f = 0; // 本周期参与 INDI 计算的 ang_vel_filtered[1]，rad/s。
   bool isValid = false; // 本周期是否完成有效 INDI 控制计算。
   float indiOutput = 0; // 模式0：抬头正、0=配平的归一化俯仰控制量，mixer取负后使用；不是角加速度。模式1为-1..0。
   float q_dot_meas = 0; // q_dot：传感器层给出的俯仰角加速度反馈，rad/s^2，已差分滤波。

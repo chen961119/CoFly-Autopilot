@@ -35,16 +35,8 @@ using namespace ControlParameters;
 // delta_e = (PWM - 配平PWM) * rev * k，角度标定仍使用同一个物理斜率。
 // 当前交联/前馈融合使用有符号贡献，通道3应保持模式0；模式1不自动转换整套混控坐标。
 
-PitchIndiController::PitchIndiController() {
-  // 本对象独立的二阶低通：q 反馈截止 40 Hz，Z 轴耦合项截止 100 Hz。
-  // 两者按 500 Hz 采样频率设计系数；这不是把实际控制周期 dt 固定为 1/500。
-  q_filter.set_cutoff_frequency(500, 40);
-  r_filter.set_cutoff_frequency(500, 100);
-}
 void PitchIndiController::reset(float theta_ref_rad) {
-  // 模式/俯仰算法切换时由外部调用。这里只标记重新初始化，
-  // 下次有效 update 才重填延迟队列、重置 Y 轴滤波及舵机估计。
-  // Z 轴耦合滤波器不在此重置，仍保留自己的历史，这是当前实现的行为。
+  // 下次有效 update 重填延迟队列并重置舵机估计。
   initialized = false;
   pwm_delay_write_index = 0;
   theta_ref_dot_filter_initialized = false;
@@ -58,7 +50,6 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
   //    正常切换流程会另外调用 reset()，不能把 enabled=false 当成一次 reset。
   pitchIndiControlOutput = {};
   if (!enabled) return;
-  float q_f_rad_s = 0.0f;
   // 2. 只从通道3的物理范围、配平中位和rev推导角度范围，不另设INDI边界参数。
   //    物理PWM始终以配平中位为零舵角；rev=-1时两个角度端点的顺序会反转。
   const float pwm_trim_us = actuatorNeutralPwm(pwm_servo3_min_us, pwm_channel3_trim,
@@ -71,8 +62,6 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
   const float delta_e_max_rad = fmaxf(delta_e_at_pwm_min_rad, delta_e_at_pwm_max_rad);
   if (!initialized)
   {
-    // q 滤波器从当前测量稳态开始，避免从零起滤产生人为的角速度误差。
-    q_filter.reset(ang_vel[1]);
     // 配平零舵角为0 rad；命令/估计从0开始，物理PWM历史填充配平中位。
     // 这里只假定舵机处于配平点，并没有读取舵面位置传感器。
     for (int i = 0; i < pwm_delay_buffer_length; i++)
@@ -84,7 +73,7 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
     delta_e_cmd_f_prev_rad = 0.0f;
     initialized = true;
   }
-  q_f_rad_s = q_filter.apply(ang_vel[1]);
+  const float q_f_rad_s = ang_vel_filtered[1];
   // 3. 俯仰角目标变化率前馈，单位 rad/s。
   //    对 theta_ref_rad 差分，不是对测量俯仰角差分；dt 为秒。
   //    dt 太小时本次差分置零，目标斜率随后限到 +/-0.1745329252 rad/s。
@@ -126,10 +115,10 @@ void PitchIndiController::update(float theta_ref_rad, bool enabled) {
   float theta_dot_cmd_rad_s = e_theta_rad * 3.0f + theta_ref_dot_f_rad_s;
   // 欧拉俯仰角变化率不总等于机体 q。按当前坐标关系：
   //   theta_dot = q*cos(phi) - r*sin(phi)
-  // 所以 q_ref=(theta_dot_cmd+r_f*sin(phi))/cos(phi)，r_f 来自独立 Z 轴低通。
+  // 所以 q_ref=(theta_dot_cmd+r_f*sin(phi))/cos(phi)，r_f 取本周期的 Z 轴反馈。
   // 当前式直接使用 rad 滚转角并除以 cos(phi)，没有最小分母保护。
   float q_ref_rad_s = (theta_dot_cmd_rad_s + sin(att[0]) *
-      r_filter.apply(ang_vel[2])) /cos(att[0]);
+      ang_vel_filtered[2]) /cos(att[0]);
   // 限制机体 q 目标为 +/-2.094395102 rad/s，目标斜率上限为 +/-0.1745329252 rad/s。
   q_ref_rad_s = constrain(q_ref_rad_s, -Units::toRadians(120.0f), Units::toRadians(120.0f));
   // 5. 角速度误差转为角加速度参考：q_dot_ref=K_q*(q_ref-q_f)。

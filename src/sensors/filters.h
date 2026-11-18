@@ -16,7 +16,6 @@ private:
   float _delay_element_1{0.0f}, _delay_element_2{0.0f};
 };
 
-extern PX4LowPassFilter2p gyroFiltYIndi, gyroFiltXIndi, gyroFiltZIndi;
 // 欧拉角为 rad；四元数无量纲。
 // 姿态角单位 rad，顺序为滚转/俯仰/偏航。
 extern float att[3];
@@ -24,7 +23,7 @@ extern float att[3];
 extern float quat[4];
 
 void initializeControlFilters();
-// 仅在传感器测量发布后调用一次，更新 ang_vel_filtered。
+// 每次发布传感器测量时调用一次，更新 ang_vel_filtered。
 void updateAngularVelocityFilters();
 // 使用飞行时钟中的 dt（秒）更新姿态。
 void Madgwick();

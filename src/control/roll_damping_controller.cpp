@@ -7,5 +7,5 @@ using namespace ControlParameters;
 
 void RollDampingController::update() const {
   rollDampingControlOutput.rateTarget = 0.0f;
-  rollDampingControlOutput.dampingCommand = - k_Clp * ang_vel[0];
+  rollDampingControlOutput.dampingCommand = - k_Clp * ang_vel_filtered[0];
 }

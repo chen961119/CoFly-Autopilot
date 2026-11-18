@@ -122,14 +122,14 @@ OLED 的 `Relat` 和地面站 `DATA.angle` 显示 MT6701 的 `relativeAngle_read
 
 | 接口 | 单位与顺序 |
 | --- | --- |
-| `ang_vel[3]`、`ang_vel_filtered[3]` | deg/s，X/Y/Z，后者为传感器层统一滤波值 |
-| `ang_acc[3]` | deg/s²，X/Y/Z |
+| `ang_vel[3]`、`ang_vel_filtered[3]` | rad/s，X/Y/Z，分别为采集角速度和所有控制器共用的滤波反馈 |
+| `ang_acc[3]` | rad/s²，X/Y/Z，由统一角速度反馈差分后低通得到 |
 | `acc[3]` | g，X/Y/Z |
 | `att[3]` | deg，滚转/俯仰/偏航 |
 | `quat[4]` | W/X/Y/Z，沿用姿态算法约定 |
 | `strain_value[5]` | int32，应变通道 1～5，保持原数值单位 |
 
-内置路径在传感器层统一 X/Z 角速度符号，外置路径保持安装轴映射。`ang_vel_B[3]`～`ang_vel_G[3]` 目前仅通过状态协议更新滚转分量 [0]，[1]/[2] 为 0，不能作为有效测量。
+内置路径在传感器层统一 X/Z 角速度符号，外置路径保持安装轴映射。状态帧携带发送机的 `ang_vel_filtered[0]`，接收端直接用作对应飞机的滚转反馈。`ang_vel_B[3]`～`ang_vel_G[3]` 仅 `[0]` 有测量。
 
 ## 通信与日志
 

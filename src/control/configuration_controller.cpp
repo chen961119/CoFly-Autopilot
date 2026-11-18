@@ -18,8 +18,8 @@ void ConfigurationController::update(const float (&targets)[6]) {
   configurationControlOutput.measuredAngles[3] = att_E[0] - att_C[0];
   configurationControlOutput.measuredAngles[4] = att_F[0] - att_D[0];
   configurationControlOutput.measuredAngles[5] = att_G[0] - att_E[0];
-  configurationControlOutput.measuredRates[0] = ang_vel_B[0] - ang_vel[0];
-  configurationControlOutput.measuredRates[1] = ang_vel_C[0] - ang_vel[0];
+  configurationControlOutput.measuredRates[0] = ang_vel_B[0] - ang_vel_filtered[0];
+  configurationControlOutput.measuredRates[1] = ang_vel_C[0] - ang_vel_filtered[0];
   configurationControlOutput.measuredRates[2] = ang_vel_D[0] - ang_vel_B[0];
   configurationControlOutput.measuredRates[3] = ang_vel_E[0] - ang_vel_C[0];
   configurationControlOutput.measuredRates[4] = ang_vel_F[0] - ang_vel_D[0];

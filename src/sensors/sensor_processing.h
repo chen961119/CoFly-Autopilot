@@ -69,7 +69,7 @@ AirspeedDiagnostics airspeedDiagnostics();
 // 统一测量接口：三轴顺序 X/Y/Z；角速度 rad/s、角加速度 rad/s²、加速度 m/s²。
 // X 轴方向与原控制/日志使用方向一致；型号选择、安装轴映射在传感器层完成。
 extern float ang_vel[3];
-// 传感器层每次发布测量时统一滤波，三轴顺序 X/Y/Z，单位 rad/s。
+// 所有控制器共用的三轴角速度反馈，依次经过陷波和低通，单位 rad/s。
 extern float ang_vel_filtered[3];
 extern float ang_acc[3];
 extern float acc[3];

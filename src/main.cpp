@@ -80,7 +80,7 @@ void loop() {
     runDebugPrints();
     pollParameterService();
     telemetry();
-    loopRate(500);
+    loopRate(CONTROL_LOOP_RATE_HZ);
     return;
   }
 
@@ -99,5 +99,5 @@ void loop() {
   pollParameterService();
   telemetry();
 
-  loopRate(500);// 目标频率 500 Hz；若本周期已超时，loopRate 不会额外等待。
+  loopRate(CONTROL_LOOP_RATE_HZ); // 若本周期已超时，loopRate 不会额外等待。
 }

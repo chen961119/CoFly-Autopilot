@@ -93,7 +93,7 @@ private:
     static constexpr float ANGLE_SCALE = 1000.0f;
     bool isLeft = false; // 左链 true（B/D/F），右链 false（C/E/G）。
     int16_t relativeAngles[CHILD_COUNT] = {}; // 0.001 rad，相邻 IMU 滚转角差。
-    int16_t rollRates[CHILD_COUNT] = {};      // 0.001 rad/s。
+    int16_t rollRates[CHILD_COUNT] = {};      // 各发送机滤波后的滚转角速度，0.001 rad/s。
     int16_t rollAngles[CHILD_COUNT] = {};     // 0.001 rad。
     int16_t pitchAngles[CHILD_COUNT] = {};    // 0.001 rad。
     int16_t yawAngles[CHILD_COUNT] = {};      // 0.001 rad。
@@ -132,7 +132,7 @@ bool isSensorDataFresh(bool left);
 // 从相邻机体接收的三轴姿态，供控制器、显示和日志读取。
 // 各机姿态角，单位 rad，顺序滚转/俯仰/偏航。
 extern float att_B[3], att_C[3], att_D[3], att_E[3], att_F[3], att_G[3];
-// 三轴顺序 X/Y/Z，单位 rad/s；当前协议只更新 [0]，Y/Z 未传输且保持 0。
+// [0] 为发送机完成滤波的滚转反馈，单位 rad/s。协议仅传输这一轴。
 extern float ang_vel_B[3], ang_vel_C[3], ang_vel_D[3], ang_vel_E[3], ang_vel_F[3], ang_vel_G[3];
 
 // Local downstream joint, derived from the two IMU rolls; never MT6701.
