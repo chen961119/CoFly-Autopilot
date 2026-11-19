@@ -117,19 +117,17 @@ void parameterTask(void *) {
 
 void startupTask(void *) {
   // 建立串口链路，再初始化传感器、执行器和控制器。
-  beginHumanInterfaceLinks();
   initializeFirmwareDebug();
   beginTelemetryLink();
   beginInteraircraftLinks();
   beginStrainSensorLink();
   beginExternalImuLink();
 
-  delay(20);
-
   initializeHumanInterface();
   initializeLogger();
   displayfilenum();
   initializeParameterService(loggerSdReady());
+  attachActuators(); // 参数加载完成后，立即向五个通道写入各自的锁定脉宽。
   initializeCommandLinks();
   initializeSensorLinks();
   initializeAirDataBus();
@@ -137,15 +135,9 @@ void startupTask(void *) {
   initializeRotateSensor();
   loadImuCalibration();
   displayAircraftIdentity();
-  attachActuators();
-  delay(5);
   radioSetup();
   IMUinit();
-
-  delay(5);
   commandSafeActuatorPositions();
-
-  delay(5);
   calibrateAirspeedSensor();
   initializeInitialAttitude();
   initializeInitialControlMode();

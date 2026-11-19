@@ -8,7 +8,6 @@ constexpr int SCREEN_HEIGHT = 32;
 constexpr int OLED_RESET = -1;
 constexpr int SCREEN_ADDRESS = 0x3C;
 
-void beginHumanInterfaceLinks();
 void initializeHumanInterface();
 void displayAircraftIdentity();
 void ProcessButtonState();

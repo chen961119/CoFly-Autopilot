@@ -156,7 +156,7 @@ void initializeLogger()
     ++writeFailures;
     USBSerial.println("Error opening datalog.csv");
   }
-  delay(10);
+  // delay(10);
   USBSerial.print("新建日志文件：");
   USBSerial.println(filename_sd);
 }

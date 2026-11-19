@@ -103,11 +103,6 @@ void displayFlightModeIndicators(FlightMode mode) {
   }
 }
 
-// 启动 USB 调试串口。
-void beginHumanInterfaceLinks() {
-  USBSerial.begin(500000);
-}
-
 // 初始化按键和 OLED。
 void initializeHumanInterface() {
   pinMode(32, OUTPUT);
@@ -343,7 +338,7 @@ void displaythumbsup() {
   // 显示绘制的内容
   refreshDisplay();
 
-  delay(1000);
+  // delay(1000);
   display.clearDisplay();
 }
 
