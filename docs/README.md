@@ -31,6 +31,6 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 ## 研究与历史
 
 - [Zhu 等（2025）参考论文](references/zhu-2025-morphing-control.pdf)：Aerodynamics-Driven Morphing Control and Flight Test for Compound Flexible Multibody Aircraft。
-- [研究方法与控制演进](archive/CONTROL_ARCHITECTURE_ANALYSIS.md)：论文与实现的区别、保留的五体分配模型及旧版对照结论。
+- [研究方法与控制演进](archive/CONTROL_ARCHITECTURE_ANALYSIS.md) 记录论文与实现的区别、历史五体分配模型及旧版对照结论。
 
 2026-10-18 整理时，重复专项报告已并入上述主题，过期仓库快照与未实施方案已移除，`validation` 目录中的数值结果、补丁和方法文件已删除。历史软件检查不作为当前工作区或实机验证通过的证明。

@@ -521,60 +521,6 @@ static void mixLegacyMaster()
        * Phice_PID; commands.slaves[3].throttle = throttleCommand + keeppositive(-1.8 * yawCommand) +
        keeppositive(-0.7 * roll_PID); commands.slaves[3].rudder = - yawCommand;
        }
-
-       else {
-         //USBSerial.println("ss");
-         //策略3 实时控制分配
-         //期望虚拟控制量
-         dw4 = roll_PID * 40.0;
-         dw6 = yawCommand * 20.0;
-         dw7 = Phiab_PID * 130.0;
-         dw10 = Phiac_PID * 130.0;
-         dw13 = Phibd_PID * 110.0;
-         dw16 = Phice_PID * 110.0;
-
-
-         dw_att << dw4,
-           dw6,
-           0.0,
-           0.0,
-           0.0,
-           0.0;
-
-         dw_config << dw7,
-           dw10,
-           dw13,
-           dw16;
-
-         de_config = Bplusminismall_pinv * dw_config;
-         de_att = Bplusfullsmall_pinv * dw_att;
-         //printFullMatrix(de_config);
-         commands.slaves[2].aileron1 = de_att(0) + de_config(0);
-         commands.slaves[2].aileron2 = de_att(1) + de_config(1);
-         commands.slaves[2].throttle = throttleCommand + keeppositive(+1.4 * yawCommand) + keeppositive(0.5 *
-       roll_PID); commands.slaves[2].rudder = - yawCommand;
-
-         commands.slaves[0].aileron1 = de_att(2) + de_config(2);
-         commands.slaves[0].aileron2 = de_att(3) + de_config(3);
-         commands.slaves[0].throttle = throttleCommand + keeppositive(+0.8 * yawCommand) + keeppositive(0.3 *
-       roll_PID); commands.slaves[0].rudder = - yawCommand;
-
-         commands.local.aileron1 = de_att(4) + de_config(4);
-         commands.local.aileron2 = de_att(5) + de_config(5);
-         commands.local.elevator = elevatorCommand;
-         commands.local.throttle = throttleCommand;
-         commands.local.rudder = - yawCommand;
-
-         commands.slaves[1].aileron1 = de_att(6) + de_config(6);
-         commands.slaves[1].aileron2 = de_att(7) + de_config(7);
-         commands.slaves[1].throttle = throttleCommand + keeppositive(-0.8 * yawCommand) + keeppositive(-0.3 *
-       roll_PID); commands.slaves[1].rudder = - yawCommand;
-
-         commands.slaves[3].aileron1 = de_att(8) + de_config(8);
-         commands.slaves[3].aileron2 = de_att(9) + de_config(9);
-         commands.slaves[3].throttle = throttleCommand + keeppositive(-1.4 * yawCommand) + keeppositive(-0.5 *
-       roll_PID); commands.slaves[3].rudder = - yawCommand;
-       }
          */
     }
     else if ((aircraftCount() == 7))

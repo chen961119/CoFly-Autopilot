@@ -30,7 +30,7 @@
 
 PlatformIO 的 `include_dir = src` 与 `-I src` 提供统一头文件根目录，`build_src_filter = +<*>` 编译所有模块下的源码。普通和调试环境使用相同布局。调试脚本中的文件路径及主机测试中的头文件搜索路径须随文件迁移同步更新。
 
-控制流程的七层职责和主从并列运行路径见 [控制架构](../docs/control-architecture.md)。原动态矩阵模型仍保留于 `control/control_allocation.cpp`，尚未接入当前固定系数混控。
+控制流程的七层职责和主从并列运行路径见 [控制架构](../docs/control-architecture.md)。
 
 
 ## 统一惯性测量接口

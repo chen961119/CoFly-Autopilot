@@ -6,7 +6,7 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 
 七机物理顺序为 `F-D-B-A-C-E-G`。A 接收遥控输入，计算组合控制并向左右链路分发；从节点执行本机控制、安装映射和状态回传。`aircraft_id` 是重启生效的身份参数，数量由 `COFLY_AIRCRAFT_COUNT` 编译宏决定，支持 1/3/4/5/7；同一数量及硬件配置的各节点共用固件。首次设置见 [参数与持久存储](parameter-storage.md#第一次使用)。
 
-当前多机混控采用构型相关的固定系数。`src/control/control_allocation.cpp` 保留五体动力学矩阵和普通 SVD 伪逆，初始化与周期计算调用均已注释，未接入七机输出，也未实现参考论文的构型 INDI / IWPI。研究背景见 [研究方法与控制演进](archive/CONTROL_ARCHITECTURE_ANALYSIS.md)。
+当前多机混控采用构型相关的固定系数。旧五体动态分配模型的数学结构和论文方法见 [研究方法与控制演进](archive/CONTROL_ARCHITECTURE_ANALYSIS.md)。
 
 ## 模块与修改入口
 
@@ -31,7 +31,7 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 
 Teensy 4.1 的 i.MX RT1062 使用单核 Cortex-M7。工程采用 FreeRTOS 11.2.0 的 Teensy 板级移植 v4，并锁定配套 Arduino core。NXP SDK 提供同芯片评估板的官方 FreeRTOS 支持。Teensy 移植由社区维护，上游将它标为实验性。[PJRC 板卡规格](https://www.pjrc.com/store/teensy41.html) · [NXP SDK](https://mcuxpresso.nxp.com/mcuxsdk/latest/boards/RT/evkbmimxrt1060/index.html) · [板级移植及限制](https://github.com/tsandmann/freertos-teensy)
 
-`setup()` 创建参数任务并启动调度器。参数任务先执行串行上电初始化，恢复参数、建立机间链路、挂接舵机并写入本机锁定 trim，完成 IMU、模式与滤波器初始化后统一放行各任务。应用栈静态分配于片上 OCRAM，另有内核和板级后台任务。
+`setup()` 创建一次性任务 `Startup` 并启动调度器。`Startup` 恢复参数、建立机间链路、挂接舵机并写入本机锁定 trim，随后完成 IMU、模式与滤波器初始化。设备就绪后，`Startup` 在暂停调度期间创建下表中的五个业务任务，恢复调度后删除自身。五个业务任务各自拥有静态分配于片上 OCRAM 的栈，按各自的优先级运行。另有内核和板级后台任务。
 
 | 应用任务 | 优先级 | 节拍及外设所有权 |
 | --- | ---: | --- |

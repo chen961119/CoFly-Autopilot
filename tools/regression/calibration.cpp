@@ -1,5 +1,6 @@
 // Host regression of the production calibration state machine and task handoff.
 #include "sensors/sensor_calibration.h"
+#include "sensors/airspeed_sensor.h"
 #include "sensors/strain_frame.h"
 #include "system/flight_lock.h"
 #include "system/flight_clock.h"
@@ -15,6 +16,7 @@ uint32_t testCycles;
 static uint32_t nowUs;
 uint32_t millis() { return nowMs; }
 uint32_t micros() { return nowUs; }
+void delay(unsigned long ms) { nowMs += ms; }
 void delayMicroseconds(unsigned us) { assert(us == 100); ++settlingDelays; }
 bool isFlightLocked() { return locked; }
 void setFlightLocked(bool value) { locked = value; }
@@ -44,6 +46,68 @@ bool saveImuCalibrationParameters(const float *values) {
   return allowSave;
 }
 
+static void testAirspeedStartup() {
+  TwoWire bus;
+  AirspeedSensor sensor(bus);
+  assert(bus.starts == 0 && bus.requests == 0);
+  sensor.MS4525_param.pressure_drift = 0.25f;
+
+  // No device: a short streak of missing replies must leave the old zero intact.
+  assert(!sensor.calibrateZero());
+  assert(bus.requests == 3 && sensor.MS4525_param.pressure_drift == 0.25f);
+
+  // The ground-station calibration uses the same fresh-frame reader.
+  float pressure = 2.0f;
+  bus.requests = 0;
+  bus.replies = {{12000, 2, 4}, {12000, 0, 2}, {8000, 0, 4}};
+  assert(!sensor.readFreshPressure(pressure) && pressure == 2.0f);
+  assert(!sensor.readFreshPressure(pressure) && pressure == 2.0f);
+  assert(sensor.readFreshPressure(pressure) && pressure == sensor.MS4525_param.pressure);
+
+  // Every complete, normal frame contributes exactly once. Invalid samples
+  // have deliberately different values so including them shifts the mean.
+  bus.requests = 0;
+  bus.replies.clear();
+  for (unsigned i = 0; i < 1000; ++i) {
+    if (i % 250 == 0) {
+      for (uint8_t status = 1; status <= 3; ++status)
+        bus.replies.push_back({16000, status, 4});
+      bus.replies.push_back({12000, 0, 2});
+      bus.replies.push_back({0, 0, 0});
+    }
+    uint16_t counts = i % 2 == 0 ? 6000 : 9000;
+    bus.replies.push_back({counts, 0, 4});
+  }
+  nowMs = UINT32_MAX - 32;
+  assert(sensor.calibrateZero());
+  const float expected = (7500.0f - COUNTS_MIN) * (Pmax - Pmin) / COUNTS_MAX + Pmin;
+  const float saved = sensor.MS4525_param.pressure_drift;
+  assert(std::fabs(saved - expected) < 1e-5f && bus.requests == bus.replies.size());
+
+  // Disconnect one sample before the target; do not commit a partial average.
+  bus.requests = 0;
+  bus.replies.assign(999, {11000, 0, 4});
+  assert(!sensor.calibrateZero());
+  assert(bus.requests == 1002 && sensor.MS4525_param.pressure_drift == saved);
+
+  // A device can keep answering with stale frames forever, even across millis() rollover.
+  bus.requests = 0;
+  bus.replies.assign(3000, {12000, 2, 4});
+  const uint32_t start = nowMs = UINT32_MAX - 50;
+  assert(!sensor.calibrateZero());
+  const uint32_t duration = nowMs - start;
+  assert(duration >= 2500 && duration <= 2502 && bus.requests < bus.replies.size());
+  assert(sensor.MS4525_param.pressure_drift == saved);
+
+  // A responding but slow bus also has to release Startup by the deadline.
+  bus.requests = 0;
+  bus.readTimeMs = 10;
+  bus.replies.assign(1000, {8000, 0, 4});
+  assert(!sensor.calibrateZero());
+  assert(bus.requests < 1000 && sensor.MS4525_param.pressure_drift == saved);
+  assert(bus.starts == 0);
+}
+
 static void testStrainFrames() {
   const uint8_t check[] = "123456789";
   assert(modbusCrc16(check, 9) == 0x4b37);
@@ -65,6 +129,7 @@ static void testStrainFrames() {
 }
 
 int main() {
+  testAirspeedStartup();
   testStrainFrames();
   testCycles = UINT32_MAX - 1200;
   nowUs = UINT32_MAX - 100;

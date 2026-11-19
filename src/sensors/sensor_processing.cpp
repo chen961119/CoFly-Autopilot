@@ -11,15 +11,14 @@
 #include "system/flight_clock.h"
 #include "system/rtos_sync.h"
 #include "math/math_utils.h"
-#include "MS4525.h"
+#include "sensors/airspeed_sensor.h"
 #include "MT6701.h"
 #include <cmath>
 #include <cstring>
 #include <Wire.h>
 #if defined USE_BAROMETER
 #include <Adafruit_BMP280.h>
-#define BMP280_I2C Wire2
-Adafruit_BMP280 bmp(&BMP280_I2C);
+Adafruit_BMP280 bmp(&Wire2);
 // 滤波参数
 #define FILTER_ALPHA 0.2
 float filteredPressure = 101325.0f; // 初始海平面气压(Pa)
@@ -416,7 +415,8 @@ constexpr unsigned long ANGLE_RETRY_INTERVAL_US = 20000;
 
 
 // CUAV MEAS/MS4525 空速计：底板6号口，SCL2=24（TX6）、SDA2=25（RX6）。
-MS4525read_Task airspeedSensor(&Wire2);
+static AirspeedSensor airspeedSensor(Wire2);
+static bool airspeedZeroReady = false;
 bool airspeedValid() {
   return active.airspeedOk && micros() - active.airspeedTimeUs <= 100000u;
 }
@@ -459,23 +459,21 @@ void loadRotateSensorOffset() {
   // Already restored and range checked by the unified parameter service.
 
 }
-// 上电校零前显式初始化 Wire2；Serial6 已从机间通信中释放。
 void calibrateAirspeedSensor() {
-  Wire2.setSCL(24);
-  Wire2.setSDA(25);
-  Wire2.begin();
-  Wire2.setClock(100000);
-  airspeedSensor.calib();
+  if (airspeedSensor.calibrateZero()) {
+    airspeedZeroReady = true;
+  } else {
+    USBSerial.println(F("[AIRSPEED] Startup zero skipped: insufficient fresh samples"));
+  }
 }
 
 bool readAirspeedCalibrationSample(float &pressure) {
-  if (!airspeedSensor.readMS4525() || airspeedSensor.lastStatus != 0) return false;
-  pressure = airspeedSensor.MS4525_param.pressure;
-  return true;
+  return airspeedSensor.readFreshPressure(pressure);
 }
 
 void applyAirspeedCalibration(float pressure) {
   airspeedSensor.MS4525_param.pressure_drift = pressure;
+  airspeedZeroReady = true;
   airspeedSensor.MS4525_param.airspeed = working.airspeed = 0;
   working.airspeedOk = false; // Next normal read publishes a fresh corrected value.
 }
@@ -672,7 +670,7 @@ void getairspeed() {
     working.airspeed = airspeedSensor.getAirspeed();
     uint32_t bits;
     memcpy(&bits, &working.airspeed, sizeof(bits));
-    working.airspeedOk = airspeedSensor.lastReadOk && airspeedSensor.lastStatus == 0 &&
+    working.airspeedOk = airspeedZeroReady && airspeedSensor.lastReadOk && airspeedSensor.lastStatus == 0 &&
         (bits & 0x7f800000u) != 0x7f800000u && working.airspeed >= 0 && working.airspeed <= 100;
     if (working.airspeedOk) working.airspeedTimeUs = micros();
   }
@@ -704,29 +702,26 @@ void getbarodata() {
 }
 
 
-// 启用气压计时初始化 BMP280，配置 I2C 时钟、采样倍率和内部滤波。
-void initBAROMETER() {
+// Startup owns Wire2 initialization; both air-data sensors share SDA2/SCL2.
+void initializeAirDataBus() {
+  Wire2.setSCL(24);
+  Wire2.setSDA(25);
 #if defined USE_BAROMETER
-
-  BMP280_I2C.begin();
-  BMP280_I2C.setClock(400000); // 提升至400kHz
-  if (!bmp.begin(0x76)) {      // 尝试默认地址0x76
-    USBSerial.println("BMP280未找到，尝试0x77...");
-    if (!bmp.begin(0x77)) {
-      USBSerial.println("BMP280初始化失败!");
-      return;
-    }
+  // Adafruit_BMP280 starts Wire2 before probing each address, even on NACK.
+  barometerReady = bmp.begin(0x76) || bmp.begin(0x77);
+  if (barometerReady) {
+    bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
+                    Adafruit_BMP280::SAMPLING_X2,
+                    Adafruit_BMP280::SAMPLING_X16,
+                    Adafruit_BMP280::FILTER_X16,
+                    Adafruit_BMP280::STANDBY_MS_500);
+  } else {
+    USBSerial.println("BMP280初始化失败!");
   }
-
-  barometerReady = true;
-  // 配置高性能模式
-  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,   // 连续采样
-                  Adafruit_BMP280::SAMPLING_X2,   // 温度采样
-                  Adafruit_BMP280::SAMPLING_X16,  // 气压采样
-                  Adafruit_BMP280::FILTER_X16,    // IIR滤波
-                  Adafruit_BMP280::STANDBY_MS_500 // 待机时间
-  );
+#else
+  Wire2.begin();
 #endif
+  Wire2.setClock(100000);
 }
 
 

@@ -28,7 +28,7 @@ constexpr TickType_t controlPeriod = pdMS_TO_TICKS(2);
 static_assert(configTICK_RATE_HZ == 1000 && controlPeriod == 2, "CoFly requires a 1 kHz tick");
 static_assert(configMAX_PRIORITIES > 5, "CoFly requires five application priorities");
 
-// Stacks are allocated once in on-chip OCRAM. Depths are in StackType_t words.
+// The five persistent tasks use static OCRAM stacks. Depths are in StackType_t words.
 DMAMEM StackType_t controlStack[2048], linksStack[1024], auxiliaryStack[1536];
 DMAMEM StackType_t parameterStack[3072], storageStack[3072];
 StaticTask_t controlTcb, linksTcb, auxiliaryTcb, parameterTcb, storageTcb;
@@ -106,6 +106,16 @@ void storageTask(void *) {
 }
 
 void parameterTask(void *) {
+  for (;;) {
+    serviceCalibrationParameters();
+    pollParameterService();
+    telemetry();
+    runDebugPrints();
+    vTaskDelay(1);
+  }
+}
+
+void startupTask(void *) {
   // 建立串口链路，再初始化传感器、执行器和控制器。
   beginHumanInterfaceLinks();
   initializeFirmwareDebug();
@@ -122,7 +132,7 @@ void parameterTask(void *) {
   initializeParameterService(loggerSdReady());
   initializeCommandLinks();
   initializeSensorLinks();
-  initBAROMETER();
+  initializeAirDataBus();
   loadRotateSensorOffset();
   initializeRotateSensor();
   loadImuCalibration();
@@ -147,19 +157,13 @@ void parameterTask(void *) {
   // No worker can run until all handles and the safe initial state are installed.
   vTaskSuspendAll();
   storageHandle = xTaskCreateStatic(storageTask, "Storage", 3072, nullptr, 1, storageStack, &storageTcb);
+  parameterHandle = xTaskCreateStatic(parameterTask, "Parameters", 3072, nullptr, 2, parameterStack, &parameterTcb);
   auxiliaryHandle = xTaskCreateStatic(auxiliaryTask, "Aux", 1536, nullptr, 3, auxiliaryStack, &auxiliaryTcb);
   linksHandle = xTaskCreateStatic(linkTask, "Links", 1024, nullptr, 4, linksStack, &linksTcb);
   controlHandle = xTaskCreateStatic(controlTask, "Control", 2048, nullptr, 5, controlStack, &controlTcb);
-  configASSERT(storageHandle && auxiliaryHandle && linksHandle && controlHandle);
+  configASSERT(storageHandle && parameterHandle && auxiliaryHandle && linksHandle && controlHandle);
   xTaskResumeAll();
-
-  for (;;) {
-    serviceCalibrationParameters();
-    pollParameterService();
-    telemetry();
-    runDebugPrints();
-    vTaskDelay(1);
-  }
+  vTaskDelete(nullptr); // The idle task reclaims the one-shot startup stack.
 }
 } // namespace
 
@@ -170,11 +174,10 @@ FlightStackMargins flightStackMargins() {
 }
 
 void setup() {
-  parameterHandle = xTaskCreateStatic(parameterTask, "Parameters", 3072, nullptr, 2,
-                                      parameterStack, &parameterTcb);
-  configASSERT(parameterHandle);
-  vTaskStartScheduler();
-  for (;;) {} // A failed scheduler start must never enter flight operation.
+  const BaseType_t created = xTaskCreate(startupTask, "Startup", 3072, nullptr, 2, nullptr);
+  configASSERT(created == pdPASS);
+  if (created == pdPASS) vTaskStartScheduler();
+  for (;;) {} // Stay here if startup task creation or scheduler startup fails.
 }
 
 void loop() {}

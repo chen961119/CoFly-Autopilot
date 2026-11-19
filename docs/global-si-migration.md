@@ -84,7 +84,7 @@
 | `pitch_indi_controller.cpp` | SI 反馈读入转原单位；六个物理诊断量发布为 SI；PWM、模型、限幅和所有局部名/常量不变 | C：900 周期、完整主从入口、使能、模式和 PID/INDI 切换；A；B |
 | `configuration_controller.cpp` | 全局测量/误差直接用 SI；进入原控制状态和增益前转原单位 | C：六路测量、误差、角速度与输出逐值对照；B |
 | `allocation/master_mixer.cpp` | 全局构型误差读入转度，保留原 20° 阈值与混控局部量 | C：实际完整 mixer、五种机数、所有本机/从机指令；B |
-| `control/control_allocation.cpp` | SI 姿态读入转回原值，再执行既有 0.01745 换算；保留局部变量及模型数值 | A：逐表达式检查读取与既有系数；B；该旧动态模型尚未接入当前 mixer，不宣称动态模型闭环实测 |
+| `control/control_allocation.cpp`（历史文件） | SI 姿态读入转回原值，再执行既有 0.01745 换算；保留局部变量及模型数值 | A：逐表达式检查读取与既有系数；B；迁移时该模型未接入混控 |
 | `interaircraft_comm.cpp::setCommandLink/getCommandLink` | SI 俯仰目标与原 0.1° 定点字段互转，输入合法范围同步转 rad | C：三个槽位、正负角及实际帧编解码；B |
 | `getSensorLink/setSensorLink` | SI 姿态/滚转角速度与原 0.1°、0.1°/s 字段互转 | C：左右链路、B～G 六种身份、全部槽位；B |
 | `telemetry/telemetry.cpp` | 全局遥测缓存保留 rad，只在打包线上值时转回度 | C：实际 19 字节帧与八个定点字段；B |
@@ -180,9 +180,9 @@ git diff --check
 | 34 | [src/control/configuration_controller.cpp](../src/control/configuration_controller.cpp) | 84 | 83 | -1 / +1 | `void ConfigurationController::update(const float (&targets)[6]) {` |
 | 35 | [src/control/configuration_controller.cpp](../src/control/configuration_controller.cpp) | 93 | 92 | -1 / +1 | `void ConfigurationController::update(const float (&targets)[6]) {` |
 | 36 | [src/control/configuration_controller.cpp](../src/control/configuration_controller.cpp) | 102 | 101 | -1 / +1 | `void ConfigurationController::update(const float (&targets)[6]) {` |
-| 37 | [src/control/control_allocation.cpp](../src/control/control_allocation.cpp) | 1 | 0 | -0 / +1 | `文件级声明/注释` |
-| 38 | [src/control/control_allocation.cpp](../src/control/control_allocation.cpp) | 105 | 104 | -4 / +4 | `void initializeRotationMatrices(Matrix3f& Eab, Matrix3f& Eac, Matrix3f& Ebd, Mat` |
-| 39 | [src/control/control_allocation.cpp](../src/control/control_allocation.cpp) | 437 | 436 | -1 / +1 | `void getpinvBplusmini() {` |
+| 37 | `src/control/control_allocation.cpp` | 1 | 0 | -0 / +1 | `文件级声明/注释` |
+| 38 | `src/control/control_allocation.cpp` | 105 | 104 | -4 / +4 | `void initializeRotationMatrices(Matrix3f& Eab, Matrix3f& Eac, Matrix3f& Ebd, Mat` |
+| 39 | `src/control/control_allocation.cpp` | 437 | 436 | -1 / +1 | `void getpinvBplusmini() {` |
 | 40 | [src/control/control_modes.cpp](../src/control/control_modes.cpp) | 1 | 0 | -0 / +1 | `文件级声明/注释` |
 | 41 | [src/control/control_modes.cpp](../src/control/control_modes.cpp) | 18 | 17 | -1 / +1 | `float configurationControlScale = 1.0f;` |
 | 42 | [src/control/control_modes.cpp](../src/control/control_modes.cpp) | 33 | 32 | -1 / +1 | `void initializeInitialControlMode() {` |

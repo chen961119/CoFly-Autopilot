@@ -15,7 +15,7 @@ CoFly 表达协同飞行，Autopilot 明确飞控定位；项目名称不限定�
 
 当前实现是基于 Teensy 4.1、FreeRTOS、Arduino 驱动和 PlatformIO 的飞控固件，由 dRehmFlight 演化而来。它支持 A–G 节点的主从级联通信、姿态与构型控制、本机俯仰 INDI、执行器输出、SD 日志及 USB 参数配置。
 
-串联构型可扩展至 `F-D-B-A-C-E-G`，飞机身份通过参数配置，机数使用编译宏 `COFLY_AIRCRAFT_COUNT`，也支持单机运行。项目面向多种协同飞行场景；通用编队控制属于扩展方向，现有七机混控也尚未接入源码中保留的五体动态分配器。实现边界见 [架构说明](docs/architecture.md)。
+串联构型可扩展至 `F-D-B-A-C-E-G`，飞机身份通过参数配置，机数使用编译宏 `COFLY_AIRCRAFT_COUNT`，也支持单机运行。现有多机混控按构型使用固定系数。通用编队控制属于扩展方向。实现边界见 [架构说明](docs/architecture.md)。
 
 ## 快速开始
 
