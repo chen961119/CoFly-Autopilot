@@ -1,4 +1,5 @@
 #include "parameters/parameter_eeprom.h"
+#include "logging/flight_storage.h"
 #include "parameters/parameter_text.h"
 #include "config/aircraft_config.h"
 #include <EEPROM.h>
@@ -94,7 +95,7 @@ bool hasEEPROMMigrationSource(const FlightParameter &p) {
   double value;
   return readEEPROMParameter(p, value);
 }
-bool saveEEPROMParameters(const double *values, bool sdVerified) {
+static bool writeEEPROMSnapshot(const double *values, bool sdVerified) {
   if (!table || !values || !count || aircraftIdIndex == count ||
       EEPROM.length() < BASE + PARAMETER_EEPROM_SLOT_COUNT * SIZE)
     return false;
@@ -151,6 +152,13 @@ bool saveEEPROMParameters(const double *values, bool sdVerified) {
   active = 0;
   state = "SAVED";
   return true;
+}
+bool saveEEPROMParameters(const double *values, bool sdVerified) {
+  struct Request { const double *values; bool verified; } request{values, sdVerified};
+  return runStorageOperation([](void *context) {
+    auto &r = *static_cast<Request *>(context);
+    return writeEEPROMSnapshot(r.values, r.verified);
+  }, &request);
 }
 const char *eepromParameterState() {
   return state;

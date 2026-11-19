@@ -1,4 +1,14 @@
 #pragma once
+#include <stdint.h>
+
+struct FlightTimingStats {
+  uint32_t cycles, missedReleases, maxPeriodUs, maxExecutionUs;
+  uint32_t maxImuToPwmUs, lastImuToPwmUs;
+  uint32_t intervalsAtLeast4ms, executionsOver2ms;
+  uint64_t totalPeriodUs;
+};
+FlightTimingStats flightTimingStats();
+void finishFlightCycle(uint32_t imuToPwmUs, uint32_t executionUs, uint32_t missed);
 
 // current_time 为本轮起点的 micros() 时间戳（μs），dt 为相邻两轮间隔（秒）。
 extern float dt;

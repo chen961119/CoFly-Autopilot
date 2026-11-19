@@ -4,13 +4,18 @@
 #include "system/flight_lock.h"
 #include "parameters/parameter_service.h"
 #include "system/device_reboot.h"
+#include "system/rtos_sync.h"
 
 namespace {
 bool flightLocked = true;
 }
 
-bool isFlightLocked() { return flightLocked || parameterRebootRequired() || deviceRebootPending(); }
+bool isFlightLocked() {
+  TaskCriticalSection guard;
+  return flightLocked || parameterRebootRequired() || deviceRebootPending();
+}
 void setFlightLocked(bool locked) {
+  TaskCriticalSection guard;
   flightLocked = locked || parameterRebootRequired() || deviceRebootPending() ||
-    !aircraftConfigurationValid() || !imuCalibrationValid() || sensorCalibrationBusy();
+    !aircraftConfigurationValid() || !imuCalibrationValid() || sensorCalibrationBusy() || parameterMaintenanceBusy();
 }

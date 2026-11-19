@@ -15,6 +15,7 @@
 #include "sensors/sensor_calibration.h"
 #include "system/device_reboot.h"
 #include "system/flight_lock.h"
+#include "system/rtos_sync.h"
 #include "radio_comm/radio_comm.h"
 #include <Arduino.h>
 #include <stdarg.h>
@@ -22,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <atomic>
 
 namespace {
 constexpr size_t MAX_PARAMETERS = PARAMETER_COUNT_LIMIT;
@@ -34,7 +36,16 @@ const FlightParameter *table;
 size_t count;
 ParameterIndices indices;
 bool storageReady;
-bool rebootRequired = false;
+std::atomic<bool> rebootRequired{false};
+std::atomic<bool> maintenanceBusy{false};
+constexpr unsigned diagnosticDepth = 6;
+struct QueuedDiagnostic {
+  char text[LINE_SIZE];
+  uint16_t length;
+  bool usbOnly;
+};
+QueuedDiagnostic diagnosticQueue[diagnosticDepth];
+unsigned diagnosticRead = 0, diagnosticCount = 0;
 enum class StorageNotice { None, Saved, Failed };
 
 // Each physical link owns its parser, reply cursor and parameter snapshot.
@@ -71,7 +82,7 @@ void storageNotice(ParameterStorage medium, StorageNotice notice) {
   }
 }
 double defaults[MAX_PARAMETERS];
-// Main-loop-only, non-reentrant service; snapshots stay out of the stack.
+// Only the parameter task mutates candidate and the protocol sessions.
 double candidate[MAX_PARAMETERS];
 ParameterSaveDebounce sdSave, eeSave;
 const char *loadState = "DEFAULTS";
@@ -109,7 +120,8 @@ bool persist(const double *values, ParameterStorage medium) {
   return true;
 }
 
-void applyCandidateParameters() {
+void applyCandidateParameters(bool reloadImu = false) {
+  TaskCriticalSection guard;
   for (size_t i = 0; i < count; ++i) {
     if (table[i].effect == ParameterEffect::Reboot && table[i].read() != candidate[i])
       rebootRequired = true;
@@ -117,6 +129,8 @@ void applyCandidateParameters() {
   }
   if (rebootRequired)
     setFlightLocked(true);
+  if (reloadImu)
+    loadImuCalibration();
 }
 
 bool flushMedium(ParameterStorage medium) {
@@ -183,12 +197,15 @@ SaveResult saveOne(size_t index, double value) {
   if (calibrationOffset) {
     candidate[marker] = 0;
   }
-  applyCandidateParameters();
+  {
+    TaskCriticalSection guard;
+    if (requiresFlightLock(table[index]) && !isFlightLocked())
+      return SaveResult::Rejected;
+    applyCandidateParameters(calibrationOffset);
+  }
   // Initialization enforces one medium for the entire IMU group, including its marker.
   markParameterWrites(table[index].storage == ParameterStorage::SD,
                       table[index].storage == ParameterStorage::EEPROM);
-  if (calibrationOffset)
-    loadImuCalibration();
   return SaveResult::Pending;
 }
 
@@ -267,7 +284,8 @@ void ParameterSession::handleCommand(char *line) {
       error(id, "SYNTAX", "Use PARAM RESET_SD id CONFIRM");
       return;
     }
-    if (!isFlightLocked()) {
+    LockedParameterMaintenance transaction;
+    if (!transaction) {
       error(id, "LOCK_REQUIRED", "Lock aircraft before restoring SD defaults");
       return;
     }
@@ -302,13 +320,10 @@ void ParameterSession::handleCommand(char *line) {
       error(id, "SAVE_FAILED", "SD default snapshot write failed; RAM unchanged");
       return;
     }
-    applyCandidateParameters();
+    applyCandidateParameters(table[indices.imuValid].storage == ParameterStorage::SD);
     sdSave.completed(true, millis());
     storageNotice(ParameterStorage::SD, StorageNotice::Saved);
     loadState = "SAVED";
-    if (table[indices.imuValid].storage == ParameterStorage::SD)
-      loadImuCalibration();
-    updateRadioNormalized();
     queueReply(id, "RESET_SD\t%u\tSAVED", static_cast<unsigned>(resetCount));
   } else if (!strcmp(tokens[1], "SET") && tokenCount == 5) {
     const size_t index = findParameterIndex(table, count, tokens[3]);
@@ -487,7 +502,9 @@ bool saveParameterValue(const char *name, double value) {
   return saveOne(findParameterIndex(table, count, name), value) != SaveResult::Rejected;
 }
 bool saveRadioCalibrationParameters(const char *const *values) {
-  if (sdFileSessionActive() || !table || !count || !storageReady || !values || !isFlightLocked())
+  LockedParameterMaintenance transaction;
+  if (!transaction || sensorCalibrationBusy() || sdFileSessionActive() ||
+      !table || !count || !storageReady || !values)
     return false;
   for (size_t i = 0; i < count; ++i) candidate[i] = table[i].read();
   for (unsigned channel = 0; channel < 4; ++channel) {
@@ -508,7 +525,6 @@ bool saveRadioCalibrationParameters(const char *const *values) {
   sdSave.completed(true, millis());
   storageNotice(ParameterStorage::SD, StorageNotice::Saved);
   loadState = "SAVED";
-  updateRadioNormalized();
   return true;
 }
 bool flushParameterWrites() {
@@ -553,9 +569,8 @@ bool saveImuCalibrationParameters(const float *offsets) {
     ee |= table[i].storage == ParameterStorage::EEPROM;
   }
   // Update the complete group in RAM before scheduling the ordinary snapshot.
-  applyCandidateParameters();
+  applyCandidateParameters(true);
   markParameterWrites(sd, ee);
-  loadImuCalibration();
   return true;
 }
 
@@ -667,17 +682,50 @@ void pollParameterService() {
   // A radio reply must drain before the existing delayed reboot starts.
   pollDeviceReboot(usbSession.txLength != 0 || radioSession.txLength != 0);
   if (USBSerial) usbSession.poll(USBSerial);
+  QueuedDiagnostic diagnostic;
+  {
+    TaskCriticalSection guard;
+    if (!diagnosticCount) return;
+    diagnostic = diagnosticQueue[diagnosticRead];
+    diagnosticRead = (diagnosticRead + 1) % diagnosticDepth;
+    --diagnosticCount;
+  }
+  if (USBSerial) usbSession.queueDiagnostic(USBSerial, diagnostic.text, diagnostic.length);
+  if (!diagnostic.usbOnly)
+    radioSession.queueDiagnostic(TelemetrySerial, diagnostic.text, diagnostic.length);
 }
 
 void pollTelemetryParameterService() {
   radioSession.poll(TelemetrySerial);
 }
 
-bool queueDiagnosticOutput(const char *text, size_t length) {
-  if (!table || !count || count > MAX_PARAMETERS || !text || !length ||
+static bool enqueueDiagnostic(const char *text, size_t length, bool usbOnly) {
+  if (!text || !length ||
       length >= LINE_SIZE || text[length - 1] != '\n' || deviceRebootPending())
     return false;
-  const bool usb = USBSerial && usbSession.queueDiagnostic(USBSerial, text, length);
-  const bool radio = radioSession.queueDiagnostic(TelemetrySerial, text, length);
-  return usb || radio;
+  TaskCriticalSection guard;
+  if (diagnosticCount == diagnosticDepth) return false;
+  auto &frame = diagnosticQueue[(diagnosticRead + diagnosticCount) % diagnosticDepth];
+  memcpy(frame.text, text, length);
+  frame.length = length;
+  frame.usbOnly = usbOnly;
+  ++diagnosticCount;
+  return true;
+}
+
+bool queueDiagnosticOutput(const char *text, size_t length) {
+  return enqueueDiagnostic(text, length, false);
+}
+bool queueUsbDiagnosticOutput(const char *text, size_t length) {
+  return enqueueDiagnostic(text, length, true);
+}
+
+bool parameterMaintenanceBusy() { return maintenanceBusy.load(); }
+LockedParameterMaintenance::LockedParameterMaintenance() {
+  TaskCriticalSection guard;
+  acquired = isFlightLocked() && !maintenanceBusy.load();
+  if (acquired) maintenanceBusy.store(true);
+}
+LockedParameterMaintenance::~LockedParameterMaintenance() {
+  if (acquired) maintenanceBusy.store(false);
 }

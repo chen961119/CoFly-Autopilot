@@ -2,8 +2,8 @@
 #include "config/aircraft_config.h"
 #include "config/serial_config.h"
 #include "interface/human_interface.h"
-#include "allocation/control_allocation.h"
 #include "system/flight_clock.h"
+#include "system/rtos_sync.h"
 #include <Adafruit_SSD1306.h>
 #include "logging/logger.h"
 #include <Wire.h>
@@ -19,14 +19,14 @@ namespace {
 const int DEBOUNCE_DELAY = 10;              // 消抖时间(ms)
 const unsigned long SHORT_PRESS_TIME = 50;  // 短按时间(ms)
 const unsigned long LONG_PRESS_TIME = 1000; // 长按时间(ms)
-bool buttonActive = false;
-bool longPressActive = false;
-unsigned long buttonPressTime = 0;
-
-bool buttonActive1 = false; // 第二个按键
-bool longPressActive1 = false;
-unsigned long buttonPressTime1 = 0;
-
+struct Button {
+  bool raw = false, down = false, longPress = false;
+  uint32_t rawChanged = 0, pressedAt = 0;
+};
+Button modeButton, calibrationButton;
+bool displayReady = false, slicedRefresh = false;
+constexpr unsigned displayBytes = SCREEN_WIDTH * SCREEN_HEIGHT / 8;
+unsigned displayOffset = displayBytes;
 
 // OLED 显示器状态与初始化参数。
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, OLED_RESET);
@@ -85,6 +85,11 @@ unsigned int displayfreq = 10; // 显示屏帧率。
 unsigned long blink_counter, blink_delay;
 bool blinkAlternate;
 
+void refreshDisplay() {
+  if (!displayReady) return;
+  if (slicedRefresh) displayOffset = 0;
+  else display.display();
+}
 } // namespace
 
 // 根据当前飞行模式设置 32、33 号模式指示灯电平。
@@ -107,10 +112,12 @@ void beginHumanInterfaceLinks() {
 void initializeHumanInterface() {
   pinMode(32, OUTPUT);
   pinMode(33, OUTPUT);
-  pinMode(36, OUTPUT);
   pinMode(36, INPUT_PULLUP);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+  pinMode(31, INPUT_PULLUP);
+  displayReady = display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
+  if (!displayReady) {
     USBSerial.println(F("SSD1306 allocation failed"));
+    return;
   }
   display.clearDisplay();
   displaythumbsup();
@@ -174,17 +181,19 @@ void setupBlink(int numBlinks, int upTime, int downTime) {
 
 // 把传入的机体编号文字绘制到 OLED 指定位置并立即刷新。
 void displayID(char *ss) {
+  if (!displayReady) return;
   if (parameterRebootRequired()) { displayRebootRequired(); return; }
   // display.clearDisplay();
   display.setTextSize(2, 2);           // 使用双倍字体。
   display.setTextColor(SSD1306_WHITE); // 白色文字。
   display.setCursor(100, 12);          // 指定文本起点。
   display.println(ss);                 // 直接用指针的形式。
-  display.display();
+  refreshDisplay();
 }
 
 // 把 SD 卡状态文字绘制到 OLED 指定位置并立即刷新。
 void displaySD(char *ss) {
+  if (!displayReady) return;
   if (parameterRebootRequired()) { displayRebootRequired(); return; }
   // display.clearDisplay();
   display.setTextSize(1);              // 使用默认字体大小。
@@ -192,11 +201,12 @@ void displaySD(char *ss) {
   display.setCursor(100, 0);           // 指定文本起点。
   display.println(ss);                 // 直接用指针的形式。
   // display.println(F("sdsds")); //用字符串
-  display.display();
+  refreshDisplay();
 }
 
 // 将当前日志编号写入 OLED 显示缓冲区。
 void displayfilenum() {
+  if (!displayReady) return;
   if (parameterRebootRequired()) { displayRebootRequired(); return; }
   if (!loggerSdReady()) {
     displaySD("MISS");
@@ -210,6 +220,7 @@ void displayfilenum() {
 
 // 按显示频率刷新相对转角及姿态角；关闭显示时直接返回。
 void displayRebootRequired() {
+  if (!displayReady) return;
   static bool shown = false;
   if (shown) return;
   display.clearDisplay();
@@ -219,12 +230,15 @@ void displayRebootRequired() {
   display.print("REBOOT");
   display.setCursor(16, 16);
   display.print("REQUIRED");
-  display.display();
+  refreshDisplay();
   shown = true;
 }
 
 void displayAttitude() {
+  if (!displayReady) return;
   if (parameterRebootRequired()) { displayRebootRequired(); return; }
+  // Finish the current frame even when slow I2C transactions extend past 100 ms.
+  if (slicedRefresh && displayOffset < displayBytes) return;
 
   if (!isFlightLocked()) {
     return;
@@ -245,7 +259,7 @@ void displayAttitude() {
     display.print("SET ID / COUNT");
     display.setCursor(0, 8);
     display.print("USB CONFIG");
-    display.display();
+    refreshDisplay();
     return;
   }
   if (!imuCalibrationValid()) {
@@ -257,18 +271,26 @@ void displayAttitude() {
     display.print("REQUIRED");
     display.setCursor(0, 16);
     display.print("Keep flat/still");
-    display.display();
+    refreshDisplay();
     return;
   }
 
+  float attitude[3], relative;
+  bool angleOk;
+  {
+    TaskCriticalSection guard;
+    memcpy(attitude, att, sizeof(attitude));
+    relative = relativeAngle_ready;
+    angleOk = rotateSensorValid();
+  }
   // 第一行：MT6701 减去零点后的相对角。
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE); // 白色文字。
   display.fillRect(30, 0, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 0);
   display.print("Relat: ");
-  if (rotateSensorValid()) {
-    display.print(Units::toDegrees(relativeAngle_ready), 1);
+  if (angleOk) {
+    display.print(Units::toDegrees(relative), 1);
     display.print((char)247); // 度符号°
   } else {
     display.print("--");
@@ -280,7 +302,7 @@ void displayAttitude() {
   display.fillRect(30, 8, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 8);
   display.print("Roll: ");
-  display.print(Units::toDegrees(att[0]), 1);
+  display.print(Units::toDegrees(attitude[0]), 1);
   display.print((char)247); // 度符号°
 
   // 第三行：俯仰角
@@ -289,7 +311,7 @@ void displayAttitude() {
   display.fillRect(30, 16, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 16);
   display.print("Pitch:");
-  display.print(Units::toDegrees(att[1]), 1);
+  display.print(Units::toDegrees(attitude[1]), 1);
   display.print((char)247);
 
   // 第四行：偏航角速度
@@ -298,17 +320,18 @@ void displayAttitude() {
   display.fillRect(30, 24, 50, 8, SSD1306_BLACK);
   display.setCursor(0, 24);
   display.print("Yaw:  ");
-  display.print(Units::toDegrees(att[2]), 1);
+  display.print(Units::toDegrees(attitude[2]), 1);
   display.print((char)247);
 
   // 图形化指示（简易人工地平仪）
   // drawArtificialHorizon(roll, pitch);
 
-  display.display();
+  refreshDisplay();
 }
 
 // 显示启动位图，等待 1 秒后清空 OLED 缓冲区。
 void displaythumbsup() {
+  if (!displayReady) return;
   if (parameterRebootRequired()) { displayRebootRequired(); return; }
   display.drawBitmap(0,       // 居中X位置
                      0,       // 居中Y位置
@@ -318,93 +341,71 @@ void displaythumbsup() {
   );
 
   // 显示绘制的内容
-  display.display();
+  refreshDisplay();
 
   delay(1000);
   display.clearDisplay();
 }
 
-// 处理 36、31 号按键：短按转角清零，长按切换锁定/显示或触发 IMU 标定。
-// 使用 millis() 判断按压时长，触发校准时会阻塞主循环。
-void ProcessButtonState() {
-
-  int buttonState = digitalRead(36);
-  int buttonState1 = digitalRead(31);
-
-  // 2. 检测按键按下（下降沿）
-  if (buttonState == LOW && !buttonActive) {
-    buttonActive = true;
-    buttonPressTime = millis();
-    delay(DEBOUNCE_DELAY); // 消抖延迟
-    USBSerial.println("按键按下");
+// The MT6701 and OLED are both on Wire1. Send at most 16 data bytes between
+// sensor polls. A new frame starts with an explicit SSD1306 address window.
+void serviceDisplayTransfer() {
+  slicedRefresh = true;
+  if (!displayReady || displayOffset >= displayBytes) return;
+  Wire1.setClock(400000);
+  if (displayOffset == 0) {
+    const uint8_t window[] = {0, SSD1306_PAGEADDR, 0, SCREEN_HEIGHT / 8 - 1,
+                              SSD1306_COLUMNADDR, 0, SCREEN_WIDTH - 1};
+    Wire1.beginTransmission(SCREEN_ADDRESS);
+    Wire1.write(window, sizeof(window));
+    if (Wire1.endTransmission() != 0) displayOffset = displayBytes;
   }
+  if (displayOffset < displayBytes) {
+    constexpr unsigned chunk = 16;
+    Wire1.beginTransmission(SCREEN_ADDRESS);
+    Wire1.write(static_cast<uint8_t>(0x40));
+    Wire1.write(display.getBuffer() + displayOffset, chunk);
+    displayOffset = Wire1.endTransmission() == 0 ? displayOffset + chunk : displayBytes;
+  }
+  Wire1.setClock(100000);
+}
 
-  // 3. 检测按键释放（上升沿）
-  if (buttonState == HIGH && buttonActive) {
-    buttonActive = false;
-
-    // 判断是短按还是长按释放
-    if (millis() - buttonPressTime < LONG_PRESS_TIME) {
-      if (millis() - buttonPressTime >= SHORT_PRESS_TIME) {
-        if (!sensorCalibrationBusy()) ResetRotateSensor();
-      }
-      // 如果短于SHORT_PRESS_TIME，不视为有效短按
+namespace {
+void pollButton(Button &button, unsigned pin, bool isModeButton) {
+  const uint32_t now = millis();
+  const bool raw = digitalRead(pin) == LOW;
+  if (button.raw != raw) {
+    button.raw = raw;
+    button.rawChanged = now;
+  }
+  if (button.down != raw && now - button.rawChanged >= DEBOUNCE_DELAY) {
+    button.down = raw;
+    if (raw) {
+      const char *message = isModeButton ? "按键按下\n" : "按键2按下\n";
+      queueUsbDiagnosticOutput(message, strlen(message));
+      button.pressedAt = button.rawChanged;
+      button.longPress = false;
+    } else {
+      const char *message = isModeButton ? "按键释放\n" : "按键2释放\n";
+      queueUsbDiagnosticOutput(message, strlen(message));
+      if (isModeButton && !button.longPress && button.rawChanged - button.pressedAt >= SHORT_PRESS_TIME)
+        startSensorCalibration("ROTATE");
     }
-    USBSerial.println("按键释放");
   }
-
-  // 4. 检测长按（持续按下）
-  if (buttonActive && !longPressActive &&
-      (millis() - buttonPressTime >= LONG_PRESS_TIME)) {
-    longPressActive = true;
-    USBSerial.println("长按一次");
-    setFlightLocked(!isFlightLocked());
-    if (isFlightLocked()) commandSafeActuatorPositions();
+  if (button.down && raw && !button.longPress && now - button.pressedAt >= LONG_PRESS_TIME) {
+    button.longPress = true;
+    if (isModeButton) {
+      constexpr char message[] = "长按一次\n";
+      queueUsbDiagnosticOutput(message, sizeof(message) - 1);
+      setFlightLocked(!isFlightLocked());
+    } else {
+      requestButtonImuCalibration();
+    }
   }
+}
+}
 
-  // 5. 重置长按状态
-  if (buttonState == HIGH && longPressActive) {
-    longPressActive = false;
-  }
-
-  // 第二个按键
-
-  // 2. 检测按键按下（下降沿）
-  if (buttonState1 == LOW && !buttonActive1) {
-    buttonActive1 = true;
-    buttonPressTime1 = millis();
-    delay(DEBOUNCE_DELAY); // 消抖延迟
-    USBSerial.println("按键2按下");
-  }
-
-  // 3. 检测按键释放（上升沿）
-  if (buttonState1 == HIGH && buttonActive1) {
-    buttonActive1 = false;
-    USBSerial.println("按键2释放");
-  }
-
-  // 4. 检测长按（持续按下）
-  if (buttonActive1 && !longPressActive1 &&
-      (millis() - buttonPressTime1 >= LONG_PRESS_TIME)) {
-    longPressActive1 = true;
-    // USBSerial.println("长按一次");
-    //  第一行：相对滚转角
-    USBSerial.println("3s后开始校准IMU");
-    // delay(500);
-    USBSerial.println("2s开始校准IMU");
-    // delay(500);
-    USBSerial.println("1s开始校准IMU");
-    // delay(500);
-    // 标定会阻塞主循环；先锁定并立即写出安装中位。
-    setFlightLocked(true);
-    commandSafeActuatorPositions();
-    if (!sensorCalibrationBusy()) calculate_IMU_error();
-    USBSerial.println("校准IMU完成");
-    // delay(500);
-  }
-
-  // 5. 重置长按状态
-  if (buttonState1 == HIGH && longPressActive1) {
-    longPressActive1 = false;
-  }
+void ProcessButtonState() {
+  pollButton(modeButton, 36, true);
+  pollButton(calibrationButton, 31, false);
 }

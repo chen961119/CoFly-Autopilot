@@ -1,4 +1,5 @@
 #include "math/units.h"
+#include "logging/flight_service_sample.h"
 #include "control/control_modes.h"
 #include "config/aircraft_config.h"
 #include "ground_station_service/ground_station_service.h"
@@ -40,13 +41,16 @@ bool validId(const char *text, uint32_t &id) {
 }
 // Ground station display only: use the original communications module's cached values.
 // The original protocol reports freshness per branch, not per downstream node.
-bool readGroundAircraftAttitude(int id, float &roll, float &pitch) {
+bool readGroundAircraftAttitude(const FlightServiceSample &sample, int id, float &roll, float &pitch) {
   if (!aircraftConfigurationValid() || !validAircraftConfiguration(id) || id == 0) return false;
-  if (id == aircraftId()) { roll = Units::toDegrees(att[0]); pitch = Units::toDegrees(att[1]); return true; }
-  if (id == 1 || id < aircraftId() || !isSensorDataFresh(id % 2 == 0)) return false;
-  const float rolls[] = {Units::toDegrees(att_B[0]), Units::toDegrees(att_C[0]), Units::toDegrees(att_D[0]), Units::toDegrees(att_E[0]), Units::toDegrees(att_F[0]), Units::toDegrees(att_G[0])};
-  const float pitches[] = {Units::toDegrees(att_B[1]), Units::toDegrees(att_C[1]), Units::toDegrees(att_D[1]), Units::toDegrees(att_E[1]), Units::toDegrees(att_F[1]), Units::toDegrees(att_G[1])};
-  roll = rolls[id - 2]; pitch = pitches[id - 2];
+  if (id == aircraftId()) {
+    roll = Units::toDegrees(sample.att[0]);
+    pitch = Units::toDegrees(sample.att[1]);
+    return true;
+  }
+  if (id == 1 || id < aircraftId() || !(id % 2 == 0 ? sample.leftFresh : sample.rightFresh)) return false;
+  roll = Units::toDegrees(sample.wingAttitude[id - 2][0]);
+  pitch = Units::toDegrees(sample.wingAttitude[id - 2][1]);
   return true;
 }
 
@@ -109,7 +113,7 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     return;
   }
   if (!strcmp(tokens[1], "CAPS") && count == 3) {
-    // main.loop samples BMI088 into the legacy *_6050 variables. Do not
+    // The control task samples BMI088 into the legacy *_6050 variables. Do not
     // claim MPU6050 or BMP280 is sampled based on old config names.
 #if defined INTIMU && defined USE_MPU6050_I2C
     const char *imu = "BMI088_SPI";
@@ -124,7 +128,7 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     const char *external = "DISABLED";
 #endif
 #if defined USE_BAROMETER
-    const char *barometer = "INITIALIZED_NOT_SAMPLED";
+    const char *barometer = barometerAvailable() ? "SAMPLED_2HZ" : "OFFLINE";
 #else
     const char *barometer = "DISABLED";
 #endif
@@ -143,38 +147,42 @@ void handleGroundStationCommand(char *line, char *response, size_t capacity) {
     return;
   }
   if (!strcmp(tokens[1], "DATA") && count == 3) {
-    const char *mode = currentFlightMode == MANUAL_MODE ? "MANUAL" : "STABILIZE";
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
+    const char *mode = sample.currentFlightMode == MANUAL_MODE ? "MANUAL" : "STABILIZE";
     // Snapshot existing measurements only. No invented ground speed/altitude.
-    const bool relativeValid = rotateSensorValid();
+    const bool relativeValid = sample.rotateValid;
     const int written = snprintf(response, capacity,
       "@COFLY\t%lu\tDATA\tms=%lu\troll=%.3f\tpitch=%.3f\tyaw=%.3f\tgx=%.3f\tgy=%.3f\tgz=%.3f\tax=%.3f\tay=%.3f\taz=%.3f\tairspeed=%.3f\tangle=%.3f\tangle_valid=%d\trc1=%d\trc2=%d\trc3=%d\trc4=%d\trc5=%d\trc6=%d\trc7=%d\trc8=%d\tn1=%.3f\tn2=%.3f\tn3=%.3f\tn4=%.3f\tn5=%.3f\tn6=%.3f\tn7=%.3f\tn8=%.3f\tmode=%s\tlocked=%d\tradio_valid=%d\n",
-      static_cast<unsigned long>(id), millis(), Units::toDegrees(att[0]), Units::toDegrees(att[1]), Units::toDegrees(att[2]),
-      Units::toDegrees(ang_vel[0]), Units::toDegrees(ang_vel[1]), Units::toDegrees(ang_vel[2]), groundAcceleration(acc[0]), groundAcceleration(acc[1]), groundAcceleration(acc[2]),
-      airspeed, Units::toDegrees(relativeAngle_ready), relativeValid, radio_channel1_raw,
-      radio_channel2_raw, radio_channel3_raw, radio_channel4_raw, radio_channel5_raw, radio_channel6_raw, radio_channel7_raw, radio_channel8_raw,
-      radio_channel1_normalized, radio_channel2_normalized, radio_channel3_normalized, radio_channel4_normalized,
-      radio_channel5_normalized, radio_channel6_normalized, radio_channel7_normalized, radio_channel8_normalized,
-      mode, isFlightLocked(), radioInputValid());
+      static_cast<unsigned long>(id), sample.sampledMs, Units::toDegrees(sample.att[0]), Units::toDegrees(sample.att[1]), Units::toDegrees(sample.att[2]),
+      Units::toDegrees(sample.ang_vel[0]), Units::toDegrees(sample.ang_vel[1]), Units::toDegrees(sample.ang_vel[2]), groundAcceleration(sample.acc[0]), groundAcceleration(sample.acc[1]), groundAcceleration(sample.acc[2]),
+      sample.airspeed, Units::toDegrees(sample.relativeAngle_ready), relativeValid, sample.radioRaw[0],
+      sample.radioRaw[1], sample.radioRaw[2], sample.radioRaw[3], sample.radioRaw[4], sample.radioRaw[5], sample.radioRaw[6], sample.radioRaw[7],
+      sample.radioNormalized[0], sample.radioNormalized[1], sample.radioNormalized[2], sample.radioNormalized[3],
+      sample.radioNormalized[4], sample.radioNormalized[5], sample.radioNormalized[6], sample.radioNormalized[7],
+      mode, sample.locked, sample.radioValid);
     if (written < 0 || static_cast<size_t>(written) >= capacity)
       snprintf(response, capacity, "@COFLY\t%lu\tERROR\tDATA_TOO_LONG\tMeasurement exceeds frame capacity\n",
                static_cast<unsigned long>(id));
     return;
   }
   if (!strcmp(tokens[1], "CONFIG") && count == 3) {
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     const unsigned master = aircraftConfigurationValid() && aircraftId() == 1;
     int written = snprintf(response, capacity,
       "@COFLY\t%lu\tCONFIG\tcount=%u\tmaster=%u\troll_a=%.3f\tab=%.3f\tac=%.3f\tbd=%.3f\tce=%.3f\tdf=%.3f\teg=%.3f\tleft_valid=%d\tright_valid=%d\taircraft_id=%d\tconfig_valid=%d\n",
-      static_cast<unsigned long>(id), static_cast<unsigned>(aircraftCount()), master, Units::toDegrees(att[0]),
-      Units::toDegrees(att_B[0]) - Units::toDegrees(att[0]), Units::toDegrees(att_C[0]) - Units::toDegrees(att[0]), Units::toDegrees(att_D[0]) - Units::toDegrees(att_B[0]),
-      Units::toDegrees(att_E[0]) - Units::toDegrees(att_C[0]), Units::toDegrees(att_F[0]) - Units::toDegrees(att_D[0]), Units::toDegrees(att_G[0]) - Units::toDegrees(att_E[0]),
-      isSensorDataFresh(true), isSensorDataFresh(false),
+      static_cast<unsigned long>(id), static_cast<unsigned>(aircraftCount()), master, Units::toDegrees(sample.att[0]),
+      Units::toDegrees(sample.wingAttitude[0][0]) - Units::toDegrees(sample.att[0]), Units::toDegrees(sample.wingAttitude[1][0]) - Units::toDegrees(sample.att[0]), Units::toDegrees(sample.wingAttitude[2][0]) - Units::toDegrees(sample.wingAttitude[0][0]),
+      Units::toDegrees(sample.wingAttitude[3][0]) - Units::toDegrees(sample.wingAttitude[1][0]), Units::toDegrees(sample.wingAttitude[4][0]) - Units::toDegrees(sample.wingAttitude[2][0]), Units::toDegrees(sample.wingAttitude[5][0]) - Units::toDegrees(sample.wingAttitude[3][0]),
+      sample.leftFresh, sample.rightFresh,
       aircraftId(), aircraftConfigurationValid());
     // Per-aircraft attitude comes from local IMU or valid downstream slots.
     if (written > 0 && static_cast<size_t>(written) < capacity) {
       --written; // Replace the preceding LF with additional fields.
       for (int node = 1; node <= aircraftCount(); ++node) {
         float roll = 0, pitch = 0;
-        const bool valid = readGroundAircraftAttitude(node, roll, pitch);
+        const bool valid = readGroundAircraftAttitude(sample, node, roll, pitch);
         const int appended = snprintf(response + written, capacity - written,
           "\tr_%c=%.2f\tp_%c=%.2f\tv_%c=%d", 'a' + node - 1, roll, 'a' + node - 1, pitch, 'a' + node - 1, valid);
         if (appended < 0 || static_cast<size_t>(appended) >= capacity - written) { written = capacity; break; }

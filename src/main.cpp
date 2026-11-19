@@ -3,7 +3,6 @@
 // 飞控入口：仅编排初始化与每周期任务；各模块的状态和实现留在对应模块中。
 
 #include "actuators/actuator_output.h"
-#include "allocation/control_allocation.h"
 #include "control/control_modes.h"
 #include "control/control_pipeline.h"
 #include "sensors/filters.h"
@@ -20,9 +19,93 @@
 #include "telemetry/telemetry.h"
 #include <Arduino.h>
 
-// 按通信、人机界面、传感器、执行器和控制器的依赖顺序完成上电初始化。
-void setup() {
+#include "system/rtos_sync.h"
+#include "system/device_reboot.h"
+#include "system/flight_tasks.h"
 
+namespace {
+constexpr TickType_t controlPeriod = pdMS_TO_TICKS(2);
+static_assert(configTICK_RATE_HZ == 1000 && controlPeriod == 2, "CoFly requires a 1 kHz tick");
+static_assert(configMAX_PRIORITIES > 5, "CoFly requires five application priorities");
+
+// Stacks are allocated once in on-chip OCRAM. Depths are in StackType_t words.
+DMAMEM StackType_t controlStack[2048], linksStack[1024], auxiliaryStack[1536];
+DMAMEM StackType_t parameterStack[3072], storageStack[3072];
+StaticTask_t controlTcb, linksTcb, auxiliaryTcb, parameterTcb, storageTcb;
+TaskHandle_t controlHandle, linksHandle, auxiliaryHandle, parameterHandle, storageHandle;
+
+// Advance to the latest elapsed release. xTaskDelayUntil then waits for
+// the next future release, including when the tick counter wraps.
+TickType_t skipElapsedReleases(TickType_t &release, TickType_t period) {
+  const TickType_t missed = (xTaskGetTickCount() - release) / period;
+  release += missed * period;
+  return missed;
+}
+
+void controlTask(void *) {
+  TickType_t release = xTaskGetTickCount();
+  for (;;) {
+    const uint32_t cycleStart = ARM_DWT_CYCCNT;
+    updateFlightClock();
+    latchAuxiliarySensors();
+    const uint32_t imuStart = ARM_DWT_CYCCNT;
+    updateInertialSensors();
+    latchInteraircraftInputs();
+    const bool enabled = aircraftConfigurationValid() && !parameterRebootRequired() && !deviceRebootPending();
+    if (enabled) {
+      runControlCycle();
+      convertControlCommandsToPWM();
+      applyActuatorCommands();
+    } else {
+      setFlightLocked(true);
+      commandSafeActuatorPositions();
+    }
+    const uint32_t cyclesPerUs = F_CPU_ACTUAL / 1000000u;
+    const uint32_t imuToPwm = (ARM_DWT_CYCCNT - imuStart) / cyclesPerUs;
+    acknowledgeCalibrationLock();
+    publishInteraircraftOutputs(enabled);
+    captureFlightServices(enabled);
+    if (enabled) latchRadioInput();
+    pollSensorCalibration(true);
+
+    // Consume missed releases without running extra iterations on old measurements.
+    const TickType_t missed = skipElapsedReleases(release, controlPeriod);
+    finishFlightCycle(imuToPwm, (ARM_DWT_CYCCNT - cycleStart) / cyclesPerUs, missed);
+    xTaskDelayUntil(&release, controlPeriod);
+  }
+}
+
+void linkTask(void *) {
+  TickType_t release = xTaskGetTickCount();
+  for (;;) {
+    pollFlightLinks();
+    skipElapsedReleases(release, 1);
+    xTaskDelayUntil(&release, 1);
+  }
+}
+
+void auxiliaryTask(void *) {
+  TickType_t release = xTaskGetTickCount();
+  for (;;) {
+    getRotateSensor1();
+    getairspeed();
+    getbarodata();
+    Strain_read_all();
+    pollSensorCalibration(false);
+    publishAuxiliarySensors();
+    ProcessButtonState();
+    serviceDisplayTransfer();
+    displayAttitude();
+    skipElapsedReleases(release, controlPeriod);
+    xTaskDelayUntil(&release, controlPeriod);
+  }
+}
+
+void storageTask(void *) {
+  for (;;) serviceFlightLogger();
+}
+
+void parameterTask(void *) {
   // 建立串口链路，再初始化传感器、执行器和控制器。
   beginHumanInterfaceLinks();
   initializeFirmwareDebug();
@@ -43,10 +126,8 @@ void setup() {
   loadRotateSensorOffset();
   initializeRotateSensor();
   loadImuCalibration();
-  // prepareActuatorPower();
   displayAircraftIdentity();
   attachActuators();
-
   delay(5);
   radioSetup();
   IMUinit();
@@ -55,49 +136,45 @@ void setup() {
   commandSafeActuatorPositions();
 
   delay(5);
-  // initializeControlAllocation();
   calibrateAirspeedSensor();
   initializeInitialAttitude();
   initializeInitialControlMode();
   initializeControlFilters();
-}
+  publishAuxiliarySensors();
+  latchAuxiliarySensors();
+  startFlightStorage();
 
-// 执行一次控制周期：采样与估计、生成控制量、输出与记录，最后读取下一周期遥控指令并等待 500 Hz 节拍。
-void loop() {
+  // No worker can run until all handles and the safe initial state are installed.
+  vTaskSuspendAll();
+  storageHandle = xTaskCreateStatic(storageTask, "Storage", 3072, nullptr, 1, storageStack, &storageTcb);
+  auxiliaryHandle = xTaskCreateStatic(auxiliaryTask, "Aux", 1536, nullptr, 3, auxiliaryStack, &auxiliaryTcb);
+  linksHandle = xTaskCreateStatic(linkTask, "Links", 1024, nullptr, 4, linksStack, &linksTcb);
+  controlHandle = xTaskCreateStatic(controlTask, "Control", 2048, nullptr, 5, controlStack, &controlTcb);
+  configASSERT(storageHandle && auxiliaryHandle && linksHandle && controlHandle);
+  xTaskResumeAll();
 
-  updateFlightClock();
-  updateInertialSensors();
-  getairspeed();
-  getRotateSensor1();
-  pollSensorCalibration();
-  ProcessButtonState();
-  displayAttitude();
-  Strain_read_all();
-
-  if (!aircraftConfigurationValid() || parameterRebootRequired()) {
-    setFlightLocked(true);
-    commandSafeActuatorPositions();
-    runDebugPrints();
+  for (;;) {
+    serviceCalibrationParameters();
     pollParameterService();
     telemetry();
-    loopRate(500);
-    return;
+    runDebugPrints();
+    vTaskDelay(1);
   }
-
-  // getpinvBplusmini();
-  receiveSensorData();
-  runControlCycle();
-  convertControlCommandsToPWM();
-  prepareActuatorCommands();
-  applyAndTransmitActuatorCommands();
-  runDebugPrints();
-
-  logFlightData();
-
-  getCommands(); // 接收值供下一周期控制使用，避免周期中途改变控制输入。
-  updateRadioNormalized();
-  pollParameterService();
-  telemetry();
-
-  loopRate(500);// 目标频率 500 Hz；若本周期已超时，loopRate 不会额外等待。
 }
+} // namespace
+
+FlightStackMargins flightStackMargins() {
+  return {uxTaskGetStackHighWaterMark(controlHandle), uxTaskGetStackHighWaterMark(linksHandle),
+          uxTaskGetStackHighWaterMark(auxiliaryHandle), uxTaskGetStackHighWaterMark(parameterHandle),
+          uxTaskGetStackHighWaterMark(storageHandle)};
+}
+
+void setup() {
+  parameterHandle = xTaskCreateStatic(parameterTask, "Parameters", 3072, nullptr, 2,
+                                      parameterStack, &parameterTcb);
+  configASSERT(parameterHandle);
+  vTaskStartScheduler();
+  for (;;) {} // A failed scheduler start must never enter flight operation.
+}
+
+void loop() {}

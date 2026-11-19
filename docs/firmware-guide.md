@@ -15,7 +15,7 @@
 
 同一数量和硬件配置的 A～G 共用固件，逐机设置身份并重启。改变数量需重新构建；已有参数不会因数量改变自动换成另一套增益。控制模式与策略入口见 [控制架构](control-architecture.md#模式策略和状态)。
 
-开发平台为 Arduino/Teensyduino、NXP i.MX RT1062（600 MHz），使用 PlatformIO 的 `teensy41` 环境。依赖由 [platformio.ini](../platformio.ini) 和 `lib/` 管理。在仓库根目录执行：
+固件在 Teensy 4.1（Cortex-M7，600 MHz）上运行 FreeRTOS，沿用 Arduino 驱动，使用 PlatformIO 的 `teensy41` 环境。依赖由 [platformio.ini](../platformio.ini) 和 `lib/` 管理。在仓库根目录执行：
 
 ```sh
 pio run -e teensy41
@@ -54,7 +54,7 @@ INDI 以通道3映射零点为零舵角：模式 0 为 trim，模式 1 为 min/m
 
 ## 执行器锁定与限幅
 
-各机上电独立锁定。按键 36 长按 1 秒解锁并停止姿态屏幕刷新，再长按上锁并恢复刷新；短按清零夹角。按键 31 的 IMU 标定会阻塞主循环，因此标定前先上锁。锁定状态不经机间链路传播，每架飞机需要独立操作。身份未配置、IMU 校准无效或存在待重启设置时禁止解锁。
+各机上电独立锁定。按键 36 长按 1 秒解锁并停止姿态屏幕刷新，再长按上锁并恢复刷新；短按清零夹角。长按按键 31 会先锁定 PWM，再分批采集 12000 个原始 IMU 样本，标定期间继续输出锁定位置。锁定状态不经机间链路传播，每架飞机需要独立操作。身份未配置、IMU 校准无效或存在待重启设置时禁止解锁。
 
 | 情况 | 本机输出 |
 | --- | --- |
@@ -95,7 +95,7 @@ INDI 以通道3映射零点为零舵角：模式 0 为 trim，模式 1 为 min/m
 
 ### CUAV MEAS/MS4525 空速计接6号口
 
-MS4525 驱动绑定 `Wire2`，7 位地址仍为 `0x28`。`calibrateAirspeedSensor()` 在上电校零前显式配置 SDA=25、SCL=24，并以 100 kHz 启动总线；主循环继续每 20 ms 更新 `airspeed`（m/s），零点标定与换算公式保持原样。
+MS4525 驱动绑定 `Wire2`，7 位地址仍为 `0x28`。`calibrateAirspeedSensor()` 在上电校零前显式配置 SDA=25、SCL=24，并以 100 kHz 启动总线；辅助任务每约 20 ms 更新 `airspeed`（m/s），零点标定与换算公式保持原样。
 
 | 空速计标识 | 底板6号口 U6 针号 | 网络 / Teensy 引脚 |
 | --- | --- | --- |
@@ -146,12 +146,26 @@ Serial8 旧 `AA 55` 气动读取和 `55 71` 二进制遥测已停用，避免吞
 
 级联协议没有版本字段。改变布局、长度、缩放或方向语义须同步更新所有节点；当前命令/状态帧与旧 50/33 字节版本不兼容。对象、缓存与路由详见 [机间通讯模块](../src/interaircraft_comm/README.md)。
 
-所有飞机调用 `logFlightData()`，以 50 Hz 写入同一 CSV 格式。字段按时间、本机传感器/滤波值、八路归一化遥控、五路最终执行器 PWM、模式、`targets` 和各控制器输出排列。列名使用代码中的完整成员名和索引，浮点保留六位小数，枚举/布尔按整数记录；不记录相邻机传感器、从机逻辑输出或 INDI 中间 PWM。
+各节点的主控提交 50 Hz 状态快照，存储任务将其写入相同格式的 CSV。字段按时间、本机传感器/滤波值、八路归一化遥控、五路最终执行器 PWM、模式、`targets` 和各控制器输出排列。列名使用代码中的完整成员名和索引，浮点保留六位小数，枚举/布尔按整数记录；不记录相邻机传感器、从机逻辑输出或 INDI 中间 PWM。
 
 遥控列 `radio_channel1_normalized`～`radio_channel8_normalized` 为 [-1,1]，油门最低/失联值为 -1；控制目标 throttle 转为 0～1。INDI 字段单位见 [INDI 变量约定](indi-variable-naming.md#变量与发布接口)。日志读取、FFT 与导出见 [飞行数据浏览器](../tools/flight_data_browser/README.md)。
 
 ## 开发与验收
 
-主循环、模块职责和动态分配的停用状态见 [系统架构](architecture.md)，无需在此重复控制流程。OLED、SD、串口和参数写入均可能影响周期，需在目标硬件测量 500 Hz 时序。`platformio.ini` 当前使用 `-w`、`-ffast-math`，相关验收要求及未闭环问题见 [软件需求](requirements.md)。
+应用任务的优先级、外设所有权和数据交接顺序见[系统架构](architecture.md#freertos-任务与数据流)。
+
+拆桨并断开执行器动力，用发布固件打开 `loop_rate_debug`，从 USB 或 X6 记录平均及最大周期、最大执行时间、IMU 采样至 PWM 写出的时间、跳过的节拍数、日志丢样/写入错误和各任务最小剩余栈（单位为 32 位字）。依次测试空闲、OLED 刷新、日志刷盘、在线保存参数及 USB 文件下载。EEPROM 的底层 Flash 擦写可能屏蔽中断，单独记录该工况。`missed` 统计调度器跳过的释放次数，DWT 硬件计数器独立统计 `intervals_ge_4ms`（相邻周期起点间隔 ≥4 ms）和 `execution_gt_2ms`（执行耗时 >2 ms），用于识别关中断期间合并的节拍。用逻辑分析仪复核 PWM 和链路时序，在调试固件下另验断点、继续和双 USB 会话。
+
+`platformio.ini` 当前使用 `-w`、`-ffast-math`，相关验收要求及未闭环问题见 [软件需求](requirements.md)。
+
+在仓库根目录运行以下主机回归。需要 Python 3 和能在本机运行的 C++17 编译器，默认命令为 `g++`，可用环境变量 `CXX` 指定路径。链路测试从本地 Git 历史读取 `3b38f89`，并使用 PlatformIO 已安装的 ArduinoEigen。
+
+```sh
+python tools/regression/flight_links/run.py
+python tools/regression/flight_storage/run.py
+python tools/regression/run_calibration.py
+```
+
+三个测试分别检查主从控制及线上帧的基线等价性、CSV 与 SD 事务，以及标定任务交接、应变帧和时钟回绕。
 
 修改控制逻辑后完成完整构建，硬件行为变更还需拆桨地面测试及相应飞行记录。历史数值报告及其产物已清理，不代表当前工作区已重新构建或完成板上验证。

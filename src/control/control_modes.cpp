@@ -1,7 +1,6 @@
 #include "math/units.h"
 #include "radio_comm/radio_comm.h"
 #include "control/command_generation.h"
-#include "interaircraft_comm/interaircraft_comm.h"
 #include "config/aircraft_config.h"
 #include "control/control_modes.h"
 #include "parameters/control_parameters.h"
@@ -63,9 +62,6 @@ void prepareControlMode() {
     targets.throttle = manual_input[2];
   } else {
     // 从机：由所在侧命令链发布模式、俯仰目标和上级作动器贡献。
-    receiveCommandData();
-    AircraftCommandLink *link = aircraftIsLeft() ? CommandLinks::left : CommandLinks::right;
-    if (link) slaveCommand = link->getCommandLink();
     currentFlightMode = slaveCommand.mode;
     targets.pitch = slaveCommand.target.pitch;
     if (aircraftId() >= 2 && aircraftId() <= 7)

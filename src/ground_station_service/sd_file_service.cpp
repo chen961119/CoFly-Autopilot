@@ -1,16 +1,18 @@
 #include "ground_station_service/sd_file_service.h"
 #include "logging/logger.h"
+#include "logging/flight_storage.h"
 #include "system/flight_lock.h"
 #include <SD.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <atomic>
 
 namespace {
 constexpr size_t LEGACY_BLOCK_SIZE = 256;
 constexpr uint32_t IDLE_MS = 15000;
 File directory, source;
-bool active = false;
+std::atomic<bool> active{false};
 uint32_t lastActivity = 0;
 uint64_t fileSize = 0, offset = 0;
 uint32_t fileCrc = 0xffffffff;
@@ -86,11 +88,15 @@ uint32_t crcUpdate(uint32_t crc, const uint8_t *data, size_t size) {
 bool sdFileSessionActive() { return active; }
 
 void pollSdFileService(bool connected) {
-  if (!connected || !isFlightLocked() ||
-      (active && static_cast<uint32_t>(millis() - lastActivity) > IDLE_MS)) release();
+  // Only the protocol task initiates requests. lastActivity is written before
+  // the storage operation acknowledges the previous command.
+  if (active && (!connected || !isFlightLocked() ||
+      static_cast<uint32_t>(millis() - lastActivity) > IDLE_MS)) {
+    runStorageOperation([](void *) { release(); return true; }, nullptr);
+  }
 }
 
-void handleSdFileCommand(char *line, char *response, size_t capacity) {
+static void executeSdFileCommand(char *line, char *response, size_t capacity) {
   char command[768];
   snprintf(command, sizeof(command), "%s", line);
   char *tokens[6], *save;
@@ -123,8 +129,8 @@ void handleSdFileCommand(char *line, char *response, size_t capacity) {
   if ((!strcmp(tokens[1], "LIST") || !strcmp(tokens[1], "OPEN")) && count == 4) {
     char path[256];
     if (!pathFromHex(tokens[3], path)) { error("PATH"); return; }
-    if (!active) flushLogger();
-    active = true;
+    // Stop accepting log samples before draining those already queued to SD.
+    if (!active.exchange(true)) flushLogger();
     directory.close();
     source.close();
     File opened = SD.open(path, FILE_READ);
@@ -193,4 +199,13 @@ void handleSdFileCommand(char *line, char *response, size_t capacity) {
   } else error("SYNTAX");
   snprintf(lastCommand, sizeof(lastCommand), "%s", command);
   snprintf(lastResponse, sizeof(lastResponse), "%s", response);
+}
+
+void handleSdFileCommand(char *line, char *response, size_t capacity) {
+  struct Request { char *line, *response; size_t capacity; } request{line, response, capacity};
+  runStorageOperation([](void *context) {
+    auto &r = *static_cast<Request *>(context);
+    executeSdFileCommand(r.line, r.response, r.capacity);
+    return true;
+  }, &request);
 }

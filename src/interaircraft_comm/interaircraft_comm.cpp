@@ -4,7 +4,6 @@
 #include "config/aircraft_config.h"
 #include "config/flight_config.h"
 #include "config/serial_config.h"
-#include "sensors/sensor_processing.h"
 #include <cstring>
 #include <cstddef>
 
@@ -66,16 +65,18 @@ bool AircraftCommandLink::setCommandLink(unsigned int index, const SlaveCommand 
 }
 
 // 左右命令链直接复制协议结构体；帧长度自动随 CommandPayload 调整。
-void AircraftCommandLink::sendPreparedChildCommands() {
-  if (!transmitPort)
+void AircraftCommandLink::sendPreparedChildCommands(uint32_t generation) {
+  if (!transmitPort || generation == lastTransmitGeneration)
     return;
   if (receivePort && !dataReceived)
     // 配有上级输入的对象不能在首个有效命令到达前发送默认缓存。
     return;
   const uint32_t now = micros();
-  if (static_cast<uint32_t>(now - lastTransmitTimeUs) < SEND_INTERVAL_US)
+  if (static_cast<uint32_t>(now - lastTransmitTimeUs) < SEND_INTERVAL_US ||
+      transmitPort->availableForWrite() < static_cast<int>(FRAME_SIZE))
     return;
   lastTransmitTimeUs = now;
+  lastTransmitGeneration = generation;
 
   uint8_t buffer[FRAME_SIZE] = {};
   buffer[0] = 0x55;
@@ -89,10 +90,10 @@ void AircraftCommandLink::sendPreparedChildCommands() {
 }
 
 // 完整帧校验通过后才更新命令属性；半帧和坏帧保留上一份有效命令。
-void AircraftCommandLink::receiveCommandData() {
+void AircraftCommandLink::receiveCommandData(int debug) {
   if (!receivePort)
     return;
-  while (receivePort->available()) {
+  for (unsigned n = 0; n < 128 && receivePort->available(); ++n) {
     const uint8_t byte = static_cast<uint8_t>(receivePort->read());
     if (receivePosition == 0 && byte != 0x55)
       continue;
@@ -114,7 +115,7 @@ void AircraftCommandLink::receiveCommandData() {
     std::memcpy(&commandPayload, receiveBuffer + HEADER_SIZE, sizeof(commandPayload));
     dataReceived = true;
     getCommandLink();
-    printReceivedData(commandLinkDebugSetting());
+    printReceivedData(debug);
   }
 }
 
@@ -137,11 +138,11 @@ const SlaveCommand &AircraftCommandLink::getCommandLink() {
   return parsedCommand;
 }
 
-void AircraftCommandLink::forwardReceivedChildCommands() {
+void AircraftCommandLink::forwardReceivedChildCommands(uint32_t generation) {
   if (!receivePort || !dataReceived)
     return;
   // 保留完整协议数据和固定槽位，不清零、不移位、不重复量化角度。
-  sendPreparedChildCommands();
+  sendPreparedChildCommands(generation);
 }
 
 void AircraftCommandLink::printReceivedData(int enabled) {
@@ -167,15 +168,11 @@ void AircraftSensorLink::configure(Stream *output, Stream *input, bool isLeft) {
   sensorPayload.isLeft = isLeft;
 }
 
-bool AircraftSensorLink::isDataFresh() const {
-  return dataReceived && static_cast<uint32_t>(millis() - lastReceiveTimeMs) <= FRESH_INTERVAL_MS;
-}
-
 // 每个对象只保存自己串口的半帧；校验通过后复制协议数据并统一发布。
-void AircraftSensorLink::receiveSensorData() {
+void AircraftSensorLink::receiveSensorData(AircraftPeerState &peers, int debug) {
   if (!receivePort)
     return;
-  while (receivePort->available()) {
+  for (unsigned n = 0; n < 128 && receivePort->available(); ++n) {
     const uint8_t byte = static_cast<uint8_t>(receivePort->read());
     if (receivePosition == 0 && byte != 0x55)
       continue;
@@ -196,26 +193,21 @@ void AircraftSensorLink::receiveSensorData() {
     if (receiveBuffer[HEADER_SIZE + offsetof(SensorPayload, isLeft)] > 1)
       continue;
     std::memcpy(&sensorPayload, receiveBuffer + HEADER_SIZE, sizeof(sensorPayload));
-    getSensorLink();
+    getSensorLink(peers);
     dataReceived = true;
     lastReceiveTimeMs = millis();
-    printReceivedData(sensorLinkDebugSetting());
+    printReceivedData(debug);
   }
 }
 
 // 仅此处把协议值转换为控制/日志使用的单位，按包内左右标志统一处理。
-void AircraftSensorLink::getSensorLink() {
-  const bool left = sensorPayload.isLeft;
-  float *attitudeTargets[CHILD_COUNT] = {
-      left ? att_B : att_C, left ? att_D : att_E, left ? att_F : att_G};
-  float *rateTargets[CHILD_COUNT] = {
-      left ? &ang_vel_B[0] : &ang_vel_C[0], left ? &ang_vel_D[0] : &ang_vel_E[0],
-      left ? &ang_vel_F[0] : &ang_vel_G[0]};
+void AircraftSensorLink::getSensorLink(AircraftPeerState &peers) {
   for (unsigned index = 0; index < CHILD_COUNT; ++index) {
-    attitudeTargets[index][0] = sensorPayload.rollAngles[index] / SensorPayload::ANGLE_SCALE;
-    attitudeTargets[index][1] = sensorPayload.pitchAngles[index] / SensorPayload::ANGLE_SCALE;
-    attitudeTargets[index][2] = sensorPayload.yawAngles[index] / SensorPayload::ANGLE_SCALE;
-    *rateTargets[index] = sensorPayload.rollRates[index] / SensorPayload::ANGLE_SCALE;
+    const unsigned peer = 2 * index + (sensorPayload.isLeft ? 0 : 1);
+    peers.attitude[peer][0] = sensorPayload.rollAngles[index] / SensorPayload::ANGLE_SCALE;
+    peers.attitude[peer][1] = sensorPayload.pitchAngles[index] / SensorPayload::ANGLE_SCALE;
+    peers.attitude[peer][2] = sensorPayload.yawAngles[index] / SensorPayload::ANGLE_SCALE;
+    peers.rollRate[peer] = sensorPayload.rollRates[index] / SensorPayload::ANGLE_SCALE;
   }
 }
 
@@ -246,16 +238,10 @@ void AircraftSensorLink::printReceivedData(int enabled) {
 }
 
 // 汇总本机和下游状态；固定槽位不移位，转换为协议类型后再复制发送。
-void AircraftSensorLink::setSensorLink() {
-  const float localRollRate = ang_vel[0];
+void AircraftSensorLink::setSensorLink(const LocalLinkState &local, const AircraftPeerState &peers) {
   const bool left = aircraftIsLeft();
   sensorPayload.isLeft = left;
   const unsigned int localSlot = static_cast<unsigned int>((aircraftId() - 2) / 2);
-  const float *downstreamAttitudes[CHILD_COUNT] = {
-      left ? att_B : att_C, left ? att_D : att_E, left ? att_F : att_G};
-  const float downstreamRates[CHILD_COUNT] = {
-      left ? ang_vel_B[0] : ang_vel_C[0], left ? ang_vel_D[0] : ang_vel_E[0],
-      left ? ang_vel_F[0] : ang_vel_G[0]};
   const auto encode = [](float value) -> int16_t {
     // 状态不能拒绝整帧：非有限测量置零，超量程饱和，防止 int16 转换溢出。
     uint32_t bits;
@@ -273,16 +259,17 @@ void AircraftSensorLink::setSensorLink() {
     float rate = 0;
     float yaw = 0;
     if (index == localSlot) {
-      roll = att[0];
-      pitch = att[1];
-      rate = localRollRate;
-      yaw = att[2];
+      roll = local.attitude[0];
+      pitch = local.attitude[1];
+      rate = local.rollRate;
+      yaw = local.attitude[2];
     } else if (index > localSlot) {
-      roll = downstreamAttitudes[index][0];
-      pitch = downstreamAttitudes[index][1];
-      rate = downstreamRates[index];
-      yaw = downstreamAttitudes[index][2];
-      const float previousRoll = index - 1 == localSlot ? att[0] : downstreamAttitudes[index - 1][0];
+      const unsigned peer = 2 * index + (left ? 0 : 1);
+      roll = peers.attitude[peer][0];
+      pitch = peers.attitude[peer][1];
+      rate = peers.rollRate[peer];
+      yaw = peers.attitude[peer][2];
+      const float previousRoll = index - 1 == localSlot ? local.attitude[0] : peers.attitude[peer - 2][0];
       // 保留相邻 IMU 原始滚转角差，不用量化后的协议角度计算；MT6701 仅记录。
       relativeAngle = roll - previousRoll;
     }
@@ -294,14 +281,17 @@ void AircraftSensorLink::setSensorLink() {
   }
 }
 
-void AircraftSensorLink::forwardReceivedChildSensors() {
-  if (!receivePort || !transmitPort)
+void AircraftSensorLink::forwardReceivedChildSensors(const LocalLinkState &local, const AircraftPeerState &peers,
+                                                    uint32_t generation) {
+  if (!receivePort || !transmitPort || generation == lastTransmitGeneration)
     return;
   const uint32_t now = micros();
-  if (static_cast<uint32_t>(now - lastTransmitTimeUs) < SEND_INTERVAL_US)
+  if (static_cast<uint32_t>(now - lastTransmitTimeUs) < SEND_INTERVAL_US ||
+      transmitPort->availableForWrite() < static_cast<int>(FRAME_SIZE))
     return;
   lastTransmitTimeUs = now;
-  setSensorLink();
+  lastTransmitGeneration = generation;
+  setSensorLink(local, peers);
 
   uint8_t buffer[FRAME_SIZE] = {};
   buffer[0] = 0x55;

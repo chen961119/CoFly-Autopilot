@@ -1,4 +1,6 @@
 #include "math/units.h"
+#include "logging/flight_service_sample.h"
+#include "logging/logger.h"
 #include "radio_comm/radio_comm.h"
 #include "control/control_output.h"
 #include "control/control_modes.h"
@@ -9,6 +11,7 @@
 #include "actuators/actuator_output.h"
 #include "control/command_generation.h"
 #include "system/flight_clock.h"
+#include "system/flight_tasks.h"
 #include "interaircraft_comm/interaircraft_comm.h"
 #include "sensors/sensor_processing.h"
 #include <stdio.h>
@@ -64,12 +67,14 @@ void printAirspeed(int enabled) {
   if (enabled != 1) return;
   const uint32_t now = micros();
   if (static_cast<uint32_t>(now - last) < 100000UL) return;
-  const AirspeedDiagnostics diagnostic = airspeedDiagnostics();
+  FlightServiceSample sample;
+  copyFlightServiceSample(sample);
+  const AirspeedDiagnostics diagnostic = sample.airspeedStatus;
   char text[256];
   const int length = snprintf(text, sizeof(text),
       "[AIRSPEED] airspeed=%.3f (m/s) rx=%u read_ok=%u status=%u raw=%u "
       "pressure=%.2f zero=%.2f dp=%.2f (Pa) temp=%.2f (C) reads=%lu failed=%lu\n",
-      airspeed, static_cast<unsigned>(diagnostic.receivedBytes),
+      sample.airspeed, static_cast<unsigned>(diagnostic.receivedBytes),
       static_cast<unsigned>(diagnostic.readOk), static_cast<unsigned>(diagnostic.status),
       static_cast<unsigned>(diagnostic.pressureCounts), diagnostic.pressurePa,
       diagnostic.zeroPa, diagnostic.differentialPa, diagnostic.temperatureC,
@@ -86,6 +91,8 @@ void printControlMode(int enabled) {
   if (enabled != 1) return;
   const uint32_t now = micros();
   if (static_cast<uint32_t>(now - last) < 100000UL) return;
+  FlightServiceSample sample;
+  copyFlightServiceSample(sample);
   char text[384];
   const int length = snprintf(text, sizeof(text),
       "\n=== ControlMode #%lu ===\n"
@@ -93,11 +100,11 @@ void printControlMode(int enabled) {
       "mixerStrategyCommand=%.3f configurationControlScale=%.3f configurationAngle=%.6f (rad)\n"
       "brakeEnabled=%d controlModeChanged=%d integralControlEnabled=%d\n"
       "=============\n",
-      static_cast<unsigned long>(frame + 1), static_cast<int>(currentFlightMode),
-      static_cast<int>(previousFlightMode), static_cast<int>(activePitchController),
-      static_cast<int>(previousPitchController), mixerStrategyCommand, ControlParameters::configurationControlScale,
-      configurationAngle, static_cast<int>(brakeEnabled), static_cast<int>(controlModeChanged),
-      static_cast<int>(ControlParameters::integralControlEnabled));
+      static_cast<unsigned long>(frame + 1), static_cast<int>(sample.currentFlightMode),
+      static_cast<int>(sample.previousFlightMode), static_cast<int>(sample.activePitchController),
+      static_cast<int>(sample.previousPitchController), sample.mixerStrategyCommand, sample.configurationControlScale,
+      sample.configurationAngle, static_cast<int>(sample.brakeEnabled), static_cast<int>(sample.controlModeChanged),
+      static_cast<int>(sample.integralControlEnabled));
   if (length <= 0 || static_cast<size_t>(length) >= sizeof(text)) return;
   if (!queueDiagnosticOutput(text, length)) return;
   last = now;
@@ -110,13 +117,15 @@ void printActuatorOutput(int enabled) {
   if (enabled != 1) return;
   const uint32_t now = micros();
   if (static_cast<uint32_t>(now - last) < 100000UL) return;
+  FlightServiceSample sample;
+  copyFlightServiceSample(sample);
   char text[192];
   const int length = snprintf(text, sizeof(text),
       "\n=== ActuatorOutput #%lu ===\n"
       "ail1=%.0f ail2=%.0f ele=%.0f thro=%.0f rudd=%.0f (us)\n"
       "=============\n",
-      static_cast<unsigned long>(frame + 1), ActuatorOutput[0], ActuatorOutput[1],
-      ActuatorOutput[2], ActuatorOutput[3], ActuatorOutput[4]);
+      static_cast<unsigned long>(frame + 1), sample.ActuatorOutput[0], sample.ActuatorOutput[1],
+      sample.ActuatorOutput[2], sample.ActuatorOutput[3], sample.ActuatorOutput[4]);
   if (length <= 0 || static_cast<size_t>(length) >= sizeof(text)) return;
   if (!queueDiagnosticOutput(text, length)) return;
   last = now;
@@ -130,18 +139,20 @@ void printRadioData(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F(" CH1:"));
-    output.print(radio_channel1_raw);
+    output.print(sample.radioRaw[0]);
     output.print(F(" CH2:"));
-    output.print(radio_channel2_raw);
+    output.print(sample.radioRaw[1]);
     output.print(F(" CH3:"));
-    output.print(radio_channel3_raw);
+    output.print(sample.radioRaw[2]);
     output.print(F(" CH4:"));
-    output.print(radio_channel4_raw);
+    output.print(sample.radioRaw[3]);
     output.print(F(" CH5:"));
-    output.print(radio_channel5_raw);
+    output.print(sample.radioRaw[4]);
     output.print(F(" CH6:"));
-    output.println(radio_channel6_raw);
+    output.println(sample.radioRaw[5]);
   }
   output.send();
 }
@@ -153,14 +164,16 @@ void printDesiredState(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F("targets.throttle:"));
-    output.print(targets.throttle);
+    output.print(sample.targets.throttle);
     output.print(F(" targets.roll:"));
-    output.print(targets.roll);
+    output.print(sample.targets.roll);
     output.print(F(" targets.pitch:"));
-    output.print(targets.pitch);
+    output.print(sample.targets.pitch);
     output.print(F(" targets.yawRate:"));
-    output.println(targets.yawRate);
+    output.println(sample.targets.yawRate);
   }
   output.send();
 }
@@ -172,32 +185,34 @@ void printConfigurationData(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F("phiab:"));
-    output.print(att_B[0] - att[0]);
+    output.print(sample.wingAttitude[0][0] - sample.att[0]);
     output.print(F("phiac:"));
-    output.print(att_C[0] - att[0]);
+    output.print(sample.wingAttitude[1][0] - sample.att[0]);
     output.print(F("phibd:"));
-    output.print(att_D[0] - att_B[0]);
+    output.print(sample.wingAttitude[2][0] - sample.wingAttitude[0][0]);
     output.print(F("phice:"));
-    output.print(att_E[0] - att_C[0]);
+    output.print(sample.wingAttitude[3][0] - sample.wingAttitude[1][0]);
     output.print(F("phidf:"));
-    output.print(att_F[0] - att_D[0]);
+    output.print(sample.wingAttitude[4][0] - sample.wingAttitude[2][0]);
     output.print(F("phieg:"));
-    output.print(att_G[0] - att_E[0]);
+    output.print(sample.wingAttitude[5][0] - sample.wingAttitude[3][0]);
     output.print(F("phieq:"));
-    output.print(rollControlOutput.equivalentRollAngle);
+    output.print(sample.rollControlOutput.equivalentRollAngle);
     output.print(F("Pb:"));
-    output.print(ang_vel_B[0]);
+    output.print(sample.wingRollRate[0]);
     output.print(F("Pc:"));
-    output.print(ang_vel_C[0]);
+    output.print(sample.wingRollRate[1]);
     output.print(F("Pd:"));
-    output.print(ang_vel_D[0]);
+    output.print(sample.wingRollRate[2]);
     output.print(F("Pe:"));
-    output.print(ang_vel_E[0]);
+    output.print(sample.wingRollRate[3]);
     output.print(F("Pf:"));
-    output.print(ang_vel_F[0]);
+    output.print(sample.wingRollRate[4]);
     output.print(F("Pg:"));
-    output.println(ang_vel_G[0]);
+    output.println(sample.wingRollRate[5]);
   }
   output.send();
 }
@@ -209,20 +224,22 @@ void printPIDoutput(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F("roll_PID:"));
-    output.print(rollControlOutput.pidOutput);
+    output.print(sample.rollControlOutput.pidOutput);
     output.print(F(" pitch_PID:"));
-    output.print(pitchPidControlOutput.pidOutput);
+    output.print(sample.pitchPidControlOutput.pidOutput);
     output.print(F(" yawRate_PID:"));
-    output.print(yawRateControlOutput.pidOutput);
+    output.print(sample.yawRateControlOutput.pidOutput);
     output.print(F(" Phiab_PID:"));
-    output.print(configurationControlOutput.pidOutputs[0]);
+    output.print(sample.configurationControlOutput.pidOutputs[0]);
     output.print(F(" Phiac_PID:"));
-    output.println(configurationControlOutput.pidOutputs[1]);
+    output.println(sample.configurationControlOutput.pidOutputs[1]);
     output.print(F(" Phibd_PID:"));
-    output.print(configurationControlOutput.pidOutputs[2]);
+    output.print(sample.configurationControlOutput.pidOutputs[2]);
     output.print(F(" Phice_PID:"));
-    output.println(configurationControlOutput.pidOutputs[3]);
+    output.println(sample.configurationControlOutput.pidOutputs[3]);
   }
   output.send();
 }
@@ -234,16 +251,18 @@ void printServoCommands(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F("A_ail1:"));
-    output.print(ActuatorOutput[0]);
+    output.print(sample.ActuatorOutput[0]);
     output.print(F(" A_ail2:"));
-    output.print(ActuatorOutput[1]);
+    output.print(sample.ActuatorOutput[1]);
     output.print(F(" A_ele:"));
-    output.print(ActuatorOutput[2]);
+    output.print(sample.ActuatorOutput[2]);
     output.print(F(" A_thro:"));
-    output.print(ActuatorOutput[3]);
+    output.print(sample.ActuatorOutput[3]);
     output.print(F(" A_rudd:"));
-    output.print(ActuatorOutput[4]);
+    output.print(sample.ActuatorOutput[4]);
     // output.print(F(" s6_command:"));
     // output.print(s6_command_PWM);
     // output.print(F(" s7_command:"));
@@ -259,8 +278,29 @@ void printLoopRate(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F("dt:"));
-    output.println(dt * 1000000.0); // 一个微秒microsecons=1/1000000s
+    output.print(sample.dt * 1000000.0);
+    const FlightTimingStats stats = flightTimingStats();
+    output.print(F(" mean_us:")); output.print(stats.cycles ? static_cast<float>(stats.totalPeriodUs) / stats.cycles : 0.0f);
+    output.print(F(" max_period_us:")); output.print(stats.maxPeriodUs);
+    output.print(F(" max_execution_us:")); output.print(stats.maxExecutionUs);
+    output.print(F(" imu_pwm_us:")); output.print(stats.lastImuToPwmUs);
+    output.print(F(" max_imu_pwm_us:")); output.print(stats.maxImuToPwmUs);
+    output.print(F(" cycles:")); output.print(stats.cycles);
+    output.print(F(" missed:")); output.print(stats.missedReleases);
+    output.print(F(" intervals_ge_4ms:")); output.print(stats.intervalsAtLeast4ms);
+    output.print(F(" execution_gt_2ms:")); output.print(stats.executionsOver2ms);
+    output.print(F(" log_drops:")); output.print(droppedFlightLogSamples());
+    output.print(F(" log_write_errors:")); output.print(flightLogWriteFailures());
+    const FlightStackMargins stacks = flightStackMargins();
+    output.print(F(" stack_words(control/links/aux/params/storage):"));
+    output.print(stacks.control); output.print('/');
+    output.print(stacks.links); output.print('/');
+    output.print(stacks.auxiliary); output.print('/');
+    output.print(stacks.parameters); output.print('/');
+    output.println(stacks.storage);
   }
   output.send();
 }
@@ -273,9 +313,11 @@ void printGyroData(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
-    output.print(F("ang_vel[0]:")); output.print(ang_vel[0]);
-    output.print(F(" ang_vel[1]:")); output.print(ang_vel[1]);
-    output.print(F(" ang_vel[2]:")); output.println(ang_vel[2]);
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
+    output.print(F("ang_vel[0]:")); output.print(sample.ang_vel[0]);
+    output.print(F(" ang_vel[1]:")); output.print(sample.ang_vel[1]);
+    output.print(F(" ang_vel[2]:")); output.println(sample.ang_vel[2]);
   }
   output.send();
 }
@@ -288,9 +330,11 @@ void printAccelData(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
-    output.print(F("acc[0]:")); output.print(acc[0]);
-    output.print(F(" acc[1]:")); output.print(acc[1]);
-    output.print(F(" acc[2]:")); output.println(acc[2]);
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
+    output.print(F("acc[0]:")); output.print(sample.acc[0]);
+    output.print(F(" acc[1]:")); output.print(sample.acc[1]);
+    output.print(F(" acc[2]:")); output.println(sample.acc[2]);
   }
   output.send();
 }
@@ -302,12 +346,14 @@ void printRollPitchYaw(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F("roll:"));
-    output.print(att[0]);
+    output.print(sample.att[0]);
     output.print(F(" pitch:"));
-    output.print(att[1]);
+    output.print(sample.att[1]);
     output.print(F(" yaw:"));
-    output.println(att[2]);
+    output.println(sample.att[2]);
   }
   output.send();
 }
@@ -320,14 +366,16 @@ void printQuaternion(int enabled) {
   DiagnosticFrame output;
   if (static_cast<uint32_t>(micros() - print_counter) >= 100000UL) {
     print_counter = micros();
+    FlightServiceSample sample;
+    copyFlightServiceSample(sample);
     output.print(F("quat[0]: "));
-    output.print(quat[0]);
+    output.print(sample.quat[0]);
     output.print(F(" quat[1]: "));
-    output.print(quat[1]);
+    output.print(sample.quat[1]);
     output.print(F(" quat[2]: "));
-    output.print(quat[2]);
+    output.print(sample.quat[2]);
     output.print(F(" quat[3]: "));
-    output.println(quat[3]);
+    output.println(sample.quat[3]);
   }
   output.send();
 }

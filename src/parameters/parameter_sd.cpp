@@ -1,4 +1,5 @@
 #include "parameters/parameter_sd.h"
+#include "logging/flight_storage.h"
 #include "parameters/parameter_text.h"
 #include "config/aircraft_config.h"
 #include <SD.h>
@@ -14,7 +15,7 @@ const double *defaults;
 bool storageReady;
 const char *activePath;
 bool fileSeen[PARAMETER_COUNT_LIMIT];
-// Main-loop-only storage: large file/snapshot buffers must never live on stack.
+// Boot and storage task use these fixed buffers in sequence.
 uint8_t fileData[ParameterText::FILE_CAPACITY];
 double previous[PARAMETER_COUNT_LIMIT];
 double verified[PARAMETER_COUNT_LIMIT];
@@ -86,6 +87,22 @@ bool sameSDValues(const double *a, const double *b) {
   return true;
 }
 
+// The Arduino File wrapper discards flush/close errors. Check the native
+// SdFat result before reopening for schema, CRC and value verification.
+bool writeFileData(const char *path, size_t length) {
+  FsFile file = SD.sdfs.open(path, O_RDWR | O_CREAT);
+  if (!file) return false;
+  if (!file.truncate(0)) {
+    file.close();
+    return false;
+  }
+  const bool written = file.write(fileData, length) == length;
+  const bool synced = written && file.sync();
+  const bool closed = file.close();
+  if (!synced || !closed) SD.remove(path);
+  return synced && closed;
+}
+
 bool writeSnapshot(const char *path, const double *values) {
   size_t sdCount = 0;
   const uint32_t identity = aircraftIdIndex < count
@@ -109,13 +126,8 @@ bool writeSnapshot(const char *path, const double *values) {
   used = ParameterText::finish(fileData, sizeof(fileData), used);
   if (!used)
     return false;
-  File file = SD.open(path, FILE_WRITE_BEGIN);
-  if (!file || !file.truncate(0))
-    return false;
-  const size_t written = file.write(fileData, used);
-  file.flush();
-  file.close();
-  if (written != used || !readParameterFile(path, verified) || !sameSDValues(values, verified)) {
+  if (!writeFileData(path, used)) return false;
+  if (!readParameterFile(path, verified) || !sameSDValues(values, verified)) {
     // Remove an incomplete replacement; the other validated file remains intact.
     SD.remove(path);
     return false;
@@ -134,13 +146,8 @@ bool copyValidatedSnapshot(const char *sourcePath, const char *destinationPath,
   source.close();
   if (read != length)
     return false;
-  File destination = SD.open(destinationPath, FILE_WRITE_BEGIN);
-  if (!destination || !destination.truncate(0))
-    return false;
-  const size_t written = destination.write(reinterpret_cast<const uint8_t *>(fileData), length);
-  destination.flush();
-  destination.close();
-  if (written != length || !readParameterFile(destinationPath, verified) ||
+  if (!writeFileData(destinationPath, length)) return false;
+  if (!readParameterFile(destinationPath, verified) ||
       memcmp(expectedValues, verified, count * sizeof(double))) {
     SD.remove(destinationPath);
     return false;
@@ -197,7 +204,11 @@ bool load(double *values, bool &needsMigration, MigrationStats &stats) {
 }
 
 bool save(const double *values, bool preserveStoredFile) {
-  return saveSnapshot(values, preserveStoredFile);
+  struct Request { const double *values; bool preserve; } request{values, preserveStoredFile};
+  return runStorageOperation([](void *context) {
+    auto &r = *static_cast<Request *>(context);
+    return saveSnapshot(r.values, r.preserve);
+  }, &request);
 }
 
 bool hasRecord(size_t index) {

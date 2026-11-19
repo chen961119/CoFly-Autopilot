@@ -1,13 +1,9 @@
 #include "parameters/control_parameters.h"
-#include "config/aircraft_config.h"
 #include "actuators/actuator_output.h"
-#include "control/control_modes.h"
-#include "control/command_generation.h"
 #include "config/flight_config.h"
 #include "system/flight_lock.h"
 #include "actuators/actuator_pwm_limits.h"
 #include "actuators/actuator_pwm_mapping.h"
-#include "interaircraft_comm/interaircraft_comm.h"
 #include <Servo.h>
 #include <control/control_pipeline.h>
 
@@ -112,21 +108,8 @@ void convertControlCommandsToPWM()
       pwm_servo5_min_us, pwm_channel5_trim, pwm_servo5_max_us, pwm_channel5_mode);
 }
 
-// 直接将本周期从机逻辑输出打包，不保留额外中间缓存。
-void prepareActuatorCommands() {
-  if (aircraftId() != 1) return;
-  for (unsigned side = 0; side < 2; ++side) {
-    AircraftCommandLink *link = side == 0 ? CommandLinks::left : CommandLinks::right;
-    if (!link) continue;
-    for (unsigned slot = 0; slot < 3; ++slot) {
-      const unsigned aircraft = slot * 2 + side;
-      link->setCommandLink(slot, slaveCommands[aircraft]);
-    }
-  }
-}
-
-// 直接应用已准备好的物理 PWM，再发送或转发机间数据。
-void applyAndTransmitActuatorCommands()
+// 锁定/限幅后写入本机物理 PWM；机间发送由链路任务承担。
+void applyActuatorCommands()
 {
   // 锁定时直接回到 trim 位置；仅解锁后的控制输出应用软件限幅。
   if (isFlightLocked())
@@ -151,22 +134,4 @@ void applyAndTransmitActuatorCommands()
   servo4.writeMicroseconds(ActuatorOutput[3]);
   servo5.writeMicroseconds(ActuatorOutput[4]);
 
-  // if (aircraftIsSingle())
-  //   return;
-  if (aircraftId() == 1)
-  {
-    if (CommandLinks::left)
-    {
-      CommandLinks::left->sendPreparedChildCommands();
-    }
-    if (CommandLinks::right)
-    {
-      CommandLinks::right->sendPreparedChildCommands();
-    }
-  }
-  else
-  {
-    forwardReceivedChildSensors();
-    forwardReceivedChildCommands();
-  }
 }

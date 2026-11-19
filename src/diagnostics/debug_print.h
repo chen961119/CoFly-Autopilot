@@ -34,5 +34,5 @@ void printAccelData(int enabled = 0);
 void printRollPitchYaw(int enabled = 0);
 void printQuaternion(int enabled = 0);
 
-// 每周期在最终执行器输出之后调用，按各 Debug 参数选择打印项。
+// 参数任务按各 Debug 开关格式化最近一次控制周期发布的状态。
 void runDebugPrints();

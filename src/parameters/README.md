@@ -59,7 +59,7 @@ EEPROM 参数仅在锁定时可修改；普通 SD 参数在锁定或解锁时均
 
 Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊断（含命令链、传感器链及 `debug_print` 函数）均同时提供给 USB 与 Serial8/X6，不依赖 USB 在线。诊断先组装完整帧，再交给对应会话的非阻塞发送游标，每周期最多发送 64 字节；等待中的命令、参数列表和存储通知优先，诊断不会插入协议回复中间。链路忙时独立丢弃新诊断帧，数传带宽不足时不保证完整采样率。
 
-`debug_print` 中所有打印函数均接收 `int enabled=0`，仅参数为 1 时打印；各函数独立按 10 Hz 节流。主循环在最终执行器输出（或安全位置输出）之后调用 `runDebugPrints()`，读取下表中的本机 SD 整数参数。所有开关默认 0、仅接受 0/1、立即生效并沿用 SD 延迟保存；地面站动态读取参数表，无需为新开关增加固定界面项。
+`debug_print` 中所有打印函数均接收 `int enabled=0`，仅参数为 1 时打印；各函数独立按 10 Hz 节流。主控在写出最终 PWM 后发布状态快照，参数任务调用 `runDebugPrints()`，读取下表中的本机 SD 整数参数。所有开关默认 0、仅接受 0/1、立即生效并沿用 SD 延迟保存；地面站动态读取参数表，无需为新开关增加固定界面项。
 
 | SD 参数 | 打印入口 / 内容 |
 | --- | --- |
@@ -71,7 +71,7 @@ Debug 组保留 `usb_*_debug` 参数名以兼容已有 SD 文件，但所有诊�
 | `usb_configuration_debug` | `printConfigurationData`，IMU 构型角与角速度 |
 | `usb_pid_debug` | `printPIDoutput`，PID 输出 |
 | `usb_servo_commands_debug` | `printServoCommands`，执行器 PWM 的简要格式 |
-| `usb_loop_rate_debug` | `printLoopRate`，周期 dt（μs） |
+| `usb_loop_rate_debug` | `printLoopRate`，周期及 IMU 至 PWM 的耗时（μs）、错过的调度次数、日志队列满次数、日志写入错误及五个任务的最小剩余栈（32 位字） |
 | `usb_gyro_debug` | `printGyroData`，角速度（rad/s） |
 | `usb_accel_debug` | `printAccelData`，加速度（m/s²） |
 | `usb_attitude_debug` | `printRollPitchYaw`，姿态角（rad） |

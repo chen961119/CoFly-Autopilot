@@ -12,6 +12,7 @@ void beginHumanInterfaceLinks();
 void initializeHumanInterface();
 void displayAircraftIdentity();
 void ProcessButtonState();
+void serviceDisplayTransfer();
 void loopBlink();
 void setupBlink(int numBlinks, int upTime, int downTime);
 void displaythumbsup();

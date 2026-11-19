@@ -104,6 +104,11 @@ def merge_file(filename, collection, identity):
     template = json.loads((TEMPLATES / f"vscode_{filename}").read_text(encoding="utf-8"))
     existing = local_or_backup(local, collection)
     incoming = template[collection]
+    if filename == "launch.json" and "env" in globals():
+        debugger = env.WhereIs(env.subst("$GDB"))
+        if debugger:
+            for entry in incoming:
+                entry["miDebuggerPath"] = Path(debugger).as_posix()
     names = {item.get(identity) for item in incoming}
     retained = [item for item in existing.get(collection, [])
                 if item.get(identity) not in names]

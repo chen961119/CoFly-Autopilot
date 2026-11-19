@@ -4,6 +4,9 @@
 #include <Arduino.h>
 #include "radio_comm/radio_comm.h"
 #include <SBUS.h>  // SBUS 接收机驱动。
+#include <FreeRTOS.h>
+#include <task.h>
+#include <util/atomic.h>
 // 以下引脚用于 PWM 接收机；SBUS 实际使用 SbusSerial。
 const int ch1Pin = 15; // 通道 1：滚转
 const int ch2Pin = 16; // 通道 2：俯仰
@@ -13,40 +16,48 @@ const int ch5Pin = 21; // 通道 5：油门切断
 const int ch6Pin = 22; // 通道 6：辅助功能
 const int PPM_Pin = 23;
 
-static unsigned long rising_edge_start_1, rising_edge_start_2, rising_edge_start_3, rising_edge_start_4, rising_edge_start_5, rising_edge_start_6;
-static volatile unsigned long channel_1_raw, channel_2_raw, channel_3_raw, channel_4_raw, channel_5_raw, channel_6_raw;
-static int radio_channel1_raw_prev, radio_channel2_raw_prev, radio_channel3_raw_prev,
-    radio_channel4_raw_prev;
-
-static int ppm_counter = 0;
-static unsigned long time_ms = 0;
-static volatile uint32_t radioReceivedAt[4];
-static volatile bool radioReceived[4];
-
-static void markRadioReceived(unsigned channel) {
+namespace {
+struct ReceiverFrame {
+  int channels[8]{};
+  uint32_t receivedAt[4]{};
+  bool received[4]{};
+  bool badFrame = false;
+  uint32_t sequence = 0;
+};
+ReceiverFrame publishedRadio, controlRadio;
+#if defined USE_PPM_RX || defined USE_PWM_RX
+unsigned long rising_edge_start_1, rising_edge_start_2, rising_edge_start_3, rising_edge_start_4, rising_edge_start_5, rising_edge_start_6;
+volatile unsigned long channel_1_raw, channel_2_raw, channel_3_raw, channel_4_raw, channel_5_raw, channel_6_raw;
+int ppm_counter = 0;
+unsigned long time_ms = 0;
+volatile uint32_t radioReceivedAt[4];
+volatile bool radioReceived[4];
+void markRadioReceived(unsigned channel) {
   radioReceivedAt[channel] = micros();
   radioReceived[channel] = true;
 }
+void getPPM();
+void getCh1();
+void getCh2();
+void getCh3();
+void getCh4();
+void getCh5();
+void getCh6();
+#elif defined USE_SBUS_RX
+SBUS sbus(SbusSerial);
+#endif
+} // namespace
 
 bool radioInputValid() {
   const uint32_t now = micros();
   for (unsigned i = 0; i < 4; ++i)
-    if (!radioReceived[i] || now - radioReceivedAt[i] > 250000u) return false;
-#if defined USE_SBUS_RX
-  if (sbusFailSafe || sbusLostFrame) return false;
-#endif
+    if (!controlRadio.received[i] || now - controlRadio.receivedAt[i] > 250000u) return false;
+  if (controlRadio.badFrame) return false;
   const int values[] = {radio_channel1_raw, radio_channel2_raw, radio_channel3_raw, radio_channel4_raw};
   for (int value : values) if (value < 800 || value > 2200) return false;
   return true;
 }
 
-
-#if defined USE_SBUS_RX
-SBUS sbus(SbusSerial);
-uint16_t sbusChannels[16];
-bool sbusFailSafe;
-bool sbusLostFrame;
-#endif
 
 // 按编译配置初始化 PPM、PWM 或 SBUS 接收机及相应中断。
 void radioSetup() {
@@ -121,75 +132,69 @@ void updateRadioNormalized() {
   radio_channel8_normalized = normalizeRadioChannel(radio_channel8_raw, radioChannelParameters[7]);
 }
 
-// 按接收机类型读取各遥控通道并进行低通；更新的值供下一控制周期使用。
-void getCommands() {
-  // 读取当前接收机通道；PWM/PPM 由中断更新，SBUS 由库解析。
-  // 对关键通道做一阶低通后，供下一次控制周期使用。
+void pollRadioInput() {
+  ReceiverFrame frame{};
+#if defined USE_PPM_RX || defined USE_PWM_RX
+  // GPIO edge ISRs may preempt FreeRTOS critical sections. Keep this hardware
+  // snapshot short and restore the incoming interrupt mask.
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    frame.channels[0] = channel_1_raw;
+    frame.channels[1] = channel_2_raw;
+    frame.channels[2] = channel_3_raw;
+    frame.channels[3] = channel_4_raw;
+    frame.channels[4] = channel_5_raw;
+    frame.channels[5] = channel_6_raw;
+    for (unsigned i = 0; i < 4; ++i) {
+      frame.receivedAt[i] = radioReceivedAt[i];
+      frame.received[i] = radioReceived[i];
+    }
+  }
+#elif defined USE_SBUS_RX
+  uint16_t channels[16]{};
+  bool failsafe, lost;
+  if (!sbus.read(channels, &failsafe, &lost)) return;
+  frame.badFrame = failsafe || lost;
+  const float scale = 0.615f;
+  for (unsigned i = 0; i < 8; ++i) frame.channels[i] = channels[i] * scale + 895.0f;
+  const uint32_t now = micros();
+  for (unsigned i = 0; i < 4; ++i) {
+    frame.receivedAt[i] = now;
+    frame.received[i] = true;
+  }
+#endif
+  taskENTER_CRITICAL();
+  frame.sequence = publishedRadio.sequence + 1;
+  publishedRadio = frame;
+  taskEXIT_CRITICAL();
+}
+
+void latchRadioInput() {
+  ReceiverFrame frame;
+  taskENTER_CRITICAL();
+  frame = publishedRadio;
+  taskEXIT_CRITICAL();
+  // The existing 500 Hz filter uses the previous filtered input between
+  // SBUS frames; PWM/PPM instead use the latest measured pulse widths.
+#if defined USE_SBUS_RX
+  const bool hasInput = controlRadio.sequence != frame.sequence;
+#else
+  const bool hasInput = true;
+#endif
+  constexpr float b = 0.7f;
+  int *const raw[] = {&radio_channel1_raw, &radio_channel2_raw, &radio_channel3_raw,
+                      &radio_channel4_raw, &radio_channel5_raw, &radio_channel6_raw,
+                      &radio_channel7_raw, &radio_channel8_raw};
+  for (unsigned i = 0; i < 4; ++i) {
+    const int sample = hasInput ? frame.channels[i] : *raw[i];
+    *raw[i] = (1.0 - b) * *raw[i] + b * sample;
+  }
+  for (unsigned i = 4; i < 8; ++i) *raw[i] = frame.channels[i];
+  controlRadio = frame;
+  updateRadioNormalized();
+}
 
 #if defined USE_PPM_RX || defined USE_PWM_RX
-  radio_channel1_raw = getRadioPWM(1);
-  radio_channel2_raw = getRadioPWM(2);
-  radio_channel3_raw = getRadioPWM(3);
-  radio_channel4_raw = getRadioPWM(4);
-  radio_channel5_raw = getRadioPWM(5);
-  radio_channel6_raw = getRadioPWM(6);
-
-#elif defined USE_SBUS_RX
-  if (sbus.read(&sbusChannels[0], &sbusFailSafe, &sbusLostFrame)) {
-    // 以下比例换算对应 Taranis-Plus 与 X4R-SB 的 SBUS 输出范围。
-    float scale = 0.615;
-    float bias = 895.0;
-    radio_channel1_raw = sbusChannels[0] * scale + bias;
-    radio_channel2_raw = sbusChannels[1] * scale + bias;
-    radio_channel3_raw = sbusChannels[2] * scale + bias;
-    radio_channel4_raw = sbusChannels[3] * scale + bias;
-    radio_channel5_raw = sbusChannels[4] * scale + bias;
-    radio_channel6_raw = sbusChannels[5] * scale + bias;
-    radio_channel7_raw = sbusChannels[6] * scale + bias;
-    radio_channel8_raw = sbusChannels[7] * scale + bias;
-    for (unsigned i = 0; i < 4; ++i) markRadioReceived(i);
-  }
-
-#endif
-
-  // 对关键遥控通道做一阶低通，并保存本次值。
-  float b = 0.7; // 系数越小平滑越强，响应越慢。
-  radio_channel1_raw = (1.0 - b) * radio_channel1_raw_prev + b * radio_channel1_raw;
-  radio_channel2_raw = (1.0 - b) * radio_channel2_raw_prev + b * radio_channel2_raw;
-  radio_channel3_raw = (1.0 - b) * radio_channel3_raw_prev + b * radio_channel3_raw;
-  radio_channel4_raw = (1.0 - b) * radio_channel4_raw_prev + b * radio_channel4_raw;
-  radio_channel1_raw_prev = radio_channel1_raw;
-  radio_channel2_raw_prev = radio_channel2_raw;
-  radio_channel3_raw_prev = radio_channel3_raw;
-  radio_channel4_raw_prev = radio_channel4_raw;
-}
-
-// 读取 PWM/PPM 中断缓存的指定通道脉宽；通道号为 1～6，返回值单位为 μs。
-unsigned long getRadioPWM(int ch_num) {
-  // 返回中断采集的原始通道脉宽，单位 μs；无效通道返回 0。
-  unsigned long returnPWM = 0;
-  
-  if (ch_num == 1) {
-    returnPWM = channel_1_raw;
-  }
-  else if (ch_num == 2) {
-    returnPWM = channel_2_raw;
-  }
-  else if (ch_num == 3) {
-    returnPWM = channel_3_raw;
-  }
-  else if (ch_num == 4) {
-    returnPWM = channel_4_raw;
-  }
-  else if (ch_num == 5) {
-    returnPWM = channel_5_raw;
-  }
-  else if (ch_num == 6) {
-    returnPWM = channel_6_raw;
-  }
-  
-  return returnPWM;
-}
+namespace {
 
 // PPM/PWM 中断服务函数：只记录边沿时间和脉宽，不执行控制计算。
 
@@ -307,3 +312,5 @@ void getCh6() {
     channel_6_raw = micros() - rising_edge_start_6;
   }
 }
+} // namespace
+#endif

@@ -2,19 +2,10 @@
 
 #include "config/flight_config.h"
 #include <Arduino.h>
-#include <SBUS.h>
-
-// 接收机硬件实例由 radio_comm.cpp 持有；接收类型由 flight_config.h 统一选择。
-#if defined USE_SBUS_RX
-extern SBUS sbus;
-extern uint16_t sbusChannels[16];
-extern bool sbusFailSafe, sbusLostFrame;
-#endif
-
 void radioSetup();
-// 读取接收机通道并更新滤波后的 radio_channelN_raw，供下一控制周期使用。
-void getCommands();
-unsigned long getRadioPWM(int ch_num);
+// 链路任务独占接收器，控制任务在周期末锁存一帧，供下一周期使用。
+void pollRadioInput();
+void latchRadioInput();
 
 // Eight SD-backed normalization parameter groups. PWM values are in microseconds.
 struct RadioChannelParameters {

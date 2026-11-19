@@ -73,12 +73,8 @@ https://web.eecs.umich.edu/~prabal/teaching/eecs373-f10/readings/ARMv7-M_ARM.pdf
 
 #define CPU_FLAG_FPCA 2
 
-#ifdef __ARM_PCS_VFP
-// reserve space for 8 register, 16 floats, float stat and spacer
-#define ISR_STACK_SIZE ((8+16+1+1)*4)
-#else
-#define ISR_STACK_SIZE (8*4)
-#endif
+// EXC_RETURN selects the interrupted stack and identifies a hardware FP frame.
+uint32_t debug_exception_return;
 
 /***********************************************
  * 
@@ -702,7 +698,10 @@ void debug_monitor() {
   // Adjust original SP to before the interrupt call to remove ISR's stack entries
   // so GDB has correct stack. The actual stack pointer will get restored
   // to this value when the interrupt returns.
-  save_registers.sp += ISR_STACK_SIZE;
+  const bool hasFpFrame = (debug_exception_return & (1u << 4)) == 0;
+  const bool hasAlignmentWord = (stack->xPSR & (1u << 9)) != 0;
+  save_registers.sp += sizeof(stack_isr) + (hasFpFrame ? 18u * 4u : 0u)
+                       + (hasAlignmentWord ? 4u : 0u);
 
   if (callback) {
     callback();
@@ -732,9 +731,18 @@ void debug_monitor() {
  * @brief Macros to save/restore registers from stack
  * 
  */
+#define INTERRUPTED_STACK_IN_R1 \
+    "tst lr, #4 \n" \
+    "ite eq \n" \
+    "mrseq r1, msp \n" \
+    "mrsne r1, psp \n"
+
 #define SAVE_STACK \
+    INTERRUPTED_STACK_IN_R1 \
     "ldr r0, =stack \n" \
-    "str sp, [r0] \n"
+    "str r1, [r0] \n" \
+    "ldr r0, =debug_exception_return \n" \
+    "str lr, [r0] \n"
 
 // Save registers within an interrupt. Changes R0 register
 #define SAVE_REGISTERS \
@@ -809,57 +817,52 @@ void (*original_svc_isr)() = NULL;
  * call handler.
  * 
  */
+extern "C" __attribute__((used, noinline)) void debug_irq_action() {
+  NVIC_CLEAR_PENDING(IRQ_DEBUG);
+  if (debugenabled == 2) {
+    for (;;) asm volatile("wfi");
+  }
+  debug_monitor();
+  debugenabled = 0;
+}
+
+// The frame can be on a FreeRTOS task's PSP. Keep the MSP 8-byte aligned
+// across the C call, and preserve r4-r11 until SAVE_REGISTERS has run.
 __attribute__((noinline, naked))
 void debug_call_isr() {
-  __disable_irq();
-  asm volatile(SAVE_STACK);
-  asm volatile(SAVE_REGISTERS);
-  __enable_irq();
-  asm volatile("push {lr}");
-  NVIC_CLEAR_PENDING(IRQ_DEBUG);
-
-  // Are we in debug mode? If not, just jump to original ISR
-  if (debugenabled == 0) {
-#if 1
-    if (original_software_isr) {
-      // asm volatile("ldr r0, =original_software_isr");
-      // asm volatile("ldr r0, [r0]");
-      // asm volatile("mov pc, r0");
-      asm volatile("pop {lr}");
-      asm volatile("mov pc, %0" : : "r" (original_software_isr));
-    }
-#endif
-    return;
-  }
-
-  if (debugenabled == 2) { // halt permenantly
-    while(1) { yield(); }
-  }
-
-  debug_monitor();              // process the debug event
-  debugenabled = 0;
-  // Serial.print("restore regs=");Serial.println(debugrestore);
-
-  // restore registers if they have been changed by gdb
-  if (debugrestore) {
-    debugrestore = 0;
-    asm volatile("pop {r12}");
-    __disable_irq();
-    asm volatile(RESTORE_REGISTERS);
-    __enable_irq();
-    asm volatile("mov lr, r12");
-    asm volatile("bx lr");
-  }
-  else {
-    asm volatile("pop {pc}");
-  }
+  asm volatile(
+    "ldr r0, =debugenabled \n"
+    "ldr r0, [r0] \n"
+    "cbnz r0, 1f \n"
+    "ldr r0, =original_software_isr \n"
+    "ldr r0, [r0] \n"
+    "cbz r0, 3f \n"
+    "bx r0 \n"
+    "3: bx lr \n"
+    "1: cpsid i \n"
+    SAVE_STACK
+    SAVE_REGISTERS
+    "push {r3, lr} \n"
+    "cpsie i \n"
+    "bl debug_irq_action \n"
+    "ldr r0, =debugrestore \n"
+    "ldr r1, [r0] \n"
+    "cbz r1, 2f \n"
+    "movs r1, #0 \n"
+    "str r1, [r0] \n"
+    "cpsid i \n"
+    RESTORE_REGISTERS
+    "cpsie i \n"
+    "2: pop {r3, pc} \n"
+    ".ltorg \n"
+  );
 }
 
 /**
  * @brief Called by SVC ISR to trigger software interrupt
  * 
  */
-void debug_call_isr_setup() {
+extern "C" __attribute__((used)) void debug_call_isr_setup() {
   debugcount++;
   debugenabled = 1;
   // process in lower priority so services can keep running
@@ -869,7 +872,7 @@ void debug_call_isr_setup() {
 #if 1
 uint32_t lastpc;
 
-int testOurSVC() {
+extern "C" __attribute__((used)) int testOurSVC() {
   uint16_t *memory = (uint16_t*)(lastpc);
   if (((*memory) & 0xFFF0) == 0xdf10 || debug_isBreakpoint(memory)) {
     return 1;
@@ -884,33 +887,24 @@ int testOurSVC() {
  */
 __attribute__((noinline, naked))
 void svcall_isr() {
-#if 1
-  // get the PC that triggered this
-  // subtract width of svc instruction (which is 2)
-  // is it one of our svcs?
   asm volatile(
-    "ldr r0, [sp, #24] \n"
+    INTERRUPTED_STACK_IN_R1
+    "ldr r0, [r1, #24] \n"
     "sub r0, #2 \n"
     "ldr r1, =lastpc \n"
     "str r0, [r1] \n"
-    "push {lr}"
+    "push {r3, lr} \n"
+    "bl testOurSVC \n"
+    "pop {r3, lr} \n"
+    "cbz r0, 1f \n"
+    "b debug_call_isr_setup \n"
+    "1: ldr r0, =original_svc_isr \n"
+    "ldr r0, [r0] \n"
+    "cbz r0, 2f \n"
+    "bx r0 \n"
+    "2: bx lr \n"
+    ".ltorg \n"
   );
-  if (testOurSVC()) {
-    debug_call_isr_setup();
-    asm volatile("pop {pc}");
-  }
-  else {
-    if (original_svc_isr) {
-      asm volatile("pop {lr}");
-      asm volatile("mov pc, %0" : : "r" (original_svc_isr));
-    }
-    asm volatile("pop {pc}");
-  }
-#else
-  asm volatile("push {lr}");
-  debug_call_isr_setup();
-  asm volatile("pop {pc}");
-#endif
 }
 
 /**
@@ -1089,10 +1083,10 @@ void fault_halt() {
 
 // Save registers during fault and call default handler
 #define fault_isr_stack(fault) \
-  asm volatile("ldr r0, =stack \n str sp, [r0]"); \
-  asm volatile("push {lr}"); \
+  asm volatile(SAVE_STACK); \
+  asm volatile("push {r3, lr}"); \
   hard_fault_debug(fault); \
-  asm volatile("pop {pc}")
+  asm volatile("pop {r3, pc}")
 
 #else
 
@@ -1100,11 +1094,11 @@ void fault_halt() {
 #define fault_isr_stack(fault) \
   asm volatile(SAVE_STACK); \
   asm volatile(SAVE_REGISTERS); \
-  asm volatile("push {lr}"); \
+  asm volatile("push {r3, lr}"); \
   debug_crash = 1; \
   debug_id = fault; \
   debug_call_isr_setup(); \
-  asm volatile("pop {pc}")
+  asm volatile("pop {r3, pc}")
 
 #endif
 

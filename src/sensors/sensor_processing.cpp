@@ -6,8 +6,10 @@
 #include "sensors/sensor_processing.h"
 #include "sensors/sensor_calibration.h"
 #include "sensors/imu_internal.h"
+#include "sensors/strain_frame.h"
 #include "config/flight_config.h"
 #include "system/flight_clock.h"
+#include "system/rtos_sync.h"
 #include "math/math_utils.h"
 #include "MS4525.h"
 #include "MT6701.h"
@@ -24,6 +26,7 @@ float filteredPressure = 101325.0f; // 初始海平面气压(Pa)
 float filteredAltitude = 0;
 float temp;
 float pressure;
+bool barometerReady = false;
 #endif
 
 #if defined USE_MPU6050_I2C
@@ -106,6 +109,15 @@ float Acc_X_EXT, Acc_Y_EXT, Acc_Z_EXT;
 float airspeed;
 
 namespace {
+// Only the auxiliary task mutates working. Control latches one published copy.
+struct AuxiliarySample {
+  uint32_t sequence = 0, timeUs = 0, airspeedTimeUs = 0;
+  float airspeed = 0, angleDegrees = 0;
+  bool airspeedOk = false, angleOk = false;
+  int32_t strain[5]{};
+  AirspeedDiagnostics diagnostic{};
+};
+AuxiliarySample working, published, active;
 unsigned long last_read_Strain_Time = 0;
 unsigned int read_Strain_freq = 10; // 读取应变数据频率
 constexpr uint8_t SPI_READ = 0x80;
@@ -131,7 +143,7 @@ void getIMUdata_EXT() {
   // 串口帧长 11 字节：0x55 帧头、数据类型、8 字节数据及累加校验字节。
   static uint8_t buf[11], pos = 0;
 
-  while (ExternalImuSerial.available()) {
+  for (unsigned budget = 64; budget && ExternalImuSerial.available(); --budget) {
     uint8_t b = ExternalImuSerial.read();
 
     // 检查数据头
@@ -197,48 +209,6 @@ void getIMUdata_EXT() {
 #endif
 }
 
-// 应变传感器的五通道数据按设备协议逐通道转换。
-// 从应变响应帧中按设备字节顺序取出指定通道的 32 位有符号测量值。
-// index 范围为 0～4；调用方需先保证响应帧长度足够。
-int32_t parseChannel(uint8_t *buf, int index) {
-  // index 为通道编号，范围 0～4。
-
-  int offset = 3 + index * 4;
-
-  union {
-    int32_t val;
-    uint8_t b[4];
-  } u;
-
-  // 按手册：低位在前，高位在后
-  u.b[0] = buf[offset + 1];
-  u.b[1] = buf[offset + 0];
-  u.b[2] = buf[offset + 3];
-  u.b[3] = buf[offset + 2];
-
-  return u.val;
-}
-
-// Modbus CRC16，发送时低字节在前。
-// 计算 Modbus RTU 的 CRC16；返回值发送时先写低字节。
-uint16_t modbusCRC(uint8_t *buf, int len) {
-  uint16_t crc = 0xFFFF;
-
-  for (int pos = 0; pos < len; pos++) {
-    crc ^= (uint16_t)buf[pos];
-
-    for (int i = 0; i < 8; i++) {
-      if (crc & 0x0001) {
-        crc >>= 1;
-        crc ^= 0xA001;
-      } else {
-        crc >>= 1;
-      }
-    }
-  }
-  return crc;
-}
-
 // 发送功能码 0x03 的寄存器读取请求。
 // 构造应变传感器的 8 字节 Modbus 读取请求并写入 StrainSensorSerial。
 // addr 为设备地址，fcode 为功能码，reg 为起始寄存器，num 为寄存器数量。
@@ -254,7 +224,7 @@ void sendStrainCommand(uint8_t addr, uint16_t fcode, uint16_t reg,
   frame[4] = num >> 8;
   frame[5] = num & 0xFF;
 
-  uint16_t crc = modbusCRC(frame, 6);
+  uint16_t crc = modbusCrc16(frame, 6);
 
   frame[6] = crc & 0xFF; // CRC低位
   frame[7] = crc >> 8;   // CRC高位
@@ -265,31 +235,14 @@ void sendStrainCommand(uint8_t addr, uint16_t fcode, uint16_t reg,
 
 // 按设定频率请求 10 个寄存器，并在收到足够长的响应时更新五路应变值。
 void Strain_read_all() {
-  // 按 read_Strain_freq 限制请求频率；只在收到完整响应时更新五通道值。
-  float invFreq = 1.0 / read_Strain_freq * 1000000.0;
-  unsigned long checker = micros();
-
-  if (checker - last_read_Strain_Time < invFreq)
-    return;
-  last_read_Strain_Time = checker;
-  // 从地址 0x0000 起读取 10 个寄存器。
-  sendStrainCommand(1, 0x03, 0x0000, 10);
-  uint8_t buf[32];
-  int len = 0;
-
-  while (StrainSensorSerial.available()) {
-    // USBSerial.println("available ");
-    buf[len++] = StrainSensorSerial.read();
+  static StrainFrameDecoder decoder;
+  const uint32_t now = micros();
+  if (now - last_read_Strain_Time >= 1000000u / read_Strain_freq) {
+    last_read_Strain_Time = now;
+    sendStrainCommand(1, 0x03, 0x0000, 10);
   }
-
-  // 解析
-  if (len >= 25 && buf[1] == 0x03) {
-
-    strain_value[0] = parseChannel(buf, 0);
-    strain_value[1] = parseChannel(buf, 1);
-    strain_value[2] = parseChannel(buf, 2);
-    strain_value[3] = parseChannel(buf, 3);
-    strain_value[4] = parseChannel(buf, 4);
+  for (unsigned budget = 64; budget && StrainSensorSerial.available(); --budget) {
+    decoder.push(static_cast<uint8_t>(StrainSensorSerial.read()), working.strain);
   }
 }
 
@@ -455,7 +408,7 @@ float relativeAngle_raw, relativeAngle_ready, relativeAngle_offset;
 
 namespace {
 MT6701 angleSensor(Wire1);
-bool angleReadValid = false;
+
 bool angleReadAttempted = false;
 unsigned long angleReadAttemptTime = 0;
 constexpr unsigned long ANGLE_RETRY_INTERVAL_US = 20000;
@@ -464,17 +417,13 @@ constexpr unsigned long ANGLE_RETRY_INTERVAL_US = 20000;
 
 // CUAV MEAS/MS4525 空速计：底板6号口，SCL2=24（TX6）、SDA2=25（RX6）。
 MS4525read_Task airspeedSensor(&Wire2);
-namespace {
-bool airspeedReadValid = false;
-uint32_t lastValidAirspeedTime = 0;
-}
-
 bool airspeedValid() {
-  return airspeedReadValid &&
-      static_cast<uint32_t>(micros() - lastValidAirspeedTime) <= 100000UL;
+  return active.airspeedOk && micros() - active.airspeedTimeUs <= 100000u;
 }
 
-AirspeedDiagnostics airspeedDiagnostics() {
+AirspeedDiagnostics airspeedDiagnostics() { return active.diagnostic; }
+
+static AirspeedDiagnostics readAirspeedDiagnostics() {
   const auto &sample = airspeedSensor.MS4525_param;
   return {airspeedSensor.lastReadBytes, airspeedSensor.lastStatus,
           airspeedSensor.lastPressureCounts, airspeedSensor.lastReadOk,
@@ -527,8 +476,8 @@ bool readAirspeedCalibrationSample(float &pressure) {
 
 void applyAirspeedCalibration(float pressure) {
   airspeedSensor.MS4525_param.pressure_drift = pressure;
-  airspeedSensor.MS4525_param.airspeed = airspeed = 0;
-  airspeedReadValid = false; // Next normal read publishes a fresh corrected value.
+  airspeedSensor.MS4525_param.airspeed = working.airspeed = 0;
+  working.airspeedOk = false; // Next normal read publishes a fresh corrected value.
 }
 
 // 按编译配置初始化内置 IMU 的总线、电源状态、量程及采样参数。
@@ -658,7 +607,7 @@ bool validImuOffsets(const CalibrationAccGyroData &data) {
 }
 } // namespace
 
-bool imuCalibrationValid() { return imuCalibrationReady; }
+bool imuCalibrationValid() { TaskCriticalSection guard; return imuCalibrationReady; }
 
 bool readBmi088CalibrationSample(float values[6]) {
   auto chipId = [](int cs, bool dummy) {
@@ -712,86 +661,45 @@ bool readBmi088CalibrationSample(float values[6]) {
 }
 
 
-// 静置采集 BMI088 多组数据，计算旋转后机体系的加速度和角速度零偏。
-// 完成后在 RAM 生效，按普通参数逻辑延迟保存；标定期间应保持水平且静止。
-void calculate_IMU_error() {
-  // 采集 12000 组 BMI088 数据，计算机体系静态零偏并交给统一参数服务。
-  double sAX = 0, sAY = 0, sAZ = 0, sGX = 0, sGY = 0, sGZ = 0;
-  int c = 0;
-
-  USBSerial.println(
-      "BMI088 SPI Calibrating (Rotated 90)... Keep vehicle flat and still.");
-
-  while (c < 12000) {
-    float values[6];
-    if (!readBmi088CalibrationSample(values)) {
-      USBSerial.println("BMI088 calibration rejected: sensor unavailable");
-      return;
-    }
-    sAX += values[0]; sAY += values[1]; sAZ += values[2];
-    sGX += values[3]; sGY += values[4]; sGZ += values[5];
-
-    if (c % 1000 == 0)
-      USBSerial.print(".");
-    c++;
-    delayMicroseconds(100);
-  }
-
-  const CalibrationAccGyroData old = calAccGyroData;
-  // 4. 计算均值并补偿 Z 轴重力 (假设平放时 Z 应为 1g)
-  calAccGyroData.AccErrorX_6050 = (float)(sAX / c);
-  calAccGyroData.AccErrorY_6050 = (float)(sAY / c);
-  calAccGyroData.AccErrorZ_6050 = (float)((sAZ / c) - 1.0f);
-
-  calAccGyroData.GyroErrorX_6050 = (float)(sGX / c);
-  calAccGyroData.GyroErrorY_6050 = (float)(sGY / c);
-  calAccGyroData.GyroErrorZ_6050 = (float)(sGZ / c);
-
-  const CalibrationAccGyroData measured = calAccGyroData;
-  calAccGyroData = old;
-  float offsets[IMU_CALIBRATION_OFFSET_COUNT];
-  static_assert(sizeof(measured) == sizeof(offsets), "Calibration field layout changed");
-  memcpy(offsets, &measured, sizeof(offsets));
-  if (!validImuOffsets(measured) || !saveImuCalibrationParameters(offsets)) {
-    USBSerial.println("\nIMU calibration invalid or aircraft unlocked; calibration not accepted.");
-    loadImuCalibration();
-    return;
-  }
-  loadImuCalibration();
-  USBSerial.println("\nBMI088 calibration verified and applied; changes save after 2 seconds.");
-}
-
-
 // 每隔至少 20 ms 从空速驱动刷新一次 airspeed。
 void getairspeed() {
   // Calibration owns the 50 Hz pressure reads; a second read can be marked stale.
-  if (sensorCalibrationBusy() && !strcmp(sensorCalibrationSnapshot().sensor, "AIRSPEED")) return;
+  if (airspeedCalibrationActive()) return;
   // 以 50 Hz 更新空速；其他控制周期沿用上次有效测量。
   static unsigned long lastAirspeedRead = 0;
-  if (micros() - lastAirspeedRead > 20000) {
+  if (micros() - lastAirspeedRead >= 20000) {
     lastAirspeedRead = micros();
-    airspeed = airspeedSensor.getAirspeed();
+    working.airspeed = airspeedSensor.getAirspeed();
     uint32_t bits;
-    memcpy(&bits, &airspeed, sizeof(bits));
-    airspeedReadValid = airspeedSensor.lastReadOk && airspeedSensor.lastStatus == 0 &&
-        (bits & 0x7f800000u) != 0x7f800000u && airspeed >= 0 && airspeed <= 100;
-    if (airspeedReadValid) lastValidAirspeedTime = micros();
+    memcpy(&bits, &working.airspeed, sizeof(bits));
+    working.airspeedOk = airspeedSensor.lastReadOk && airspeedSensor.lastStatus == 0 &&
+        (bits & 0x7f800000u) != 0x7f800000u && working.airspeed >= 0 && working.airspeed <= 100;
+    if (working.airspeedOk) working.airspeedTimeUs = micros();
   }
 }
 
 
-// 启用气压计时读取温度、气压和高度，并打印测量值。
+bool barometerAvailable() {
+#if defined USE_BAROMETER
+  return barometerReady;
+#else
+  return false;
+#endif
+}
+
+// 辅助任务按传感器的待机周期读取温度、气压和高度。
 void getbarodata() {
   // 读取气压计温度、气压和按标准海平面气压换算的高度。
 #if defined USE_BAROMETER
+  static uint32_t lastReadMs = 0;
+  const uint32_t now = millis();
+  if (!barometerReady || now - lastReadMs < 500u) return;
+  lastReadMs = now;
   // 快速读取原始数据
   temp = bmp.readTemperature() + 273.15f;  // K
   pressure = bmp.readPressure(); // Pa
   // 计算海拔高度(国际标准大气模型)
   filteredAltitude = bmp.readAltitude(1013.25);
-  // 输出调试信息
-  USBSerial.printf("Temp: %.1fK | Pressure: %.2fPa | Alt: %.2fm\n", temp, pressure,
-                filteredAltitude);
 #endif
 }
 
@@ -806,10 +714,11 @@ void initBAROMETER() {
     USBSerial.println("BMP280未找到，尝试0x77...");
     if (!bmp.begin(0x77)) {
       USBSerial.println("BMP280初始化失败!");
-      // while(1);
+      return;
     }
   }
 
+  barometerReady = true;
   // 配置高性能模式
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,   // 连续采样
                   Adafruit_BMP280::SAMPLING_X2,   // 温度采样
@@ -825,43 +734,54 @@ void initBAROMETER() {
 void initializeRotateSensor() {
   Wire1.begin();
   Wire1.setClock(100000);
-  angleReadValid = false;
+  working.angleOk = false;
   angleReadAttempted = false;
   getRotateSensor1();
 }
 
-bool rotateSensorValid() { return angleReadValid; }
+bool rotateSensorValid() { return active.angleOk; }
 
 // 每周期读取绝对角，减去本机零点并处理跨越 0/360 度的夹角。
 void getRotateSensor1() {
   const unsigned long now = micros();
-  if (!angleReadValid && angleReadAttempted &&
+  if (!working.angleOk && angleReadAttempted &&
       now - angleReadAttemptTime < ANGLE_RETRY_INTERVAL_US) return;
   angleReadAttempted = true;
   angleReadAttemptTime = now;
   float angle;
-  angleReadValid = angleSensor.readAngle(angle);
-  if (!angleReadValid) return; // 保持最后有效角度，屏幕通过状态显示 ERR。
-  relativeAngle_raw = Units::toRadians(angle);
-  relativeAngle_ready = Units::toRadians(MT6701::relativeAngle(angle, relativeAngle_offset));
+  working.angleOk = angleSensor.readAngle(angle);
+  if (working.angleOk) working.angleDegrees = angle;
 }
 
-// 将当前原始转角设为新零点，经统一参数服务延迟合并保存。
-bool ResetRotateSensor() {
-  getRotateSensor1();
-  if (!angleReadValid) return false; // 未连接或读取失败时不覆盖已保存零点。
-  if (!saveParameterValue("mt6701_zero", Units::toDegrees(relativeAngle_raw))) {
-    USBSerial.println("MT6701 zero change rejected");
-    return false;
+bool readRotateCalibrationSample(float &degrees) {
+  degrees = working.angleDegrees;
+  return working.angleOk;
+}
+
+void publishAuxiliarySensors() {
+  ++working.sequence;
+  working.timeUs = micros();
+  working.diagnostic = readAirspeedDiagnostics();
+  TaskCriticalSection guard;
+  published = working;
+}
+
+void latchAuxiliarySensors() {
+  {
+    TaskCriticalSection guard;
+    active = published;
   }
-  relativeAngle_ready = 0;
-  USBSerial.println("Zero Set! Offset: " + String(relativeAngle_offset));
-  return true;
+  airspeed = active.airspeed;
+  memcpy(strain_value, active.strain, sizeof(strain_value));
+  if (active.angleOk) {
+    relativeAngle_raw = Units::toRadians(active.angleDegrees);
+    relativeAngle_ready = Units::toRadians(MT6701::relativeAngle(active.angleDegrees, relativeAngle_offset));
+  }
 }
-
 
 // 验证已恢复的惯性传感器校准参数。
 void loadImuCalibration() {
+  TaskCriticalSection guard;
   float offsets[IMU_CALIBRATION_OFFSET_COUNT]; memcpy(offsets,&calAccGyroData,sizeof(offsets));
   imuCalibrationReady = imuCalibrationValidParameter == 1 &&
       imuCalibrationModelParameter == 1 && validImuOffsets(calAccGyroData) &&

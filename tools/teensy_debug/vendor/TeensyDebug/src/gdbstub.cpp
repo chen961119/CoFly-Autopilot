@@ -339,7 +339,9 @@ int gdb_wait_for_flag(volatile int *flag, int timeout) {
       return -1;
     }
     asm volatile("wfi");
-    yield();
+    uint32_t ipsr;
+    asm volatile("mrs %0, ipsr" : "=r"(ipsr));
+    if (ipsr == 0) yield();
   }
   return 0;
 }

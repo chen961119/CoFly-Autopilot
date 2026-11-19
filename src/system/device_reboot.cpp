@@ -1,19 +1,22 @@
 #include "system/device_reboot.h"
 #include "system/flight_lock.h"
+#include "sensors/sensor_calibration.h"
 #include "logging/logger.h"
 #include "config/serial_config.h"
 #include "parameters/parameter_service.h"
 #include <Arduino.h>
+#include <atomic>
 
 namespace {
-bool pending = false;
+std::atomic<bool> pending{false};
 bool waiting = false;
 uint32_t replyTime = 0;
 }
 
 bool deviceRebootPending() { return pending; }
 bool requestDeviceReboot() {
-  if (!isFlightLocked()) return false;
+  LockedParameterMaintenance transaction;
+  if (!transaction || sensorCalibrationBusy()) return false;
   if (!pending && !flushParameterWrites()) return false;
   if (!pending) { pending = true; waiting = false; }
   setFlightLocked(true);

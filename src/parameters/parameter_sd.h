@@ -2,7 +2,7 @@
 
 #include "parameters/parameter_registry.h"
 
-// Main-loop-only SD snapshot IO. The caller owns the registry and defaults.
+// The boot task loads snapshots. Runtime saves execute on the storage owner.
 namespace ParameterSD {
 struct MigrationStats {
   size_t matched;

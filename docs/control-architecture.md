@@ -77,7 +77,7 @@ B～G：接收模式/目标/上级贡献 → runSlaveController() → mixSlaveCo
 
 ## 输出、通信和限制
 
-各节点融合后调用 `convertControlCommandsToPWM()`；`prepareActuatorCommands()` 从独立的 `slaveCommands[]` 打包机间命令，随后 `applyAndTransmitActuatorCommands()` 执行锁定/限幅、本机输出和发送/转发。物理映射与安全位置见 [固件指南](firmware-guide.md#执行器映射与方向迁移)。
+各节点在融合后调用 `convertControlCommandsToPWM()`，由 `applyActuatorCommands()` 完成锁定检查、限幅和本机输出。主控通过 `publishInteraircraftOutputs()` 发布同周期的命令或本机状态，链路任务负责组帧与发送、转发。物理映射与安全位置见 [固件指南](firmware-guide.md#执行器映射与方向迁移)。
 
 机间传输 PWM 缩放前的 int16 定点逻辑输出，比例为 4096，范围为 `[-8,32767/4096]`；正常未饱和范围的最近整数舍入误差至多为 1/8192 逻辑量。俯仰目标按 0.1°编码，40 字节命令帧须在所有节点保持同一语义，详见 [机间通讯模块](../src/interaircraft_comm/README.md)。
 

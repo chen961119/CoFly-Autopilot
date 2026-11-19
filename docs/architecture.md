@@ -27,23 +27,23 @@ CoFly Autopilot（Collaborative Distributed Autopilot，分布式协同飞控系
 
 头文件与实现同置于 `src/<模块>/`，跨模块引用相对 `src` 根目录，例如 `control/control_modes.h`。详细文件职责见 [源码目录](../src/README.md)。控制接口见 [控制架构](control-architecture.md)，参数注册与格式见 [参数与持久存储](parameter-storage.md)。
 
-## 初始化与主循环
+## FreeRTOS 任务与数据流
 
-`setup()` 建立串口和通信链路，初始化显示、SD、参数服务、传感器和执行器，再初始化遥控、姿态、模式与滤波器。
+Teensy 4.1 的 i.MX RT1062 使用单核 Cortex-M7。工程采用 FreeRTOS 11.2.0 的 Teensy 板级移植 v4，并锁定配套 Arduino core。NXP SDK 提供同芯片评估板的官方 FreeRTOS 支持。Teensy 移植由社区维护，上游将它标为实验性。[PJRC 板卡规格](https://www.pjrc.com/store/teensy41.html) · [NXP SDK](https://mcuxpresso.nxp.com/mcuxsdk/latest/boards/RT/evkbmimxrt1060/index.html) · [板级移植及限制](https://github.com/tsandmann/freertos-teensy)
 
-```text
-时间更新、传感器采样、姿态估计、空速与夹角
-  → 按键和相邻节点状态
-  → runControlCycle()：模式/目标 → 主或从控制 → 混控/融合
-  → convertControlCommandsToPWM()
-  → prepareActuatorCommands()
-  → applyAndTransmitActuatorCommands()：锁定/限幅、输出与级联发送
-  → SD 日志
-  → 遥控更新与归一化、USB 参数服务
-  → 500 Hz 节拍等待
-```
+`setup()` 创建参数任务并启动调度器。参数任务先执行串行上电初始化，恢复参数、建立机间链路、挂接舵机并写入本机锁定 trim，完成 IMU、模式与滤波器初始化后统一放行各任务。应用栈静态分配于片上 OCRAM，另有内核和板级后台任务。
 
-遥控输入在周期末更新，供下一周期使用。500 Hz 是目标频率；OLED、SD 和参数保存等同步操作的最坏耗时需要硬件测量，不能由限频函数推断。
+| 应用任务 | 优先级 | 节拍及外设所有权 |
+| --- | ---: | --- |
+| Control | 5 | 每 2 个 1 ms tick 读取本机 BMI088 或外置 IMU，完成姿态估计、控制和 PWM 写出 |
+| Links | 4 | 每 1 ms 服务接收机和 Serial3/5。按原协议下发 100 Hz 命令，上行 200 Hz 状态 |
+| Aux | 3 | 每 2 ms 服务 MT6701、按键和应变串口。空速目标 50 Hz，应变请求 10 Hz。锁定时 OLED 目标 10 Hz，每次仅写 16 字节图像。启用 BMP280 时每 500 ms 读取 |
+| Parameters | 2 | 轮询 USB / X6 会话、发布参数、处理标定结果、发送诊断以及协调重启 |
+| Storage | 1 | 有请求时处理 SD/EEPROM、文件传输或 50 Hz CSV 日志。后台调用者等待存储结果 |
+
+主控在周期开始锁存辅助测量和机间输入，直接读取本机 IMU 并计算本周期输出。写 PWM 后发布机间发送值和同周期服务快照，再锁存供下一周期使用的遥控值。过期节拍跳过，沿用原有锁定条件。首次控制计算的 `dt` 为 2 ms，后续使用实测间隔。无效身份和待重启状态继续提供参数与诊断服务，PWM 回到锁定位置。
+
+参数任务校验整组变更后在短临界区提交。日志缓冲能容纳 8 个周期样本，写满时主控记录丢样数并继续。USB 文件会话开始时写完已接受的样本并刷盘，会话内暂停新日志及 SD 参数保存。原有两个 IMU 标定入口都保留。按键标定在锁定 PWM 得到确认后，每个主控周期最多采 8 个原始样本，组内间隔 100 µs，共 12000 个。地面站标定仍使用 2000 个样本及水平、静止判据。
 
 ## 兼容性边界
 

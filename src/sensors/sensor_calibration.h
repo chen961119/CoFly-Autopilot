@@ -11,11 +11,16 @@ struct SensorCalibrationSnapshot {
 
 // One aircraft-wide job, shared by USB/X6. nullptr means accepted.
 const char *startSensorCalibration(const char *sensor);
-void pollSensorCalibration();
+void pollSensorCalibration(bool imuOwner);
+void acknowledgeCalibrationLock();
+void serviceCalibrationParameters();
+void requestButtonImuCalibration();
+bool airspeedCalibrationActive();
 bool sensorCalibrationBusy();
 SensorCalibrationSnapshot sensorCalibrationSnapshot();
 
 // Sensor-owned raw readings, before offsets/filtering. IMU units: g, deg/s.
 bool readBmi088CalibrationSample(float values[6]);
 bool readAirspeedCalibrationSample(float &pressure);
+bool readRotateCalibrationSample(float &degrees);
 void applyAirspeedCalibration(float pressure);

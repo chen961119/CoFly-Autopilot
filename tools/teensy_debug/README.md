@@ -17,8 +17,7 @@
 Windows 有时不提供某个串口的 `LOCATION` 接口信息。准备脚本会通过 USB 注册表中的 `MI_00` / `MI_02` 与 `PortName` 补充识别，不依赖 COM 编号顺序。
 路径由工作区、脚本位置和用户环境推导，不固定盘符和 COM 编号。
 
-调试固件先等待 GDB 打开USB 串口，然后初始化 TeensyDebug 并调用 `halt_cpu()`；未连接调试器时不会继续启动。
-调试器连接并停住后，再按 F5 继续才开始初始化传感器、SD 和舵机，此后可同时连接地面站。停在断点时主循环暂停，地面站的数据请求/参数保存/重启命令也暂停处理，可能显示超时；继续运行后恢复，必要时重试请求。USB 双串口并不让主循环在断点期间继续运行。使用完后通过 PlatformIO 的 `teensy41` 环境上传普通固件；普通固件不包含 TeensyDebug。
+FreeRTOS 启动后，参数任务先等待 GDB 打开调试串口，接管调试异常并调用 `halt_cpu()`。按 F5 继续后，固件完成设备初始化并启动控制、采集和存储任务。断点会暂停所有应用任务，地面站的参数、日志请求可能超时。继续运行后可以重试。普通固件使用 `teensy41` 环境。
 
 如果任务提示没有找到板子，短按 PROGRAM 按钮触发上传。任务会检查 USB 串口是否出现，上传工具单独显示 SUCCESS 并不能确认固件已写入板子。
 
@@ -28,7 +27,7 @@ TeensyDebug 使用软件断点，单步和部分指令支持存在限制。此�
 需要降低其他模块的优化时，在 `build_flags.py` 的 `selected` 集合中添加对应源码路径，再编译上传；不要直接将全部依赖和硬件核心设为无优化。
 调试时不能用循环耗时代表正常固件性能。VS Code 的停止按钮只断开调试连接，重新从头运行请重新上传或让板子重新上电。
 
-调试依赖使用仓库内 `tools/teensy_debug/vendor/TeensyDebug` 的源码，来自 [TeensyDebug 官方仓库](https://github.com/ftrias/TeensyDebug) 的 `e496fdc44fbaf3eb96f6248ee8a97df18f64c8e1` 提交。它只用于 `teensy41_debug` 环境，新电脑构建时无需再从 GitHub 安装此库。
+调试依赖使用仓库内 `tools/teensy_debug/vendor/TeensyDebug` 的源码，来自 [TeensyDebug 官方仓库](https://github.com/ftrias/TeensyDebug) 的 `e496fdc44fbaf3eb96f6248ee8a97df18f64c8e1` 提交。本分支调整了 SVC 转发和异常栈读取，支持 FreeRTOS 任务使用的 PSP，并根据 EXC_RETURN 和栈对齐位计算 GDB 所见的 SP。它只用于 `teensy41_debug` 环境，新电脑构建时无需再从 GitHub 安装此库。
 如果旧电脑或旧检出中留下了缺少库清单的 `.pio/libdeps/teensy41_debug` 依赖副本，F5 的准备脚本会清理这些不完整副本，再重新安装。
 
 ## 历史单串口板上验证

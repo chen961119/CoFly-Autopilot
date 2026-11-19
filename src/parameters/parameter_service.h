@@ -4,14 +4,27 @@
 
 // Called after SD.begin(), before controller/filter initialization.
 void initializeParameterService(bool sdReady);
-// USB RX/TX, deferred saves and reboot processing; call once per control cycle.
-// SD writes are synchronous and run after the debounce delay, locked or unlocked.
+// Called by the parameter task for USB RX/TX, deferred saves and reboot.
+// The storage task acknowledges durable operations before the protocol reply.
 void pollParameterService();
 // Same protocol on the X6 UART, with independent RX/TX and listing state.
 void pollTelemetryParameterService();
 // Best-effort complete diagnostic frame on each idle USB/X6 session.
 // Busy links drop independently; poll drains accepted frames without blocking.
 bool queueDiagnosticOutput(const char *text, size_t length);
+bool queueUsbDiagnosticOutput(const char *text, size_t length);
+// Keep locked-only, durable transactions locked until verified or rejected.
+bool parameterMaintenanceBusy();
+class LockedParameterMaintenance {
+public:
+  LockedParameterMaintenance();
+  ~LockedParameterMaintenance();
+  explicit operator bool() const { return acquired; }
+  LockedParameterMaintenance(const LockedParameterMaintenance &) = delete;
+  LockedParameterMaintenance &operator=(const LockedParameterMaintenance &) = delete;
+private:
+  bool acquired;
+};
 // True means accepted in RAM; persistence is debounced per medium by 2 seconds.
 // EEPROM edits require lock; SD edits and saves are allowed locked or unlocked.
 bool saveParameterValue(const char *name, double value);

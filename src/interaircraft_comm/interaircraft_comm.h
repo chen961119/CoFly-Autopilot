@@ -13,9 +13,9 @@ public:
   // 输入为 PWM 缩放前的逻辑控制输出；目标角为 rad，线上步长为 0.001 rad。
   bool setCommandLink(unsigned int index, const SlaveCommand &command);
   const SlaveCommand &getCommandLink();
-  void sendPreparedChildCommands();
-  void receiveCommandData();
-  void forwardReceivedChildCommands();
+  void sendPreparedChildCommands(uint32_t generation);
+  void receiveCommandData(int debug);
+  void forwardReceivedChildCommands(uint32_t generation);
   bool hasReceivedData() const { return dataReceived; }
 
 private:
@@ -54,38 +54,43 @@ private:
   uint8_t receiveBuffer[FRAME_SIZE] = {};
   size_t receivePosition = 0;
   uint32_t lastTransmitTimeUs = 0;
+  uint32_t lastTransmitGeneration = 0;
   uint32_t receivedFrameCount = 0;
 
   void printReceivedData(int enabled);
 };
 
-namespace CommandLinks {
-extern AircraftCommandLink *left;
-extern AircraftCommandLink *right;
-}
 // SD 参数绑定到此设置；1 打印有效命令帧，0 关闭，修改立即生效。
 int32_t &commandLinkDebugSetting();
 // 身份参数加载后绑定串口；单机保持命令链禁用。
 void initializeCommandLinks();
-void receiveCommandData();
-void forwardReceivedChildCommands();
-bool hasReceivedCommandData();
+
+// 链路任务组装的相邻机测量，按 B～G 顺序排列。
+struct AircraftPeerState {
+  float attitude[CONTROL_AIRCRAFT_SLOTS][3]{};
+  float rollRate[CONTROL_AIRCRAFT_SLOTS]{};
+};
+struct LocalLinkState {
+  float attitude[3]{};
+  float rollRate = 0;
+};
 
 // 每个对象管理一条状态链；A 使用 left/right，从机只使用所在侧对象。
 class AircraftSensorLink {
 public:
   void configure(Stream *output, Stream *input, bool isLeft);
-  void receiveSensorData();
-  void forwardReceivedChildSensors();
+  void receiveSensorData(AircraftPeerState &peers, int debug);
+  void forwardReceivedChildSensors(const LocalLinkState &local, const AircraftPeerState &peers,
+                                   uint32_t generation);
   bool hasReceivedData() const { return dataReceived; }
-  bool isDataFresh() const;
+  uint32_t lastReceivedAtMs() const { return lastReceiveTimeMs; }
+  static constexpr uint32_t FRESH_INTERVAL_MS = 1000;
 
 private:
   static constexpr unsigned int CHILD_COUNT = 3;
   static constexpr size_t HEADER_SIZE = 2;
   static constexpr size_t CHECKSUM_SIZE = 1;
   static constexpr uint32_t SEND_INTERVAL_US = 5000; // 上行状态 200 Hz。
-  static constexpr uint32_t FRESH_INTERVAL_MS = 1000;
 
   // 修改协议时同步更新 setSensorLink、getSensorLink 和 printReceivedData。
 #pragma pack(push, 1)
@@ -111,22 +116,20 @@ private:
   bool dataReceived = false;
   uint32_t lastReceiveTimeMs = 0;
   uint32_t lastTransmitTimeUs = 0;
+  uint32_t lastTransmitGeneration = 0;
   uint32_t receivedFrameCount = 0;
 
-  void getSensorLink();
-  void setSensorLink();
+  void getSensorLink(AircraftPeerState &peers);
+  void setSensorLink(const LocalLinkState &local, const AircraftPeerState &peers);
   void printReceivedData(int enabled);
 };
 
-namespace SensorLinks {
-extern AircraftSensorLink *left;
-extern AircraftSensorLink *right;
-}
 int32_t &sensorLinkDebugSetting();
 void initializeSensorLinks();
-// 统一编排 A 的两条链或从机的一条链，按接收链路查询有效状态。
-void receiveSensorData();
-void forwardReceivedChildSensors();
+// 1 ms 链路任务入口。控制任务仅在周期边界交接数据。
+void pollFlightLinks();
+void latchInteraircraftInputs();
+void publishInteraircraftOutputs(bool enabled);
 bool isSensorDataFresh(bool left);
 
 // 从相邻机体接收的三轴姿态，供控制器、显示和日志读取。

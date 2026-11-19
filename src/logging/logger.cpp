@@ -10,6 +10,17 @@
 #include "control/command_generation.h"
 #include "system/flight_clock.h"
 #include "sensors/sensor_processing.h"
+#include "logging/flight_service_sample.h"
+#include "logging/flight_storage.h"
+#include "system/flight_lock.h"
+#include "system/device_reboot.h"
+#include "system/rtos_sync.h"
+#include "interaircraft_comm/interaircraft_comm.h"
+#include <FreeRTOS.h>
+#include <task.h>
+#include <queue.h>
+#include <semphr.h>
+#include <atomic>
 #include <SD.h>
 
 using ControlParameters::integralControlEnabled;
@@ -20,14 +31,44 @@ namespace
 
   // SD 卡日志状态。
   char filename_sd[20];
-  File dataFile;
+  FsFile dataFile;
   bool sdReady = false;
   unsigned int fileNumber = 0;
-  unsigned int logfreq = 50; // 记录频率Hz 注意要是2000的因数。
+  constexpr unsigned logfreq = 50;
   unsigned long lastLogTime = 0;
   unsigned long fileCycle = 0;
   String dataString = "";
   bool headerWritten = false;
+  std::atomic<bool> logFileOpen{false};
+  std::atomic<uint32_t> writeFailures{0};
+  bool storageStarted = false;
+  std::atomic<TaskHandle_t> storageTask{nullptr};
+  FlightServiceSample latestSample{};
+  struct StorageRequest {
+    StorageOperation operation;
+    void *context;
+    bool result;
+  };
+  constexpr unsigned logDepth = 8;
+  StaticQueue_t logQueueState, requestQueueState;
+  alignas(FlightServiceSample) uint8_t logBuffer[logDepth * sizeof(FlightServiceSample)];
+  alignas(StorageRequest *) uint8_t requestBuffer[sizeof(StorageRequest *)];
+  QueueHandle_t logQueue, requestQueue;
+  StaticSemaphore_t wakeState, completionState;
+  SemaphoreHandle_t wakeStorage, requestCompleted;
+  std::atomic<uint32_t> drops{0};
+  void writeSample(const FlightServiceSample &sample);
+  void stopFailedLog() {
+    ++writeFailures;
+    logFileOpen.store(false);
+    dataFile.close();
+  }
+
+  void drainLogQueue() {
+    FlightServiceSample sample;
+    for (unsigned i = 0; i < logDepth && xQueueReceive(logQueue, &sample, 0) == pdTRUE; ++i)
+      writeSample(sample);
+  }
 
   // 扫描 SD 卡中 datalogNNN.csv 文件，选择下一个 1～999 的日志编号。
   void findMaxFileNumber()
@@ -78,6 +119,11 @@ namespace
 // 初始化 SD 卡，并创建带表头的新日志文件。
 void initializeLogger()
 {
+  logQueue = xQueueCreateStatic(logDepth, sizeof(FlightServiceSample), logBuffer, &logQueueState);
+  requestQueue = xQueueCreateStatic(1, sizeof(StorageRequest *), requestBuffer, &requestQueueState);
+  wakeStorage = xSemaphoreCreateBinaryStatic(&wakeState);
+  requestCompleted = xSemaphoreCreateBinaryStatic(&completionState);
+  configASSERT(logQueue && requestQueue && wakeStorage && requestCompleted);
   headerWritten = false;
   // Some cards need time to return to their startup state after a warm reset.
   // Retry only during setup; never stall the flight loop trying to remount SD.
@@ -103,9 +149,11 @@ void initializeLogger()
   }
   findMaxFileNumber();
   sprintf(filename_sd, "datalog%03d.csv", fileNumber);
-  dataFile = SD.open(filename_sd, FILE_WRITE);
-  if (!dataFile)
+  dataFile = SD.sdfs.open(filename_sd, O_RDWR | O_CREAT | O_AT_END);
+  logFileOpen = static_cast<bool>(dataFile);
+  if (!logFileOpen)
   {
+    ++writeFailures;
     USBSerial.println("Error opening datalog.csv");
   }
   delay(10);
@@ -116,8 +164,11 @@ void initializeLogger()
 bool loggerSdReady() { return sdReady; }
 void flushLogger()
 {
-  if (dataFile)
-    dataFile.flush();
+  runStorageOperation([](void *) {
+    drainLogQueue();
+    if (logFileOpen && !dataFile.sync()) stopFailedLog();
+    return true;
+  }, nullptr);
 }
 
 unsigned int loggerFileNumber() { return fileNumber; }
@@ -159,10 +210,10 @@ namespace
     bool first = true;
   };
 
-  void buildLoggerRecord(bool header) {
+  void buildLoggerRecord(const FlightServiceSample &sample, bool header) {
     CsvLogWriter writer(header);
-#define LOG_FIELD(value) writer.field(#value, value)
-#define LOG_ARRAY(value) writer.array(#value, value)
+#define LOG_FIELD(value) writer.field(#value, sample.value)
+#define LOG_ARRAY(value) writer.array(#value, sample.value)
 
     // 1. 本周期时间戳（us）与循环间隔（s）。
     LOG_FIELD(current_time);
@@ -179,17 +230,17 @@ namespace
     LOG_ARRAY(strain_value);
     LOG_FIELD(relativeAngle_raw);
     LOG_FIELD(relativeAngle_ready);
-    LOG_FIELD(rotateSensorValid());
+    writer.field("rotateSensorValid()", sample.rotateValid);
 
     // 3. 控制实际使用的八路归一化遥控指令，范围 [-1, 1]。
-    LOG_FIELD(radio_channel1_normalized);
-    LOG_FIELD(radio_channel2_normalized);
-    LOG_FIELD(radio_channel3_normalized);
-    LOG_FIELD(radio_channel4_normalized);
-    LOG_FIELD(radio_channel5_normalized);
-    LOG_FIELD(radio_channel6_normalized);
-    LOG_FIELD(radio_channel7_normalized);
-    LOG_FIELD(radio_channel8_normalized);
+    writer.field("radio_channel1_normalized", sample.radioNormalized[0]);
+    writer.field("radio_channel2_normalized", sample.radioNormalized[1]);
+    writer.field("radio_channel3_normalized", sample.radioNormalized[2]);
+    writer.field("radio_channel4_normalized", sample.radioNormalized[3]);
+    writer.field("radio_channel5_normalized", sample.radioNormalized[4]);
+    writer.field("radio_channel6_normalized", sample.radioNormalized[5]);
+    writer.field("radio_channel7_normalized", sample.radioNormalized[6]);
+    writer.field("radio_channel8_normalized", sample.radioNormalized[7]);
 
     // 4. 本机最终物理 PWM，单位 us。
     LOG_ARRAY(ActuatorOutput);
@@ -252,37 +303,150 @@ namespace
     LOG_ARRAY(configurationControlOutput.rateTargets);
 
     // 8. 本机混控/融合后的逻辑指令，保留 PWM 映射前的实际值。
-    LOG_FIELD(commands.local.aileron1);
-    LOG_FIELD(commands.local.aileron2);
-    LOG_FIELD(commands.local.elevator);
-    LOG_FIELD(commands.local.throttle);
-    LOG_FIELD(commands.local.rudder);
+    writer.field("commands.local.aileron1", sample.local.aileron1);
+    writer.field("commands.local.aileron2", sample.local.aileron2);
+    writer.field("commands.local.elevator", sample.local.elevator);
+    writer.field("commands.local.throttle", sample.local.throttle);
+    writer.field("commands.local.rudder", sample.local.rudder);
 
 #undef LOG_ARRAY
 #undef LOG_FIELD
   }
 
-  void writeLoggerHeader() {
-    if (headerWritten || !dataFile) return;
-    buildLoggerRecord(true);
-    dataFile.println(dataString);
-    dataFile.flush();
+  bool appendCsvLine() {
+    const uint64_t start = dataFile.curPosition();
+    if (dataFile.println(dataString.c_str()) == dataString.length() + 2 && !dataFile.getWriteError())
+      return true;
+    // A short write must not leave half a row followed by a valid-looking record.
+    dataFile.truncate(start);
+    stopFailedLog();
+    return false;
+  }
+
+  bool writeLoggerHeader(const FlightServiceSample &sample) {
+    if (headerWritten) return true;
+    buildLoggerRecord(sample, true);
+    if (!appendCsvLine()) return false;
+    if (!dataFile.sync()) {
+      stopFailedLog();
+      return false;
+    }
     headerWritten = true;
+    return true;
   }
 } // namespace
 
-// 单机、编队和主从角色使用同一日志格式。
-void logFlightData() {
-  if (sdFileSessionActive()) return;
-  if (!sdReady || !dataFile) return;
-  const unsigned long now = micros();
-  if (now - lastLogTime < 1000000UL / logfreq) return;
-  lastLogTime = now;
-  writeLoggerHeader();
-  buildLoggerRecord(false);
-  dataFile.println(dataString);
+void copyFlightServiceSample(FlightServiceSample &destination) {
+  TaskCriticalSection guard;
+  destination = latestSample;
+}
+
+void captureFlightServices(bool logEnabled) {
+  FlightServiceSample &s = latestSample;
+  {
+    // Only fixed-size copies run under the guard. No driver access or formatting.
+    TaskCriticalSection guard;
+    s.current_time = current_time;
+    s.sampledMs = millis();
+    s.dt = dt;
+    memcpy(s.quat, quat, sizeof(s.quat));
+    memcpy(s.att, att, sizeof(s.att));
+    memcpy(s.ang_vel, ang_vel, sizeof(s.ang_vel));
+    memcpy(s.ang_vel_filtered, ang_vel_filtered, sizeof(s.ang_vel_filtered));
+    memcpy(s.ang_acc, ang_acc, sizeof(s.ang_acc));
+    memcpy(s.acc, acc, sizeof(s.acc));
+    memcpy(s.strain_value, strain_value, sizeof(s.strain_value));
+    memcpy(s.ActuatorOutput, ActuatorOutput, sizeof(s.ActuatorOutput));
+    memcpy(s.manual_input, manual_input, sizeof(s.manual_input));
+    s.airspeed = airspeed;
+    s.relativeAngle_raw = relativeAngle_raw;
+    s.relativeAngle_ready = relativeAngle_ready;
+    s.currentFlightMode = currentFlightMode;
+    s.previousFlightMode = previousFlightMode;
+    s.activePitchController = activePitchController;
+    s.previousPitchController = previousPitchController;
+    s.mixerStrategyCommand = mixerStrategyCommand;
+    s.configurationControlScale = configurationControlScale;
+    s.configurationAngle = configurationAngle;
+    s.brakeEnabled = brakeEnabled;
+    s.controlModeChanged = controlModeChanged;
+    s.integralControlEnabled = integralControlEnabled;
+    s.targets = targets;
+    s.rollControlOutput = rollControlOutput;
+    s.pitchPidControlOutput = pitchPidControlOutput;
+    s.pitchIndiControlOutput = pitchIndiControlOutput;
+    s.rollDampingControlOutput = rollDampingControlOutput;
+    s.yawRateControlOutput = yawRateControlOutput;
+    s.throttleControlOutput = throttleControlOutput;
+    s.configurationControlOutput = configurationControlOutput;
+    s.local = commands.local;
+    s.rotateValid = rotateSensorValid();
+    s.locked = isFlightLocked();
+    s.radioValid = radioInputValid();
+    s.leftFresh = isSensorDataFresh(true);
+    s.rightFresh = isSensorDataFresh(false);
+    s.airspeedStatus = airspeedDiagnostics();
+    const int raw[] = {radio_channel1_raw, radio_channel2_raw, radio_channel3_raw, radio_channel4_raw,
+                       radio_channel5_raw, radio_channel6_raw, radio_channel7_raw, radio_channel8_raw};
+    const float normalized[] = {radio_channel1_normalized, radio_channel2_normalized, radio_channel3_normalized, radio_channel4_normalized,
+                                radio_channel5_normalized, radio_channel6_normalized, radio_channel7_normalized, radio_channel8_normalized};
+    memcpy(s.radioRaw, raw, sizeof(raw));
+    memcpy(s.radioNormalized, normalized, sizeof(normalized));
+    const float *const attitudes[] = {att_B, att_C, att_D, att_E, att_F, att_G};
+    const float rates[] = {ang_vel_B[0], ang_vel_C[0], ang_vel_D[0], ang_vel_E[0], ang_vel_F[0], ang_vel_G[0]};
+    for (unsigned i = 0; i < 6; ++i) memcpy(s.wingAttitude[i], attitudes[i], sizeof(s.wingAttitude[i]));
+    memcpy(s.wingRollRate, rates, sizeof(rates));
+  }
+  if (!logEnabled || !logFileOpen || sdFileSessionActive() || deviceRebootPending()) return;
+  if (s.current_time - lastLogTime < 1000000UL / logfreq) return;
+  lastLogTime = s.current_time;
+  if (xQueueSend(logQueue, &s, 0) == pdTRUE)
+    xSemaphoreGive(wakeStorage);
+  else
+    ++drops;
+}
+
+uint32_t droppedFlightLogSamples() { return drops.load(); }
+uint32_t flightLogWriteFailures() { return writeFailures.load(); }
+
+void startFlightStorage() { storageStarted = true; }
+
+bool runStorageOperation(StorageOperation operation, void *context) {
+  if (!storageStarted) return operation(context);
+  // Nested operations (e.g. OPEN -> flushLogger) execute on the owner.
+  if (xTaskGetCurrentTaskHandle() == storageTask.load()) return operation(context);
+  StorageRequest request{operation, context, false};
+  StorageRequest *pointer = &request;
+  // The parameter task is the sole synchronous client.
+  xQueueSend(requestQueue, &pointer, portMAX_DELAY);
+  xSemaphoreGive(wakeStorage);
+  xSemaphoreTake(requestCompleted, portMAX_DELAY);
+  return request.result;
+}
+
+
+namespace {
+void writeSample(const FlightServiceSample &sample) {
+  if (!logFileOpen || !writeLoggerHeader(sample)) return;
+  buildLoggerRecord(sample, false);
+  if (!appendCsvLine()) return;
   if (millis() - fileCycle > 2000) {
-    dataFile.flush();
+    if (!dataFile.sync()) stopFailedLog();
     fileCycle = millis();
   }
+}
+}
+
+void serviceFlightLogger() {
+  storageTask.store(xTaskGetCurrentTaskHandle());
+  xSemaphoreTake(wakeStorage, portMAX_DELAY);
+  // Serve maintenance first. OPEN and REBOOT explicitly drain accepted rows.
+  StorageRequest *request;
+  if (xQueueReceive(requestQueue, &request, 0) == pdTRUE) {
+    request->result = request->operation(request->context);
+    xSemaphoreGive(requestCompleted);
+  }
+  FlightServiceSample sample;
+  if (xQueueReceive(logQueue, &sample, 0) == pdTRUE) writeSample(sample);
+  if (uxQueueMessagesWaiting(logQueue)) xSemaphoreGive(wakeStorage);
 }
