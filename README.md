@@ -34,7 +34,7 @@ pio run -e teensy41 -t upload
 pio device monitor -e teensy41
 ```
 
-固件产物位于 `.pio/build/teensy41/firmware.hex`。依赖由 [platformio.ini](platformio.ini) 和 `lib/` 管理。完整配置、接线与构建说明见 [固件指南](docs/firmware-guide.md)。
+固件产物位于 `.pio/build/teensy41/firmware.hex`。FreeRTOS 内核与 Teensy 4.1 板级移植随仓库保存在 [lib/freertos-teensy](lib/freertos-teensy)，清理 `.pio/` 后仍可直接编译这份源码。其余外部依赖由 PlatformIO 按 [platformio.ini](platformio.ini) 获取。完整配置、接线与构建说明见 [固件指南](docs/firmware-guide.md)。
 
 > 首次上电、固件变更或节点身份切换后应拆桨测试。锁定输出为本机通道的绝对 trim；默认油门 trim 为 1500 μs、映射 mode 为 0。普通单向 1000～2000 μs 电调可将油门 mode 设为 1、trim 设为 1000、min/max 设为 1000/2000、rev 设为 1，最终油门命令 0/0.5/1 对应 1000/1500/2000 μs。连接电调前必须核对其安全输入及实际 PWM，详见 [执行器锁定说明](docs/firmware-guide.md#执行器锁定与限幅)。
 

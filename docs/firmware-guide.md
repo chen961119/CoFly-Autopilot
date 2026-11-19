@@ -15,7 +15,9 @@
 
 同一数量和硬件配置的 A～G 共用固件，逐机设置身份并重启。改变数量需重新构建；已有参数不会因数量改变自动换成另一套增益。控制模式与策略入口见 [控制架构](control-architecture.md#模式策略和状态)。
 
-固件在 Teensy 4.1（Cortex-M7，600 MHz）上运行 FreeRTOS，沿用 Arduino 驱动，使用 PlatformIO 的 `teensy41` 环境。依赖由 [platformio.ini](../platformio.ini) 和 `lib/` 管理。在仓库根目录执行：
+固件在 Teensy 4.1（Cortex-M7，600 MHz）上运行 FreeRTOS，沿用 Arduino 驱动。发布环境 `teensy41` 和调试环境 `teensy41_debug` 共用仓库内的 [freertos-teensy 源码](../lib/freertos-teensy)，版本为 `11.2.0-4`，对应 FreeRTOS Kernel 11.2.0 与 Teensy 板级移植第 4 版。[上游版本](https://github.com/tsandmann/freertos-teensy/tree/b1943409de50e0514469ae0fc69a6f9ae17f6118)
+
+在仓库根目录执行：
 
 ```sh
 pio run -e teensy41
@@ -23,7 +25,7 @@ pio run -e teensy41 -t upload
 pio device monitor -e teensy41
 ```
 
-固件位于 `.pio/build/teensy41/firmware.hex`，上传协议为 `teensy-gui`，监视器默认 921600 baud。需要完整清理时执行 `pio run -e teensy41 -t clean` 后重新构建。`.pio/`、本机 IDE 配置和打包产物不提交。
+固件位于 `.pio/build/teensy41/firmware.hex`，上传协议为 `teensy-gui`，监视器默认 921600 baud。清理编译产物可执行 `pio run -e teensy41 -t clean`。若删除整个 `.pio/`，PlatformIO 会按 [platformio.ini](../platformio.ini) 重新安装 ArduinoEigen、BMP280 等外部库。板级平台、配套 Arduino core、工具链和外部库若缺少本机缓存，仍需联网下载。`.pio/`、本机 IDE 配置和打包产物不提交。
 
 板上断点调试使用 `teensy41_debug` 和 VS Code 的“TeensyDebug：编译、上传并调试”。调试固件的 `Serial` 保留地面站，`SerialUSB1` 用于 GDB；断点暂停时地面站请求也暂停。克隆后先构建以生成本机配置，详见 [板上调试](../tools/teensy_debug/README.md)。
 
